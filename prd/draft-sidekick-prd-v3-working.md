@@ -113,7 +113,7 @@ Acceptance rate is tracked as an engagement signal, not targeted: a correct-but-
 
 ## Next iterations (queue)
 
-- [ ] Fold in FantasyPros research findings (sources behind ECR, ranking differences) once documented — informs §3.5's candidate-list set and the disagreement signal.
+- [x] Fold in FantasyPros research findings — see [fantasypros-rankings-sources.md](../research/fantasypros-rankings-sources.md) and [fantasypros-rankings-differences.md](../research/fantasypros-rankings-differences.md). Two direct consequences: (a) open question 2 is essentially answered — platform ADP diverges hugely (23-spot spreads documented), so the room prior must be platform-specific; (b) FantasyPros' per-player std-dev is a free disagreement signal for §3.5/§6.4, and the candidate-list set for fingerprinting = individual expert lists + each platform's default ranks (which measurably lag the market — a predictable bias).
 - [ ] Specify §6.5 optimizer concretely: expectimax depth-2 vs Monte Carlo rollouts; noise threshold for "within noise, say so."
 - [ ] Draft the recommendation-payload schema (name, reasoning line, runner-up + flip condition, 2-pick plan) as an actual API contract.
 - [ ] Wireframe the one-screen draft view.
