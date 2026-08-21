@@ -1,0 +1,281 @@
+<title>2025 Draft Rankings vs. Final Finish — FantasyPros</title>
+<style>
+  :root {
+    --ground: #f5f6f3;
+    --surface: #ffffff;
+    --ink: #1b241e;
+    --ink-soft: #55605a;
+    --line: #dde2dd;
+    --accent: #2e7d4f;
+    --accent-ink: #ffffff;
+    --good: #1e8a55;
+    --good-bg: #e3f2e9;
+    --bad: #c74440;
+    --bad-bg: #f9e9e8;
+    --chip-bg: #eaece7;
+    --head-bg: #eef0eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #141a16;
+      --surface: #1c2420;
+      --ink: #e6ebe7;
+      --ink-soft: #97a29b;
+      --line: #2c362f;
+      --accent: #4caf7d;
+      --accent-ink: #10160f;
+      --good: #52c48a;
+      --good-bg: #1c3227;
+      --bad: #e0716d;
+      --bad-bg: #3a2321;
+      --chip-bg: #232c26;
+      --head-bg: #202924;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #141a16;
+    --surface: #1c2420;
+    --ink: #e6ebe7;
+    --ink-soft: #97a29b;
+    --line: #2c362f;
+    --accent: #4caf7d;
+    --accent-ink: #10160f;
+    --good: #52c48a;
+    --good-bg: #1c3227;
+    --bad: #e0716d;
+    --bad-bg: #3a2321;
+    --chip-bg: #232c26;
+    --head-bg: #202924;
+  }
+  :root[data-theme="light"] {
+    --ground: #f5f6f3;
+    --surface: #ffffff;
+    --ink: #1b241e;
+    --ink-soft: #55605a;
+    --line: #dde2dd;
+    --accent: #2e7d4f;
+    --accent-ink: #ffffff;
+    --good: #1e8a55;
+    --good-bg: #e3f2e9;
+    --bad: #c74440;
+    --bad-bg: #f9e9e8;
+    --chip-bg: #eaece7;
+    --head-bg: #eef0eb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 28px 20px 60px; }
+  header h1 {
+    font-family: "Avenir Next Condensed", "Arial Narrow", "Helvetica Neue", system-ui, sans-serif;
+    font-weight: 700;
+    font-size: clamp(26px, 4vw, 38px);
+    line-height: 1.1;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+  header h1 .vs { color: var(--accent); }
+  .sub { color: var(--ink-soft); max-width: 68ch; margin: 0 0 18px; font-size: 14px; }
+  .sub strong { color: var(--ink); font-weight: 600; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 18px 0 22px; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; }
+  .tile .lbl {
+    font-family: "Avenir Next Condensed", "Arial Narrow", system-ui, sans-serif;
+    font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft);
+    margin-bottom: 4px;
+  }
+  .tile .big { font-size: 17px; font-weight: 650; }
+  .tile .note { font-size: 13px; color: var(--ink-soft); }
+  .tile .up { color: var(--good); font-weight: 700; }
+  .tile .down { color: var(--bad); font-weight: 700; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+  .controls input[type="search"] {
+    flex: 1 1 220px; max-width: 320px;
+    padding: 8px 12px; font: inherit; color: var(--ink);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
+  }
+  .controls input[type="search"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chips button {
+    font: 600 13px/1 system-ui, sans-serif; letter-spacing: 0.04em;
+    padding: 8px 13px; border-radius: 99px; border: 1px solid var(--line);
+    background: var(--chip-bg); color: var(--ink); cursor: pointer;
+  }
+  .chips button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .chips button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .count { font-size: 13px; color: var(--ink-soft); margin-left: auto; }
+
+  .scroller { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 780px; font-variant-numeric: tabular-nums; }
+  thead th {
+    position: sticky; top: 0; z-index: 1;
+    background: var(--head-bg);
+    font-family: "Avenir Next Condensed", "Arial Narrow", system-ui, sans-serif;
+    font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--ink-soft); font-weight: 600;
+    text-align: right; padding: 10px 12px; border-bottom: 1px solid var(--line);
+    cursor: pointer; user-select: none; white-space: nowrap;
+  }
+  thead th.l { text-align: left; }
+  thead th.sorted { color: var(--accent); }
+  thead th .arr { font-size: 10px; }
+  tbody td { padding: 7px 12px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: none; }
+  td.l { text-align: left; }
+  td .team { color: var(--ink-soft); font-size: 12.5px; margin-left: 6px; }
+  .pos-badge {
+    display: inline-block; min-width: 34px; text-align: center;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.03em;
+    padding: 2px 6px; border-radius: 4px; background: var(--chip-bg); color: var(--ink-soft);
+  }
+  td.delta { font-weight: 700; }
+  td.delta.up { color: var(--good); }
+  td.delta.down { color: var(--bad); }
+  td.delta.zero, td.na { color: var(--ink-soft); font-weight: 400; }
+  tr.big-up td.delta.dpos { background: var(--good-bg); }
+  tr.big-down td.delta.dpos { background: var(--bad-bg); }
+  .foot { margin-top: 14px; font-size: 12.5px; color: var(--ink-soft); max-width: 78ch; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>2025 Draft Rankings <span class="vs">vs.</span> Final Season Finish</h1>
+    <p class="sub"><strong>FantasyPros preseason expert consensus (Half-PPR draft rankings, frozen at the start of the 2025 season)</strong> for the <strong>top 250 skill-position picks</strong> (QB/RB/WR/TE — kickers and DST excluded), compared against where each player actually finished by total Half-PPR points, Weeks 1–18. <strong>Δ Pos</strong> is the honest yardstick — it compares within position (drafted WR4, finished WR99). Positive = finished better than drafted; negative = worse.</p>
+  </header>
+
+  <div class="tiles">
+    <div class="tile"><div class="lbl">Biggest riser (top-100 pick)</div><div class="big">Chris Olave</div><div class="note">WR32 → WR6 <span class="up">+26</span> · 219.0 pts</div></div>
+    <div class="tile"><div class="lbl">Biggest bust (top-100 pick)</div><div class="big">Malik Nabers</div><div class="note">WR4 → WR99 <span class="down">−95</span> · 4 games</div></div>
+    <div class="tile"><div class="lbl">Nailed it</div><div class="big">Josh Allen</div><div class="note">Drafted QB1, finished QB1 · 374.6 pts</div></div>
+    <div class="tile"><div class="lbl">Coverage</div><div class="big">Top 250 picks</div><div class="note">Skill positions only — kickers &amp; DST removed</div></div>
+  </div>
+
+  <div class="controls">
+    <input type="search" id="q" placeholder="Search player or team…" aria-label="Search player or team">
+    <div class="chips" id="chips" role="group" aria-label="Filter by position"></div>
+    <span class="count" id="count"></span>
+  </div>
+
+  <div class="scroller">
+    <table id="t">
+      <thead><tr id="hdr"></tr></thead>
+      <tbody id="tb"></tbody>
+    </table>
+  </div>
+
+  <p class="foot">Sources: FantasyPros 2025 preseason consensus draft rankings (Half-PPR ECR), top 250 skill-position picks, and FantasyPros 2025 season scoring, Weeks 1–18. Players with no recorded points (e.g., season-long injuries like Brandon Aiyuk) show “—” and sort to the bottom. Overall finish rank is across all skill positions (QB/RB/WR/TE) by raw points, which flatters QBs — sort by Δ Pos for apples-to-apples. Click any column header to sort.</p>
+</div>
+
+<script>
+const DATA = [["Ja'Marr Chase","CIN","WR",1,1,24,4,-23,-3,251.1,16],["Bijan Robinson","ATL","RB",2,1,7,3,-5,-2,331.3,17],["CeeDee Lamb","DAL","WR",3,2,72,20,-69,-18,163.4,14],["Jahmyr Gibbs","DET","RB",4,2,8,4,-4,-2,328.4,17],["Saquon Barkley","PHI","RB",5,3,42,14,-37,-11,213.8,16],["Justin Jefferson","MIN","WR",6,3,78,25,-72,-22,159.5,17],["Malik Nabers","NYG","WR",7,4,259,99,-252,-95,48.1,4],["Nico Collins","HOU","WR",8,5,50,9,-42,-4,190.7,15],["Christian McCaffrey","SF","RB",9,4,2,1,7,3,365.6,17],["Amon-Ra St. Brown","DET","WR",10,6,22,3,-12,3,265.5,17],["Derrick Henry","BAL","RB",11,5,21,7,-10,-2,272,17],["Puka Nacua","LAR","WR",12,7,12,1,0,6,310.5,16],["Brian Thomas Jr.","JAC","WR",13,8,130,43,-117,-35,114.8,14],["Ashton Jeanty","LV","RB",14,6,40,13,-26,-7,217.6,17],["Drake London","ATL","WR",15,9,67,17,-52,-8,167.9,12],["De'Von Achane","MIA","RB",16,7,18,5,-2,2,289.3,16],["Jonathan Taylor","IND","RB",17,8,6,2,11,6,339.3,17],["Brock Bowers","LV","TE",18,1,96,9,-78,-8,144.2,12],["A.J. Brown","NE","WR",19,10,60,14,-41,-4,181.3,15],["Josh Jacobs","GB","RB",20,9,38,12,-18,-3,219.1,15],["Chase Brown","CIN","RB",21,10,26,8,-5,2,248.1,17],["Bucky Irving","TB","RB",22,11,119,33,-97,-22,123.5,10],["Trey McBride","ARI","TE",23,2,23,1,0,1,252.9,17],["Ladd McConkey","LAC","WR",24,11,90,29,-66,-18,147.9,16],["Josh Allen","BUF","QB",25,1,1,1,24,0,374.6,17],["Lamar Jackson","BAL","QB",26,2,37,20,-11,-18,221.9,13],["Kyren Williams","LAR","RB",27,12,29,9,-2,3,245.3,17],["Jaxon Smith-Njigba","SEA","WR",28,12,15,2,13,10,300.4,17],["Tee Higgins","CIN","WR",29,13,58,12,-29,1,182.1,15],["George Kittle","SF","TE",30,3,113,13,-83,-10,133,11],["Mike Evans","SF","WR",31,14,204,77,-173,-63,69.8,8],["Jayden Daniels","WAS","QB",32,3,126,34,-94,-31,117.3,7],["James Cook III","BUF","RB",33,13,19,6,14,7,285.7,17],["Tyreek Hill","FA","WR",34,15,275,108,-241,-93,43,4],["Jalen Hurts","PHI","QB",35,4,14,9,21,-5,305.1,16],["Davante Adams","LAR","WR",36,16,48,8,-12,8,192.9,14],["Garrett Wilson","NYJ","WR",37,17,181,62,-144,-45,81.5,7],["Omarion Hampton","LAC","RB",38,14,124,36,-86,-22,119.7,9],["Marvin Harrison Jr.","ARI","WR",39,18,141,49,-102,-31,107.3,12],["Kenneth Walker III","KC","RB",40,15,61,22,-21,-7,176.4,17],["Terry McLaurin","WAS","WR",41,19,156,54,-115,-35,95.2,10],["Alvin Kamara","NO","RB",42,16,175,50,-133,-34,84.2,11],["Breece Hall","NYJ","RB",43,17,51,18,-8,-1,189.7,16],["Courtland Sutton","DEN","WR",44,20,57,11,-13,9,182.7,17],["Joe Burrow","CIN","QB",45,5,101,29,-56,-24,139.5,8],["DK Metcalf","PIT","WR",46,21,79,26,-33,-5,157.7,15],["Chuba Hubbard","CAR","RB",47,18,134,41,-87,-23,110.4,15],["TreVeyon Henderson","NE","RB",48,19,52,19,-4,0,188.7,17],["DJ Moore","BUF","WR",49,22,94,32,-45,-10,145.2,17],["James Conner","ARI","RB",50,20,315,78,-265,-58,29.3,4],["Tetairoa McMillan","CAR","WR",51,23,62,15,-11,8,176.4,17],["DeVonta Smith","PHI","WR",52,24,73,21,-21,3,163.3,17],["Xavier Worthy","KC","WR",53,25,167,59,-114,-34,88.9,14],["Jameson Williams","DET","WR",54,26,54,10,0,16,187.4,17],["Calvin Ridley","TEN","WR",55,27,288,117,-233,-90,38.8,7],["George Pickens","DAL","WR",56,28,28,5,28,23,245.4,17],["Tony Pollard","TEN","RB",57,21,66,24,-9,-3,169.3,17],["D'Andre Swift","CHI","RB",58,22,43,15,15,7,211.6,16],["Zay Flowers","BAL","WR",59,29,44,7,15,22,200.3,17],["Jaylen Waddle","DEN","WR",60,30,76,23,-16,7,162.1,16],["David Montgomery","HOU","RB",61,23,85,27,-24,-4,154.9,17],["Isiah Pacheco","DET","RB",62,24,187,55,-125,-31,77.8,13],["RJ Harvey","DEN","RB",63,25,56,21,7,4,183.1,17],["Sam LaPorta","DET","TE",64,4,172,27,-108,-23,86.9,9],["Patrick Mahomes II","KC","QB",65,6,17,11,48,-5,296.2,14],["Aaron Jones Sr.","MIN","RB",66,26,146,43,-80,-17,104.7,12],["T.J. Hockenson","MIN","TE",67,5,170,26,-103,-21,87.3,15],["Baker Mayfield","TB","QB",68,7,20,12,48,-5,282.9,17],["Rome Odunze","CHI","WR",69,31,117,40,-48,-9,124.1,12],["Bo Nix","DEN","QB",70,8,11,7,59,1,315.8,17],["Tyrone Tracy Jr.","NYG","RB",71,27,98,28,-27,-1,142.8,15],["Chris Olave","NO","WR",72,32,39,6,33,26,219,16],["Emeka Egbuka","TB","WR",73,33,70,19,3,14,164.2,17],["Travis Hunter","JAC","WR",74,34,254,97,-180,-63,49.8,7],["Jerry Jeudy","CLE","WR",75,35,155,53,-80,-18,95.7,17],["Ricky Pearsall","SF","WR",76,36,203,76,-127,-40,70.6,10],["Jaylen Warren","PIT","RB",77,28,45,16,32,12,197.1,16],["Travis Kelce","KC","TE",78,6,83,3,-5,3,155.2,17],["Kyler Murray","MIN","QB",79,9,182,38,-103,-29,80.8,5],["Rashee Rice","KC","WR",80,37,118,41,-38,-4,123.6,8],["Mark Andrews","BAL","TE",81,7,142,16,-61,-9,107,17],["Dak Prescott","DAL","QB",82,10,10,6,72,4,323.8,17],["Kaleb Johnson","PIT","RB",83,29,437,109,-354,-80,8.3,10],["Stefon Diggs","FA","WR",84,38,68,18,16,20,167.8,17],["Jordan Mason","MIN","RB",85,30,122,35,-37,-5,121.9,16],["David Njoku","LAC","TE",86,8,205,32,-119,-24,69.8,12],["Travis Etienne Jr.","NO","RB",87,31,31,10,56,21,235.9,17],["Jakobi Meyers","JAC","WR",88,39,103,35,-15,4,138.3,16],["Deebo Samuel Sr.","FA","WR",89,40,86,28,3,12,152.2,16],["Zach Charbonnet","SEA","RB",90,32,65,23,25,9,171.4,16],["Evan Engram","DEN","TE",91,9,188,29,-97,-20,77.8,16],["Brock Purdy","SF","QB",92,11,53,24,39,-13,187.4,9],["Jauan Jennings","MIN","WR",93,41,92,30,1,11,145.8,15],["Tyler Warren","IND","TE",94,10,87,5,7,5,150.5,17],["Tucker Kraft","GB","TE",95,11,151,21,-56,-10,101.2,8],["Matthew Golden","GB","WR",96,42,236,91,-140,-49,55.5,14],["Javonte Williams","DAL","RB",97,33,36,11,61,22,225.3,16],["J.K. Dobbins","DEN","RB",98,34,133,40,-35,-6,110.4,10],["Justin Fields","KC","QB",99,12,97,28,2,-16,143.7,9],["Jordan Addison","MIN","WR",100,43,131,44,-31,-1,114.1,14],["Drake Maye","NE","QB",101,13,3,2,98,11,359.5,17],["Justin Herbert","LAC","QB",102,14,16,10,86,4,299.9,16],["Khalil Shakir","BUF","WR",103,44,115,38,-12,6,130.4,16],["Caleb Williams","CHI","QB",104,15,9,5,95,10,324.2,17],["Josh Downs","IND","WR",105,45,140,48,-35,-3,107.4,16],["Jared Goff","DET","QB",106,16,13,8,93,8,305.1,17],["Michael Pittman Jr.","PIT","WR",107,46,75,22,32,24,162.4,17],["Rhamondre Stevenson","NE","RB",108,35,74,25,34,10,162.8,14],["Tank Bigsby","PHI","RB",109,36,244,63,-135,-27,52.3,16],["Jordan Love","GB","QB",110,17,30,15,80,2,241.1,15],["Cooper Kupp","SEA","WR",111,47,160,56,-49,-9,93.8,16],["Trevor Lawrence","JAC","QB",112,18,5,4,107,14,350.2,17],["Jayden Reed","GB","WR",113,48,287,116,-174,-68,39,7],["Keon Coleman","BUF","WR",114,49,177,61,-63,-12,83.4,13],["Braelon Allen","NYJ","RB",115,37,390,96,-275,-59,14.3,4],["Jake Ferguson","DAL","TE",116,12,91,8,25,4,147.1,17],["C.J. Stroud","HOU","QB",117,19,41,21,76,-2,216.5,14],["Chris Godwin Jr.","TB","WR",118,50,211,79,-93,-29,66.5,9],["Cam Skattebo","NYG","RB",119,38,128,39,-9,-1,115.7,8],["Darnell Mooney","NYG","WR",120,51,212,80,-92,-29,66.3,15],["J.J. McCarthy","MIN","QB",121,20,106,30,15,-10,137.4,10],["Dalton Kincaid","BUF","TE",122,13,144,18,-22,-5,106.6,12],["Rashid Shaheed","SEA","WR",123,52,116,39,7,13,127.1,18],["Dallas Goedert","PHI","TE",124,14,84,4,40,10,155.1,15],["Colston Loveland","CHI","TE",125,15,109,12,16,3,136.1,16],["Najee Harris","LAC","RB",126,39,422,104,-296,-65,10.1,3],["Nick Chubb","FA","RB",127,40,180,54,-53,-14,81.8,15],["Brian Robinson Jr.","ATL","RB",128,41,226,61,-98,-20,58.5,17],["Trey Benson","ARI","RB",129,42,316,79,-187,-37,28.9,5],["Rachaad White","WAS","RB",130,43,121,34,9,9,123,17],["Kyle Pitts Sr.","ATL","TE",131,16,69,2,62,14,166.8,17],["Ray Davis","BUF","RB",132,44,223,60,-91,-16,59.1,17],["Christian Kirk","SF","WR",133,53,273,107,-140,-54,43.9,13],["Rashod Bateman","BAL","WR",134,54,263,101,-129,-47,45.9,13],["Marvin Mims Jr.","DEN","WR",135,55,192,67,-57,-12,74.5,16],["Tua Tagovailoa","ATL","QB",136,21,63,25,73,-4,175.7,14],["Tyler Allgeier","ARI","RB",137,45,127,38,10,7,116,17],["Quinshon Judkins","CLE","RB",138,46,80,26,58,20,156.8,14],["Bryce Young","CAR","QB",139,22,35,19,104,3,229,16],["Jerome Ford","WAS","RB",140,47,309,75,-169,-28,30.6,13],["Bhayshul Tuten","JAC","RB",141,48,176,51,-35,-3,83.6,15],["Brandon Aiyuk","SF","WR",142,56,null,null,null,null,0.0,0],["Hunter Henry","NE","TE",143,17,89,7,54,10,148.8,17],["Cedric Tillman","CLE","WR",144,57,256,98,-112,-41,49.5,13],["Michael Penix Jr.","ATL","QB",145,23,120,33,25,-10,123.3,9],["Jacory Croskey-Merritt","WAS","RB",146,49,111,32,35,17,135.8,17],["Zach Ertz","FA","TE",147,18,150,20,-3,-2,101.4,13],["Tyjae Spears","TEN","RB",148,50,166,46,-18,4,89.2,13],["Luther Burden III","CHI","WR",149,58,147,50,2,8,104.4,15],["Dylan Sampson","CLE","RB",150,51,201,56,-51,-5,71.1,15],["Keenan Allen","LAC","WR",151,59,99,34,52,25,142.2,17],["Jaydon Blue","DAL","RB",152,52,359,88,-207,-36,19.9,5],["Joe Mixon","FA","RB",153,53,null,null,null,null,0.0,0],["Geno Smith","NYJ","QB",154,24,49,23,105,1,190.9,15],["Jayden Higgins","HOU","WR",155,60,136,46,19,14,109,17],["Romeo Doubs","NE","WR",156,61,104,36,52,25,137.9,16],["Rico Dowdle","PIT","RB",157,54,46,17,111,37,196.8,17],["Matthew Stafford","LAR","QB",158,25,4,3,154,22,358.4,17],["Jonnu Smith","FA","TE",159,19,213,35,-54,-16,66.2,17],["DeMario Douglas","NE","WR",160,62,185,65,-25,-3,80.3,17],["Hollywood Brown","PHI","WR",161,63,132,45,29,18,113.2,16],["Brenton Strange","JAC","TE",162,20,157,23,5,-3,95,12],["Cam Ward","TEN","QB",163,26,47,22,116,4,193.7,17],["Ollie Gordon II","MIA","RB",164,55,251,68,-87,-13,50.6,17],["Wan'Dale Robinson","TEN","WR",165,64,64,16,101,48,171.9,16],["Xavier Legette","CAR","WR",166,65,197,71,-31,-6,71.8,15],["Joshua Palmer","BUF","WR",167,66,277,109,-110,-43,41.3,12],["Adam Thielen","FA","WR",168,67,311,124,-143,-57,30.1,16],["Chig Okonkwo","WAS","TE",169,21,154,22,15,-1,96,17],["Kyle Williams","NE","WR",170,68,272,106,-102,-38,44.2,18],["Sam Darnold","SEA","QB",171,27,25,13,146,14,249.4,17],["Blake Corum","LAR","RB",172,56,125,37,47,19,118.2,17],["Tre' Harris","LAC","WR",173,69,241,95,-68,-26,54.4,17],["Quentin Johnston","LAC","WR",174,70,93,31,81,39,145.7,14],["Isaiah Likely","NYG","TE",175,22,258,47,-83,-25,48.2,14],["Roschon Johnson","CHI","RB",176,57,522,130,-346,-73,1.7,6],["Will Shipley","PHI","RB",177,58,400,98,-223,-40,13,15],["Cade Otton","TB","TE",178,23,163,25,15,-2,92.7,16],["Kyle Monangai","CHI","RB",179,59,105,30,74,29,137.7,17],["Mason Taylor","NYJ","TE",180,24,210,34,-30,-10,66.9,13],["Woody Marks","HOU","RB",181,60,102,29,79,31,139.1,16],["Aaron Rodgers","PIT","QB",182,28,34,18,148,10,233.6,16],["Isaac Guerendo","SF","RB",183,61,580,160,-397,-99,0,8],["DeAndre Hopkins","BAL","WR",184,71,234,89,-50,-18,56,17],["Mike Gesicki","CIN","TE",185,25,232,40,-47,-15,56.7,13],["Jalen Coker","CAR","WR",186,72,193,68,-7,4,73.9,11],["Pat Freiermuth","PIT","TE",187,26,162,24,25,2,93.1,17],["Justice Hill","BAL","RB",188,62,240,62,-52,0,54.7,10],["Alec Pierce","IND","WR",189,73,77,24,112,49,159.8,15],["Elic Ayomanor","TEN","WR",190,74,153,52,37,22,96,16],["Darius Slayton","NYG","WR",191,75,184,64,7,11,80.3,14],["Jaylen Wright","MIA","RB",192,63,265,69,-73,-6,45.7,11],["Kendre Miller","NO","RB",193,64,308,74,-115,-10,30.8,7],["Michael Wilson","ARI","WR",194,76,59,13,135,63,181.6,17],["Kareem Hunt","FA","RB",195,65,108,31,87,34,136.4,17],["DJ Giddens","IND","RB",196,66,427,107,-231,-41,9.6,9],["Chris Rodriguez Jr.","JAC","RB",197,67,164,45,33,22,90.5,13],["Pat Bryant","DEN","WR",198,77,222,85,-24,-8,59.3,15],["Keaton Mitchell","LAC","RB",199,68,248,66,-49,2,50.9,13],["Dalton Schultz","HOU","TE",200,27,107,11,93,16,136.7,17],["Ja'Tavion Sanders","CAR","TE",201,28,285,52,-84,-24,39.5,13],["Adonai Mitchell","NYJ","WR",202,78,199,73,3,5,71.4,16],["Daniel Jones","IND","QB",203,29,33,17,170,12,234.4,13],["Juwan Johnson","NO","TE",204,29,100,10,104,19,141.4,17],["Andrei Iosivas","CIN","WR",205,79,195,70,10,9,73.4,17],["Miles Sanders","FA","RB",206,69,350,86,-144,-17,22.7,4],["Jaylin Noel","HOU","WR",207,80,238,93,-31,-13,55.4,17],["Tahj Brooks","CIN","RB",208,70,460,118,-252,-48,5.9,12],["Elijah Arroyo","SEA","TE",209,30,314,61,-105,-31,29.4,13],["Tyler Lockett","LV","WR",210,81,229,87,-19,-6,57.1,17],["Calvin Austin III","NYG","WR",211,82,202,75,9,7,70.7,14],["MarShawn Lloyd","GB","RB",212,71,null,null,null,null,0.0,0],["Russell Wilson","FA","QB",213,30,243,44,-30,-14,52.8,6],["Jack Bech","LV","WR",214,83,302,122,-88,-39,32.4,16],["Dameon Pierce","PHI","RB",215,72,483,124,-268,-52,3.6,5],["Dyami Brown","WAS","WR",216,84,283,114,-67,-30,39.7,15],["Dontayvion Wicks","PHI","WR",217,85,218,83,-1,2,60.8,14],["Tory Horton","SEA","WR",218,86,224,86,-6,0,58.6,8],["Jarquez Hunter","LAR","RB",219,73,null,null,null,null,0.0,0],["Isaac TeSlaa","DET","WR",220,87,209,78,11,9,67.9,17],["Sean Tucker","TB","RB",221,74,169,48,52,26,87.4,17],["Brashard Smith","KC","RB",222,75,249,67,-27,8,50.8,17],["Roman Wilson","FA","WR",223,88,null,null,null,null,0.0,0],["Dont'e Thornton Jr.","LV","WR",224,89,367,147,-143,-58,18.5,15],["Joe Flacco","CIN","QB",225,31,81,27,144,4,156.7,13],["Raheem Mostert","LV","RB",226,76,345,85,-119,-9,23.4,12],["Cole Kmet","CHI","TE",227,31,216,36,11,-5,63.7,16],["Theo Johnson","NYG","TE",228,32,145,19,83,13,105.3,15],["Devin Neal","NO","RB",229,77,246,65,-17,12,51.5,9],["Harold Fannin Jr.","CLE","TE",230,33,88,6,142,27,150.4,16],["Malik Washington","MIA","WR",231,90,161,57,70,33,93.7,17],["Jalen Royals","KC","WR",232,91,531,213,-299,-122,1.4,7],["Devaughn Vele","NO","WR",233,92,242,96,-9,-4,53.8,13],["Kenny Gainwell","TB","RB",234,78,55,20,179,58,184.8,17],["Jalen McMillan","TB","WR",235,93,342,138,-107,-45,23.9,4],["Ty Johnson","BUF","RB",236,79,168,47,68,32,88.3,17],["Jaleel McLaughlin","DEN","RB",237,80,313,77,-76,3,29.4,8],["Anthony Richardson Sr.","IND","QB",238,32,521,70,-283,-38,1.7,2],["Kayshon Boutte","NE","WR",239,94,139,47,100,47,107.6,14],["Elijah Mitchell","PHI","RB",240,81,568,148,-328,-67,0,1],["Trevor Etienne","CAR","RB",241,82,419,102,-178,-20,10.2,17],["Jalen Tolbert","MIA","WR",242,95,292,119,-50,-24,37.3,13],["Noah Gray","KC","TE",243,34,319,62,-76,-28,28.3,16],["Brandin Cooks","FA","WR",244,96,282,113,-38,-17,39.9,15],["Antonio Gibson","FA","RB",245,83,352,87,-107,-4,22.2,5],["Nick Westbrook-Ikhine","IND","WR",246,97,389,159,-143,-62,14.4,15],["Devin Singletary","NYG","RB",247,84,152,44,95,40,99.8,17],["Isaiah Davis","NYJ","RB",248,85,219,58,29,27,60.7,16],["Jaxson Dart","NYG","QB",249,33,27,14,222,19,246.6,14],["Tre Tucker","LV","WR",250,98,112,37,138,61,133.2,17]];
+// columns: 0 player,1 team,2 pos,3 draftOvr,4 draftPos,5 finOvr,6 finPos,7 dOvr,8 dPos,9 pts,10 gp
+const COLS = [
+  { key: 3,  label: 'Draft', cls: '' },
+  { key: 0,  label: 'Player', cls: 'l' },
+  { key: 2,  label: 'Pos', cls: '' },
+  { key: 4,  label: 'Draft Pos', cls: '' },
+  { key: 6,  label: 'Finish Pos', cls: '' },
+  { key: 8,  label: 'Δ Pos', cls: '' },
+  { key: 5,  label: 'Finish Ovr', cls: '' },
+  { key: 7,  label: 'Δ Ovr', cls: '' },
+  { key: 9,  label: 'Points', cls: '' },
+  { key: 10, label: 'GP', cls: '' },
+];
+const POSITIONS = ['ALL','QB','RB','WR','TE'];
+let sortKey = 3, sortDir = 1, posFilter = 'ALL', query = '';
+
+const hdr = document.getElementById('hdr');
+COLS.forEach((c, i) => {
+  const th = document.createElement('th');
+  th.className = c.cls;
+  th.setAttribute('scope','col');
+  th.tabIndex = 0;
+  th.dataset.i = i;
+  th.addEventListener('click', () => setSort(c.key));
+  th.addEventListener('keydown', e => { if (e.key==='Enter'||e.key===' ') { e.preventDefault(); setSort(c.key); }});
+  hdr.appendChild(th);
+});
+
+const chips = document.getElementById('chips');
+POSITIONS.forEach(p => {
+  const b = document.createElement('button');
+  b.textContent = p;
+  b.addEventListener('click', () => { posFilter = p; render(); });
+  chips.appendChild(b);
+});
+
+document.getElementById('q').addEventListener('input', e => { query = e.target.value.trim().toLowerCase(); render(); });
+
+function setSort(k) {
+  if (sortKey === k) sortDir = -sortDir;
+  else {
+    sortKey = k;
+    // ranks ascending by default; deltas/points descending by default
+    sortDir = (k === 8 || k === 7 || k === 9 || k === 10) ? -1 : 1;
+  }
+  render();
+}
+
+function cmp(a, b) {
+  let x = a[sortKey], y = b[sortKey];
+  const xn = (x === null || x === undefined), yn = (y === null || y === undefined);
+  if (xn && yn) return 0;
+  if (xn) return 1;            // nulls always last
+  if (yn) return -1;
+  if (typeof x === 'string') return sortDir * x.localeCompare(y);
+  return sortDir * (x - y);
+}
+
+function deltaCell(v, cls) {
+  if (v === null || v === undefined) return `<td class="na">—</td>`;
+  const dir = v > 0 ? 'up' : v < 0 ? 'down' : 'zero';
+  const txt = v > 0 ? '+' + v : v === 0 ? '0' : '−' + Math.abs(v);
+  return `<td class="delta ${dir} ${cls}">${txt}</td>`;
+}
+
+function render() {
+  [...chips.children].forEach(b => b.classList.toggle('on', b.textContent === posFilter));
+  [...hdr.children].forEach((th, i) => {
+    const c = COLS[i];
+    const sorted = c.key === sortKey;
+    th.classList.toggle('sorted', sorted);
+    th.innerHTML = c.label + (sorted ? ` <span class="arr">${sortDir === 1 ? '▲' : '▼'}</span>` : '');
+  });
+
+  const rows = DATA.filter(r =>
+    (posFilter === 'ALL' || r[2] === posFilter) &&
+    (!query || r[0].toLowerCase().includes(query) || r[1].toLowerCase().includes(query))
+  ).sort(cmp);
+
+  document.getElementById('count').textContent = rows.length + ' players';
+
+  document.getElementById('tb').innerHTML = rows.map(r => {
+    const dPos = r[8];
+    const rowCls = dPos !== null && dPos >= 15 ? 'big-up' : dPos !== null && dPos <= -15 ? 'big-down' : '';
+    const draftPos = r[4] !== null ? r[2] + r[4] : '—';
+    const finPos = r[6] !== null ? r[2] + r[6] : '—';
+    return `<tr class="${rowCls}">
+      <td>${r[3]}</td>
+      <td class="l">${r[0]}<span class="team">${r[1]}</span></td>
+      <td><span class="pos-badge">${r[2]}</span></td>
+      <td>${draftPos}</td>
+      <td>${finPos !== '—' ? finPos : '<span class="na">—</span>'}</td>
+      ${deltaCell(r[8], 'dpos')}
+      <td>${r[5] !== null ? r[5] : '<span class="na">—</span>'}</td>
+      ${deltaCell(r[7], '')}
+      <td>${r[9].toFixed(1)}</td>
+      <td>${r[10]}</td>
+    </tr>`;
+  }).join('');
+}
+render();
+</script>
+
