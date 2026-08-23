@@ -26,7 +26,23 @@ export interface PickReflectedSample {
   lagMs: number;
 }
 
-export type ObservabilitySample = PollResponseSample | PickReflectedSample;
+/**
+ * One burst's insight-refresh latency (AC-67): the clock runs from the poll response carrying the
+ * burst's **final** pick to the moment the recompute cascade's output is published, which is
+ * exactly the interval AC-46/AC-53 budget at 🔶 `insightRefreshLatencyMs`.
+ */
+export interface BurstRefreshedSample {
+  type: 'burst-refreshed';
+  /** How many new picks the burst coalesced — 1 for an ordinary pick, N for a run of them. */
+  pickCount: number;
+  /** The last pick number in the burst; null if the burst carried no identifiable pick. */
+  finalPickNo: number | null;
+  burstFinalPollResponseAt: number;
+  refreshedAt: number;
+  latencyMs: number;
+}
+
+export type ObservabilitySample = PollResponseSample | PickReflectedSample | BurstRefreshedSample;
 
 export interface LagSummary {
   count: number;
@@ -89,6 +105,31 @@ export class Observability {
     return sample;
   }
 
+  /**
+   * Stamps the moment one burst's recompute cascade finished publishing (AC-67).
+   *
+   * Recorded by the orchestrator, once per burst rather than once per pick — recording per pick
+   * would report the same interval N times and make a burst look like N slow refreshes.
+   */
+  recordBurstRefreshed(args: {
+    pickCount: number;
+    finalPickNo?: number | null;
+    burstFinalPollResponseAt: number;
+    refreshedAt?: number;
+  }): BurstRefreshedSample {
+    const refreshedAt = args.refreshedAt ?? this.now();
+    const sample: BurstRefreshedSample = {
+      type: 'burst-refreshed',
+      pickCount: args.pickCount,
+      finalPickNo: args.finalPickNo ?? null,
+      burstFinalPollResponseAt: args.burstFinalPollResponseAt,
+      refreshedAt,
+      latencyMs: refreshedAt - args.burstFinalPollResponseAt,
+    };
+    this.push(sample);
+    return sample;
+  }
+
   samples(): readonly ObservabilitySample[] {
     return this.buffer;
   }
@@ -110,13 +151,26 @@ export class Observability {
 
   /** Nearest-rank p95 over the retained pick-reflection lags — enough to judge SC-1's ≤3 s bar. */
   pickLagSummary(): LagSummary | null {
-    const lags = this.buffer
-      .filter((s): s is PickReflectedSample => s.type === 'pick-reflected')
-      .map((s) => s.lagMs)
-      .sort((a, b) => a - b);
-    if (lags.length === 0) return null;
+    return summarize(
+      this.buffer
+        .filter((s): s is PickReflectedSample => s.type === 'pick-reflected')
+        .map((s) => s.lagMs),
+    );
+  }
 
-    const index = Math.min(lags.length - 1, Math.ceil(0.95 * lags.length) - 1);
-    return { count: lags.length, p95Ms: lags[index]!, maxMs: lags[lags.length - 1]! };
+  /** The same nearest-rank p95 over burst refreshes — SC-2's ≤5 s bar (AC-67). */
+  burstLatencySummary(): LagSummary | null {
+    return summarize(
+      this.buffer
+        .filter((s): s is BurstRefreshedSample => s.type === 'burst-refreshed')
+        .map((s) => s.latencyMs),
+    );
   }
 }
+
+const summarize = (values: number[]): LagSummary | null => {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.ceil(0.95 * sorted.length) - 1);
+  return { count: sorted.length, p95Ms: sorted[index]!, maxMs: sorted[sorted.length - 1]! };
+};

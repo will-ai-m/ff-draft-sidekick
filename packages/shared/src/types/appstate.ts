@@ -1,7 +1,7 @@
 import type { BoardPlayerState, PickFeedEntry, Team } from './board';
 import type { CandidateListData } from './candidate';
 import type { Insight } from './insight';
-import type { OpponentPanelEntry } from './opponent';
+import type { DraftWindow, OpponentPanelEntry } from './opponent';
 import type { RosterPanelData } from './roster';
 import type { ParameterValues } from '../config/parameters';
 
@@ -27,7 +27,13 @@ export interface PreDraftWarning {
     | 'kdst-missing'
     | 'adp-pool-substituted'
     | 'scoring-format-mismatch'
-    | 'no-ecr-loaded';
+    | 'no-ecr-loaded'
+    /**
+     * FR-11's local nflverse cache was never built (`npm run prep:nflverse`), so every player
+     * card will report "no NFL game data". Added by the orchestrator alongside FR-4's own
+     * warnings — the pre-draft check is the one surface that answers "is this instance ready?".
+     */
+    | 'gamelog-cache-missing';
   message: string;
 }
 
@@ -63,26 +69,51 @@ export interface PreDraftCheckData {
 export type PublicConfig = ParameterValues;
 
 /**
+ * FR-6's payload: the window itself plus one row per pick in it.
+ *
+ * The window travels with its rows because AC-34's surface *is* the window — the caption above
+ * the rows ("3 picks until your turn", "nothing between now and your next pick") is read off
+ * these anchors, and re-deriving them client-side would be a second chance to get the
+ * off-by-one wrong. An empty `entries` with a null `nextUserPickNo` means "no pick left"; an
+ * empty `entries` while `attach.status` is `needs-manual-slot` means the seat is unresolved.
+ */
+export interface OpponentPanelData {
+  window: DraftWindow;
+  entries: OpponentPanelEntry[];
+}
+
+/** FR-2's sync surface — the sync indicator plus the draft's own status (AC-14, AC-16). */
+export interface SyncState {
+  lastSuccessfulSyncAt: string | null;
+  status: 'healthy' | 'degraded';
+  boardVersion: number;
+  /** Sleeper's own `pre_draft` / `drafting` / `complete`, displayed while paused (AC-14). */
+  draftStatus: string | null;
+  /** What went wrong, while degraded — null while healthy (AC-17). */
+  degradedReason: string | null;
+}
+
+/**
  * The one SSE payload shape. The server computes this whole object after every poll/recompute
  * and pushes it entire; the browser replaces its state wholesale, never merging field by field.
  *
  * Shape locked here in T1 so the frontend tasks can build against it; T10 finalizes the
  * per-field detail and is the source of truth if the two ever disagree.
+ *
+ * Every `Insight<T>` carries the board version its `data` was computed from. An insight whose
+ * version is behind `sync.boardVersion` is marked `recomputing` — stale, still shown, never
+ * presented as current (AC-21).
  */
 export interface AppStateSnapshot {
   attach: AttachState;
-  sync: {
-    lastSuccessfulSyncAt: string | null;
-    status: 'healthy' | 'degraded';
-    boardVersion: number;
-  };
+  sync: SyncState;
   board: {
     players: Record<string, BoardPlayerState>;
     teams: Team[];
   };
   pickFeed: PickFeedEntry[];
   userRoster: Insight<RosterPanelData | null>;
-  opponentPanel: Insight<OpponentPanelEntry[]>;
+  opponentPanel: Insight<OpponentPanelData>;
   candidateList: Insight<CandidateListData>;
   preDraftCheck: PreDraftCheckData | null;
   config: PublicConfig;

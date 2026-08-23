@@ -95,6 +95,21 @@ export interface CandidateListData {
   reason: string | null;
   reasonKind: HighlightReasonKind | null;
   planComparison: PlanComparison | null;
-  /** Explicit disabled state when no ECR snapshot is loaded (AC-28). */
+  /**
+   * Explicit disabled state: no ECR snapshot loaded (AC-28), or the user's seat is still
+   * unresolved so there is no next pick to recommend against (AC-5).
+   */
   disabledReason: string | null;
+  /**
+   * AC-50's one-interaction position filter, precomputed per position.
+   *
+   * The filter is a *server-side* ordering rule (positional ECR order, ADP-order fallback for a
+   * K/DST-less snapshot, no survival math for K/DST), and the browser cannot re-derive it from
+   * `rows` — eight ECR-ordered rows might hold two receivers. Shipping the per-position sets
+   * inside the same `Insight` keeps the filter instant and keeps it under the same
+   * recomputing/degraded flags as the list it filters, rather than opening a second channel that
+   * could disagree with the snapshot on screen. Filled by the orchestrator; absent on any payload
+   * built before rankings loaded.
+   */
+  rowsByPosition?: Partial<Record<Position, CandidateRow[]>>;
 }

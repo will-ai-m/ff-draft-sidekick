@@ -1,20 +1,27 @@
-import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import express from 'express';
-
 import { loadConfig } from './config/loadConfig';
+import { GameLogStore } from './gamelogs/store';
+import { Observability } from './observability';
+import { Orchestrator } from './orchestrator';
+import { createSidekickApp } from './routes/server';
+import { SleeperClient } from './sleeper/client';
+import { PollIntervalController } from './sleeper/instanceHeartbeat';
 
 /**
  * Draft Sidekick server entrypoint.
  *
- * Scaffold only at this stage: it loads the effective configuration, exposes it read-only,
- * and serves the built frontend when one exists. The attach/sync/SSE surface is wired in by
- * the server-orchestration task; nothing here writes to the Sleeper API, ever.
+ * Builds the one orchestrator this process owns, wires every route onto it, and serves the built
+ * frontend from the same port so there is never a CORS concern in the single-process launch.
  *
- * PORT is a plain environment knob, not an AS-N parameter — it is a local process detail, not
- * a product default. Keep it in step with the dev proxy in `packages/web/vite.config.ts`.
+ * Observability samples are echoed as one structured JSON line each (AC-66/AC-67): the PRD's §14
+ * protocol judges the SC-1/SC-2 p95 bars by watching a live mock rehearsal, and a terminal full of
+ * `{"type":"pick-reflected","lagMs":…}` / `{"type":"burst-refreshed","latencyMs":…}` is exactly
+ * what that judgment needs. `/api/debug/metrics` serves the same buffer.
+ *
+ * PORT is a plain environment knob, not an AS-N parameter — it is a local process detail, not a
+ * product default. Keep it in step with the dev proxy in `packages/web/vite.config.ts`.
  */
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -22,33 +29,48 @@ const PORT = Number(process.env.PORT ?? 3001);
 const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const WEB_DIST = resolve(SERVER_ROOT, '../web/dist');
 
-export function createApp(): express.Express {
+export function createServer(): { listen: () => void } {
   const config = loadConfig();
-  const app = express();
-
-  app.use(express.json());
-
-  app.get('/api/health', (_req, res) => {
-    res.json({ status: 'ok' });
+  const observability = new Observability({
+    sink: (sample) => {
+      if (sample.type !== 'poll-response') console.log(JSON.stringify(sample));
+    },
   });
 
-  // Read-only projection of the active AS-N values for the pre-draft check display.
-  // The browser can never write config: local overrides are a file edit plus a restart.
-  app.get('/api/config', (_req, res) => {
-    res.json(config);
+  const intervalController = new PollIntervalController({ config });
+  const client = new SleeperClient({
+    apiBudgetPerMin: config.apiBudgetPerMin,
+    onRateLimited: () => {
+      intervalController.recordRateLimited();
+    },
   });
 
-  if (existsSync(WEB_DIST)) {
-    app.use(express.static(WEB_DIST));
-  }
+  // FR-11's cache is read once at startup. A missing one is not fatal: the pre-draft check says so
+  // and every player card reports "no NFL game data" until `npm run prep:nflverse` has been run.
+  const gameLogStore = GameLogStore.fromCacheDir();
+  if (!gameLogStore.isLoaded) console.warn(`[sidekick] ${gameLogStore.reason ?? ''}`);
 
-  return app;
+  const orchestrator = new Orchestrator({
+    config,
+    client,
+    gameLogStore,
+    observability,
+    intervalController,
+  });
+
+  const { app } = createSidekickApp(orchestrator, config, { webDist: WEB_DIST });
+
+  return {
+    listen: () => {
+      app.listen(PORT, () => {
+        console.log(`[sidekick] server listening on http://localhost:${PORT}`);
+      });
+    },
+  };
 }
 
 const entrypoint = process.argv[1] === undefined ? null : resolve(process.argv[1]);
 
 if (entrypoint !== null && entrypoint === fileURLToPath(import.meta.url)) {
-  createApp().listen(PORT, () => {
-    console.log(`[sidekick] server listening on http://localhost:${PORT}`);
-  });
+  createServer().listen();
 }
