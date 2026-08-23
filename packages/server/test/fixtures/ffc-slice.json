@@ -1,0 +1,117 @@
+{
+  "status": "Success",
+  "meta": {
+    "type": "Half-PPR",
+    "teams": 10,
+    "rounds": 15,
+    "total_drafts": 2828,
+    "start_date": "2026-08-17",
+    "end_date": "2026-08-22"
+  },
+  "players": [
+    {
+      "player_id": 5672,
+      "name": "Jahmyr Gibbs",
+      "position": "RB",
+      "team": "DET",
+      "adp": 1.5,
+      "adp_formatted": "1.01",
+      "times_drafted": 423,
+      "high": 1,
+      "low": 3,
+      "stdev": 0.7,
+      "bye": 6
+    },
+    {
+      "player_id": 5177,
+      "name": "Ja'Marr Chase",
+      "position": "WR",
+      "team": "CIN",
+      "adp": 3.9,
+      "adp_formatted": "1.04",
+      "times_drafted": 438,
+      "high": 1,
+      "low": 7,
+      "stdev": 1,
+      "bye": 6
+    },
+    {
+      "player_id": 2885,
+      "name": "Josh Allen",
+      "position": "QB",
+      "team": "BUF",
+      "adp": 32.9,
+      "adp_formatted": "4.03",
+      "times_drafted": 352,
+      "high": 14,
+      "low": 46,
+      "stdev": 6.9,
+      "bye": 7
+    },
+    {
+      "player_id": 5656,
+      "name": "Trey McBride",
+      "position": "TE",
+      "team": "ARI",
+      "adp": 38.2,
+      "adp_formatted": "4.08",
+      "times_drafted": 308,
+      "high": 21,
+      "low": 50,
+      "stdev": 6.3,
+      "bye": 14
+    },
+    {
+      "player_id": 6178,
+      "name": "Brock Bowers",
+      "position": "TE",
+      "team": "LV",
+      "adp": 43,
+      "adp_formatted": "5.03",
+      "times_drafted": 541,
+      "high": 22,
+      "low": 60,
+      "stdev": 8,
+      "bye": 13
+    },
+    {
+      "player_id": 1312,
+      "name": "Houston Defense",
+      "position": "DEF",
+      "team": "HOU",
+      "adp": 100.5,
+      "adp_formatted": "10.10",
+      "times_drafted": 174,
+      "high": 75,
+      "low": 121,
+      "stdev": 9.7,
+      "bye": 8
+    },
+    {
+      "player_id": 6162,
+      "name": "Brandon Aubrey",
+      "position": "PK",
+      "team": "DAL",
+      "adp": 130,
+      "adp_formatted": "13.10",
+      "times_drafted": 458,
+      "high": 72,
+      "low": 184,
+      "stdev": 21.9,
+      "bye": 14
+    },
+    {
+      "player_id": 6779,
+      "name": "Germie Bernard",
+      "position": "WR",
+      "team": "PIT",
+      "adp": 184.2,
+      "adp_formatted": "19.04",
+      "times_drafted": 5,
+      "high": 159,
+      "low": 193,
+      "stdev": 14.2,
+      "bye": 9
+    }
+  ]
+}
