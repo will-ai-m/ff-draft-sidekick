@@ -15,7 +15,7 @@ import { resolve } from 'node:path';
 import type { GameLogEntry, GameLogSeason, PlayerCard, ScoringSettings } from '@sidekick/shared';
 
 import { DEFAULT_CROSSWALK_CACHE_DIR } from '../snapshots/crosswalk';
-import { scoreGame } from './scoring';
+import { scoreGame, unsupportedScoringKeys } from './scoring';
 import { GAMELOG_CACHE_VERSION } from './types';
 import type { CachedGame, CachedPlayer, GameLogCache } from './types';
 
@@ -119,6 +119,7 @@ export class GameLogStore {
       team: cached.team,
       hasData: true,
       seasons,
+      unsupportedScoringKeys: unsupportedScoringKeys(options.scoring),
     };
   }
 
@@ -141,6 +142,7 @@ export class GameLogStore {
       team: options.player?.team ?? null,
       hasData: false,
       seasons: [],
+      unsupportedScoringKeys: unsupportedScoringKeys(options.scoring),
     };
   }
 }

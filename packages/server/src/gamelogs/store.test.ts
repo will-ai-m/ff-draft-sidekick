@@ -41,7 +41,7 @@ afterAll(() => rmSync(cacheDir, { recursive: true, force: true }));
 const half = SCORING_DEFAULTS.half_ppr;
 
 describe('GameLogStore', () => {
-  it('loads the prep script\'s cache once at startup', () => {
+  it("loads the prep script's cache once at startup", () => {
     expect(store.isLoaded).toBe(true);
     expect(store.seasons).toEqual([2025, 2024]);
   });
@@ -49,7 +49,12 @@ describe('GameLogStore', () => {
   it('returns the most recent season first, with prior seasons as further tabs (AC-63)', () => {
     const card = store.getPlayerCard(GIBBS, { scoring: half });
 
-    expect(card).toMatchObject({ playerId: GIBBS, playerName: 'Jahmyr Gibbs', position: 'RB', hasData: true });
+    expect(card).toMatchObject({
+      playerId: GIBBS,
+      playerName: 'Jahmyr Gibbs',
+      position: 'RB',
+      hasData: true,
+    });
     expect(card.seasons.map((s) => s.season)).toEqual([2025, 2024]);
     expect(card.seasons[0]?.games.map((g) => g.week)).toEqual([1, 2, 3]);
   });
@@ -98,6 +103,23 @@ describe('GameLogStore', () => {
     const card = store.getPlayerCard('999999', { scoring: half });
 
     expect(card).toMatchObject({ playerId: '999999', hasData: false, playerName: '' });
+  });
+
+  it('carries the league scoring keys no game log can answer onto the card itself', () => {
+    // AC-64's other half: the card says which of the league's rules it could not apply, so the
+    // gap the scorer already tracks is visible to the reader instead of only to the scorer.
+    const withDefense = { ...half, def_st_td: 6, fgm_40_49: 4 };
+
+    expect(store.getPlayerCard(GIBBS, { scoring: withDefense }).unsupportedScoringKeys).toEqual([
+      'def_st_td',
+      'fgm_40_49',
+    ]);
+    expect(store.getPlayerCard(GIBBS, { scoring: half }).unsupportedScoringKeys).toEqual([]);
+    // Including on a card that has no games to score at all.
+    expect(store.getPlayerCard(ROOKIE, { scoring: withDefense }).unsupportedScoringKeys).toEqual([
+      'def_st_td',
+      'fgm_40_49',
+    ]);
   });
 });
 

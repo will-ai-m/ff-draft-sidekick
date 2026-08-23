@@ -60,4 +60,11 @@ export interface PlayerCard {
   hasData: boolean;
   /** Newest season first; empty when `hasData` is false. */
   seasons: GameLogSeason[];
+  /**
+   * AC-64's other half: the attached league's scoring keys that no game-log column can answer
+   * (defensive, kicking, first downs, …). Carried on the card so the reader can see which of
+   * their league's rules these points do *not* include, rather than the gap being visible only
+   * to the scorer. Empty when every rule the league sets could be applied.
+   */
+  unsupportedScoringKeys: string[];
 }
