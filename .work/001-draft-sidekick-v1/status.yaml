@@ -4,7 +4,7 @@ phase: develop
 state: running
 blocked_reason: null
 branch: village/001-draft-sidekick-v1
-subagent_calls: 9
+subagent_calls: 10
 repair_passes: {}
 approvals:
   - {gate: spec, approver: willyu, at: "2026-08-23T02:45:17Z"}

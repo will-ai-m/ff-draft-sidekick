@@ -53,6 +53,12 @@ export interface TendencyProfile {
   pickCount: number;
   /** Mean of (player's ADP − pick number taken); positive = taken ahead of market (AC-38). */
   averageReach: number;
+  /**
+   * How many of this team's picks `averageReach` was actually averaged over — picks whose player
+   * carries no ADP cannot be scored for reach (AC-26) and are skipped. Carried so a zero reach
+   * built on no observations is distinguishable from a team drafting exactly at market.
+   */
+  reachSampleCount: number;
   /** Fraction of picks that filled a then-unfilled starting slot (AC-38). */
   needAdherence: number;
   /** Observed share of this team's picks per position. */
