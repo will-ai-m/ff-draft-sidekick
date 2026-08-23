@@ -1,0 +1,15 @@
+# QA baseline — 001-draft-sidekick-v1
+# captured: 2026-08-23T03:06:32Z
+# command: npm test (constitution test command), repo root, tree untouched
+# note: greenfield repo — no package.json exists yet, so the constitution's test command has no runner to invoke.
+
+$ npm test
+npm error code ENOENT
+npm error syscall open
+npm error path /Users/willyu/willy-ff/package.json
+npm error errno -2
+npm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open '/Users/willyu/willy-ff/package.json'
+npm error enoent This is related to npm not being able to find a file.
+npm error enoent
+npm error A complete log of this run can be found in: /Users/willyu/.npm/_logs/2026-08-23T03_06_32_967Z-debug-0.log
+exit: 254
