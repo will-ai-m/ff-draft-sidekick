@@ -19,8 +19,13 @@ export interface CandidateRow {
   playerName: string;
   position: Position;
   team: string | null;
-  /** FantasyPros overall half-PPR ECR rank, surfaced raw (AS-8). */
-  ecrRank: number;
+  /**
+   * FantasyPros overall half-PPR ECR rank, surfaced raw (AS-8). **Null only** on a row the ECR
+   * snapshot does not carry at all — AC-50's "falling back to ADP order when the snapshot carries
+   * no K/DST rankings", where the row's whole ordering comes from ADP. Every skill-position row
+   * carries a rank, since the candidate list itself is ECR-ordered.
+   */
+  ecrRank: number | null;
   /** FantasyPros positional rank, e.g. the numeric part of "RB1". */
   positionalRank: number | null;
   /** FFC ADP for the league's team-count pool; null when the player has no ADP entry (AC-26). */
@@ -68,7 +73,12 @@ export interface Plan {
 
 /** The plan comparison surfaced to the user: winner, closest alternative, separating fact. */
 export interface PlanComparison {
-  winner: Plan;
+  /**
+   * The lowest-scoring plan, or **null when no plan was scored** — either because lookahead does
+   * not apply (`applicable: false`, AC-59) or because the user has no unfilled starting slot with
+   * an available player to fill it, which is the best-available regime rather than a plan.
+   */
+  winner: Plan | null;
   runnerUp: Plan | null;
   /** The specific survival fact separating the two, drawn from the same per-run data (AC-57). */
   separatingFact: string | null;
