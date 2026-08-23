@@ -133,14 +133,23 @@ export interface SleeperPlayerRecord {
 /** How a snapshot entry reached its Sleeper player (AC-25). */
 export type MatchMethod = 'crosswalk-id' | 'normalized-name' | 'team-defense';
 
-/** One ECR entry successfully joined to a Sleeper player, with ADP attached where it exists. */
+/**
+ * One snapshot entry successfully joined to a Sleeper player.
+ *
+ * Almost always an ECR row with its ADP attached — but `ecrRank` is nullable because the other
+ * case is real: an ADP row for a position the ECR snapshot does not rank at all. That is AC-23's
+ * degenerate cheat sheet and AC-50's K/DST fallback, and {@link AdpOnlyPlayer} is its shape.
+ * Everything ECR-ordered travels as {@link EcrMatchedPlayer} instead, so the board keeps its
+ * "every row has a rank" guarantee without every consumer re-checking for null.
+ */
 export interface MatchedPlayer {
   /** The canonical id everywhere downstream — Sleeper's own `player_id`. */
   sleeperPlayerId: string;
   playerName: string;
   position: Position;
   team: string | null;
-  ecrRank: number;
+  /** Overall ECR rank, or null on a row the ECR snapshot does not carry at all (AC-50). */
+  ecrRank: number | null;
   positionalRank: number | null;
   tier: number | null;
   byeWeek: number | null;
@@ -153,8 +162,28 @@ export interface MatchedPlayer {
    */
   samplingRank: number;
   matchedBy: MatchMethod;
-  fantasyProsId: number;
+  /** The ECR row's own FantasyPros id; null on a row that came from the ADP feed alone. */
+  fantasyProsId: number | null;
 }
+
+/** A matched player the ECR snapshot ranks — every row of the ECR-ordered board (🔶 AS-8). */
+export type EcrMatchedPlayer = MatchedPlayer & { ecrRank: number; fantasyProsId: number };
+
+/**
+ * A matched player the ECR snapshot does not carry at all, resolved from the ADP feed alone.
+ *
+ * Exists for AC-50's "falling back to ADP order when the snapshot carries no K/DST rankings":
+ * the K/DST filter is the one surface that may show these. They are never part of the ECR-ordered
+ * list, the simulation universe or the highlight — an unranked player has no place in an order
+ * FantasyPros defines.
+ */
+export type AdpOnlyPlayer = MatchedPlayer & {
+  ecrRank: null;
+  positionalRank: null;
+  tier: null;
+  fantasyProsId: null;
+  adp: number;
+};
 
 /** A snapshot entry that reached no Sleeper player, from either source (AC-25). */
 export interface UnmatchedEntry {
@@ -174,8 +203,14 @@ export interface MatchCounts {
 
 export interface MatchResult {
   /** Matched players in raw ECR order (🔶 AS-8). */
-  players: MatchedPlayer[];
-  byPlayerId: Map<string, MatchedPlayer>;
+  players: EcrMatchedPlayer[];
+  byPlayerId: Map<string, EcrMatchedPlayer>;
+  /**
+   * Players the ADP feed carries and the ECR feed does not, grouped by position and in ADP order
+   * within each — the supply for AC-50's K/DST fallback. Deliberately a separate list: adding them
+   * to `players` would put unranked rows in an ECR-ordered board.
+   */
+  adpOnlyPlayers: AdpOnlyPlayer[];
   /** Excluded from the candidate list and the simulation (AC-25). */
   unmatched: UnmatchedEntry[];
   /** Matched but with no ADP number — deliberately a different list from `unmatched` (AC-26). */

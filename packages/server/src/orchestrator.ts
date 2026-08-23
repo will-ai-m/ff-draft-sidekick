@@ -16,7 +16,7 @@
  *     this derived view is catching up"; `degraded` says "the board itself cannot be trusted"
  *     (AC-17, AC-48). Both ride on every `Insight<T>`; neither is ever collapsed into the other.
  */
-import { NO_NEED_SIGNAL, POSITIONS, freshInsight } from '@sidekick/shared';
+import { NO_NEED_SIGNAL, POSITIONS, freshInsight, isSkillPosition } from '@sidekick/shared';
 import type {
   AppStateSnapshot,
   AttachState,
@@ -57,7 +57,12 @@ import { PollIntervalController } from './sleeper/instanceHeartbeat';
 import type { PollOutcome, ResyncResult } from './sleeper/sync';
 import { buildPreDraftCheck } from './snapshots/predraftCheck';
 import { SnapshotStore } from './snapshots/store';
-import type { MatchedPlayer, SleeperPlayerRecord, SnapshotBundle } from './snapshots/types';
+import type {
+  AdpOnlyPlayer,
+  EcrMatchedPlayer,
+  SleeperPlayerRecord,
+  SnapshotBundle,
+} from './snapshots/types';
 import { TendencyProfileTracker } from './tendencies/profiles';
 
 export interface OrchestratorOptions {
@@ -95,7 +100,13 @@ interface ActiveSession {
   session: DraftSession;
   league: LeagueSettings;
   bundle: SnapshotBundle;
-  players: readonly MatchedPlayer[];
+  players: readonly EcrMatchedPlayer[];
+  /**
+   * AC-50's K/DST fallback supply: the ADP-only rows for a position the ECR snapshot ranks not at
+   * all. Resolved once per attach — the snapshot, and therefore which positions it covers, is
+   * immutable for this draft's lifetime (AC-29).
+   */
+  kdstAdpFallback: readonly AdpOnlyPlayer[];
   sleeperPlayers: Record<string, SleeperPlayerRecord>;
   roster: RosterPanelTracker;
   tendencies: TendencyProfileTracker;
@@ -403,11 +414,20 @@ export class Orchestrator {
 
     const preDraftCheck = this.buildPreDraftCheck(bundle, league);
 
+    // AC-50: when the cheat sheet ships without kickers or defenses (AC-23's warning case), the
+    // K/DST filter falls back to ADP order. Skill positions never do — the list proper is
+    // ECR-ordered, so an unranked skill player has no row to fall back into.
+    const rankedPositions = new Set(players.map((player) => player.position));
+    const kdstAdpFallback = bundle.matching.adpOnlyPlayers.filter(
+      (player) => !isSkillPosition(player.position) && !rankedPositions.has(player.position),
+    );
+
     this.active = {
       session,
       league,
       bundle,
       players,
+      kdstAdpFallback,
       sleeperPlayers,
       roster,
       tendencies,
@@ -444,6 +464,9 @@ export class Orchestrator {
         teamCount: league.teamCount,
         scoringType: league.scoring.scoringType ?? '(none)',
         rounds: league.rounds,
+        // AC-27 compares the settings, not the label. `resolveScoring` already says whether this
+        // dict is the league's own or one of the named fallback tables (AC-30).
+        scoring: { source: league.scoring.source, settings: league.scoring.settings },
       },
       config: this.config,
     });
@@ -629,7 +652,7 @@ export class Orchestrator {
   }
 
   private candidateList(input: {
-    players: readonly MatchedPlayer[];
+    players: readonly EcrMatchedPlayer[];
     board: Parameters<typeof computeCandidateList>[0]['board'];
     window: Parameters<typeof computeCandidateList>[0]['window'];
     needVector: Parameters<typeof computeCandidateList>[0]['needVector'];
@@ -652,7 +675,7 @@ export class Orchestrator {
    * still ship: FR-9's list is not one of the three outputs AC-5 blocks.
    */
   private seatUnresolvedList(
-    players: readonly MatchedPlayer[],
+    players: readonly EcrMatchedPlayer[],
     board: Parameters<typeof computeCandidateList>[0]['board'],
     survival: Parameters<typeof computeCandidateList>[0]['survival'],
   ): CandidateListData {
@@ -681,14 +704,19 @@ export class Orchestrator {
 
   /** AC-50's per-position sets, precomputed so the filter is one interaction and no round trip. */
   private rowsByPosition(
-    players: readonly MatchedPlayer[],
+    players: readonly EcrMatchedPlayer[],
     board: Parameters<typeof filterCandidateRows>[0]['board'],
     survival: Parameters<typeof filterCandidateRows>[0]['survival'],
   ): Partial<Record<Position, CandidateRow[]>> {
+    // Resolved at attach and constant for the draft (AC-29); empty unless the ECR snapshot ranks
+    // no K or DST at all, in which case `filterCandidateRows` sees ADP-only rows and orders this
+    // one position by ADP (AC-50).
+    const fallback = this.active?.kdstAdpFallback ?? [];
     const byPosition: Partial<Record<Position, CandidateRow[]>> = {};
     for (const position of POSITIONS) {
+      const extra = fallback.filter((player) => player.position === position);
       byPosition[position] = filterCandidateRows({
-        players,
+        players: extra.length === 0 ? players : [...players, ...extra],
         board,
         position,
         survival,

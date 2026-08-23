@@ -269,6 +269,88 @@ describe('matchSnapshots — ADP attachment and the missing-ADP fallback (AC-26)
   });
 });
 
+describe('matchSnapshots — ADP-only rows (AC-50\'s K/DST fallback)', () => {
+  /** The AC-23 snapshot: a fetched cheat sheet whose K and DST rows are absent. */
+  const skillOnlyEcr = () => {
+    const source = ecr();
+    return {
+      ...source,
+      entries: source.entries.filter((e) => e.position !== 'K' && e.position !== 'DST'),
+    };
+  };
+
+  it('emits the ADP feed\'s K and DST as ADP-only rows when the ECR snapshot carries none', () => {
+    const result = runMatch({ ecr: skillOnlyEcr() });
+
+    expect(result.players.some((p) => p.position === 'K' || p.position === 'DST')).toBe(false);
+    expect(result.adpOnlyPlayers.map((p) => p.sleeperPlayerId).sort()).toEqual(['11533', 'HOU']);
+    expect(result.adpOnlyPlayers.find((p) => p.sleeperPlayerId === 'HOU')).toMatchObject({
+      position: 'DST',
+      ecrRank: null,
+      positionalRank: null,
+      fantasyProsId: null,
+      adp: 100.5,
+      adpMissing: false,
+      matchedBy: 'team-defense',
+    });
+    expect(result.adpOnlyPlayers.find((p) => p.sleeperPlayerId === '11533')).toMatchObject({
+      playerName: 'Brandon Aubrey',
+      position: 'K',
+      ecrRank: null,
+      adp: 130,
+      matchedBy: 'normalized-name',
+    });
+  });
+
+  it('keeps the ADP-only rows out of the ECR-ordered board and its id index (AS-8)', () => {
+    const result = runMatch({ ecr: skillOnlyEcr() });
+
+    expect(result.players.every((p) => p.ecrRank !== null)).toBe(true);
+    expect(result.byPlayerId.has('HOU')).toBe(false);
+    expect(result.byPlayerId.has('11533')).toBe(false);
+    // An ADP row that reached a Sleeper player is matched, not unmatched (AC-25).
+    expect(result.unmatched.some((u) => u.name === 'Houston Defense')).toBe(false);
+  });
+
+  it('ranks the ADP-only rows of one position in ADP order', () => {
+    const source = adp();
+    const withSecondDefense = {
+      ...source,
+      entries: [
+        ...source.entries,
+        {
+          ffcPlayerId: 9001,
+          playerName: 'San Francisco Defense',
+          position: 'DST' as const,
+          team: 'SF',
+          adp: 90.2,
+          timesDrafted: 120,
+        },
+      ],
+    };
+    const result = runMatch({
+      ecr: skillOnlyEcr(),
+      adp: withSecondDefense,
+      sleeperPlayers: {
+        ...sleeper(),
+        SF: { player_id: 'SF', position: 'DEF', fantasy_positions: ['DEF'], team: 'SF' },
+      },
+    });
+
+    const defenses = result.adpOnlyPlayers.filter((p) => p.position === 'DST');
+    // ADP order (SF 90.2 before HOU 100.5), which is the only order these rows can have.
+    expect(defenses.map((p) => p.sleeperPlayerId)).toEqual(['SF', 'HOU']);
+    expect(defenses.map((p) => p.samplingRank)).toEqual([1, 2]);
+  });
+
+  it('emits nothing extra when the ECR snapshot ranks the K and DST itself', () => {
+    const result = runMatch();
+
+    expect(result.players.some((p) => p.sleeperPlayerId === 'HOU')).toBe(true);
+    expect(result.adpOnlyPlayers).toHaveLength(0);
+  });
+});
+
 describe('assignSamplingRanks (AC-26)', () => {
   const entry = (playerName: string, ecrRank: number, adp: number | null) =>
     ({ playerName, ecrRank, adp }) as { playerName: string; ecrRank: number; adp: number | null };

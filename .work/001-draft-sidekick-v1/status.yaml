@@ -1,17 +1,19 @@
 task: 001-draft-sidekick-v1
 route: feature
-phase: develop
+phase: spec_review
 state: running
 blocked_reason: null
 branch: village/001-draft-sidekick-v1
-subagent_calls: 20
-repair_passes: {}
+subagent_calls: 22
+repair_passes: {spec_review: 1}
 approvals:
   - {gate: spec, approver: willyu, at: "2026-08-23T02:45:17Z"}
   - {gate: design, approver: willyu, at: "2026-08-23T03:04:31Z"}
-gates: []
+gates:
+  - {gate: spec_review, verdict: fail, by: spec-reviewer, at: "2026-08-23T08:30:57Z", artifact: .work/001-draft-sidekick-v1/review-spec.md, evidence: ["AC-50 ADP-order K/DST fallback unreachable (MatchResult ECR-only; predraftCheck promises it)", "AC-27 compares scoring label, not settings (label proven unreliable by codebase's own counterexample)", "634 tests/lint/typecheck green; scope+test audits clean; 5 flagged deviations accepted"]}
 history:
   - {phase: sizing, entered_at: "2026-08-23T02:17:08Z"}
   - {phase: spec, entered_at: "2026-08-23T02:18:34Z"}
   - {phase: design, entered_at: "2026-08-23T02:45:17Z"}
   - {phase: develop, entered_at: "2026-08-23T03:04:31Z"}
+  - {phase: spec_review, entered_at: "2026-08-23T08:19:31Z"}

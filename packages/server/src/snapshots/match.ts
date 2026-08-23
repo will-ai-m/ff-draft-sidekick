@@ -14,19 +14,24 @@
  *
  * Anything that reaches no Sleeper player is reported, never guessed at: a wrong join puts a
  * live player's rank on someone else's board row, which is worse than an explicit gap.
+ *
+ * An ADP row that reaches a Sleeper player no ECR row claimed is neither matched into the board
+ * nor thrown away: it is emitted separately as `adpOnlyPlayers`, which is what AC-50's K/DST
+ * filter falls back to when the cheat sheet ships without kickers and defenses (AC-23).
  */
 import { POSITIONS, type Position } from '@sidekick/shared';
 
 import type {
   AdpEntry,
+  AdpOnlyPlayer,
   AdpSnapshot,
   Crosswalk,
   EcrEntry,
+  EcrMatchedPlayer,
   EcrSnapshot,
   MatchCounts,
   MatchMethod,
   MatchResult,
-  MatchedPlayer,
   SleeperPlayerRecord,
   UnmatchedEntry,
 } from './types';
@@ -220,12 +225,14 @@ function resolveEcrEntry(
   return null;
 }
 
-function resolveAdpEntry(entry: AdpEntry, index: SleeperIndex): string | null {
+function resolveAdpEntry(entry: AdpEntry, index: SleeperIndex): Resolution | null {
   if (entry.position === 'DST') {
     const team = normalizeTeam(entry.team);
-    return (team && index.defensesByTeam.get(team)?.id) || null;
+    const defense = team ? index.defensesByTeam.get(team) : undefined;
+    return defense ? { sleeperPlayerId: defense.id, matchedBy: 'team-defense' } : null;
   }
-  return resolveByName(index, entry.playerName, entry.position, entry.team, new Set());
+  const id = resolveByName(index, entry.playerName, entry.position, entry.team, new Set());
+  return id === null ? null : { sleeperPlayerId: id, matchedBy: 'normalized-name' };
 }
 
 interface RankableEntry {
@@ -285,9 +292,13 @@ export function matchSnapshots(input: MatchSnapshotsInput): MatchResult {
   // ---- ADP index, built first so matched players can pick their number up in one pass ----
   const adpByPlayerKey = new Map<string, AdpEntry>();
   const adpBySleeperId = new Map<string, AdpEntry>();
+  const adpResolutions = new Map<AdpEntry, Resolution>();
   for (const entry of input.adp?.entries ?? []) {
     const resolved = resolveAdpEntry(entry, index);
-    if (resolved) adpBySleeperId.set(resolved, entry);
+    if (resolved) {
+      adpBySleeperId.set(resolved.sleeperPlayerId, entry);
+      adpResolutions.set(entry, resolved);
+    }
     adpByPlayerKey.set(`${entry.position}:${normalizeName(entry.playerName)}`, entry);
     if (!resolved) {
       counts.unmatchedAdp += 1;
@@ -296,7 +307,9 @@ export function matchSnapshots(input: MatchSnapshotsInput): MatchResult {
   }
 
   // ---- ECR pass, in the feed's own order (🔶 AS-8 — never re-sorted) ----------------------
-  const staged: Omit<MatchedPlayer, 'samplingRank'>[] = [];
+  const staged: Omit<EcrMatchedPlayer, 'samplingRank'>[] = [];
+  /** ADP entries an ECR row has already taken its number from, by either join path. */
+  const spentAdp = new Set<AdpEntry>();
   for (const entry of input.ecr?.entries ?? []) {
     const resolution = resolveEcrEntry(entry, input.crosswalk, index, claimed);
     if (!resolution) {
@@ -313,6 +326,7 @@ export function matchSnapshots(input: MatchSnapshotsInput): MatchResult {
     const adpEntry =
       adpBySleeperId.get(resolution.sleeperPlayerId) ??
       adpByPlayerKey.get(`${entry.position}:${normalizeName(entry.playerName)}`);
+    if (adpEntry !== undefined) spentAdp.add(adpEntry);
 
     staged.push({
       sleeperPlayerId: resolution.sleeperPlayerId,
@@ -330,6 +344,30 @@ export function matchSnapshots(input: MatchSnapshotsInput): MatchResult {
     });
   }
 
+  // ---- ADP-only rows: what the ADP feed carries and the ECR feed does not (AC-50) ----------
+  // The K/DST filter is the one surface that may show these, and only for a position the ECR
+  // snapshot ranks not at all — AC-23's degenerate cheat sheet. They stay out of `players` and
+  // out of `byPlayerId`, both of which mean "the ECR board".
+  const stagedAdpOnly: Omit<AdpOnlyPlayer, 'samplingRank'>[] = [];
+  for (const [entry, resolution] of adpResolutions) {
+    if (spentAdp.has(entry) || claimed.has(resolution.sleeperPlayerId)) continue;
+    claimed.add(resolution.sleeperPlayerId);
+    stagedAdpOnly.push({
+      sleeperPlayerId: resolution.sleeperPlayerId,
+      playerName: entry.playerName,
+      position: entry.position,
+      team: entry.team,
+      ecrRank: null,
+      positionalRank: null,
+      tier: null,
+      byeWeek: null,
+      adp: entry.adp,
+      adpMissing: false,
+      matchedBy: resolution.matchedBy,
+      fantasyProsId: null,
+    });
+  }
+
   // ---- Sampling order, computed per position (AC-26) --------------------------------------
   const samplingRankById = new Map<string, number>();
   for (const position of POSITIONS) {
@@ -340,14 +378,26 @@ export function matchSnapshots(input: MatchSnapshotsInput): MatchResult {
     }
   }
 
-  const players: MatchedPlayer[] = staged.map((player) => ({
+  const players: EcrMatchedPlayer[] = staged.map((player) => ({
     ...player,
     samplingRank: samplingRankById.get(player.sleeperPlayerId) ?? 1,
   }));
 
+  // ADP is the only order an ADP-only row has, so it is also its sampling order.
+  const adpOnlyPlayers: AdpOnlyPlayer[] = [];
+  for (const position of POSITIONS) {
+    const group = stagedAdpOnly
+      .filter((p) => p.position === position)
+      .sort((a, b) => a.adp - b.adp || a.playerName.localeCompare(b.playerName));
+    for (const [offset, player] of group.entries()) {
+      adpOnlyPlayers.push({ ...player, samplingRank: offset + 1 });
+    }
+  }
+
   return {
     players,
     byPlayerId: new Map(players.map((p) => [p.sleeperPlayerId, p])),
+    adpOnlyPlayers,
     unmatched,
     playersMissingAdp: players
       .filter((p) => p.adpMissing)

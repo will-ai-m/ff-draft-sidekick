@@ -4,7 +4,13 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import realBundleJson from '../test/fixtures/sleeper-real-league-draft.json';
 import { createHarness, delay, waitForRecompute } from '../test/harness';
 import type { Harness } from '../test/harness';
-import { allHandlers, createRequestCounts, sleeperPlayersFixture } from '../test/msw/handlers';
+import {
+  allHandlers,
+  createRequestCounts,
+  ecrFixture,
+  ffcFixture,
+  sleeperPlayersFixture,
+} from '../test/msw/handlers';
 import type { RequestCounts, SleeperFixtureBundle } from '../test/msw/handlers';
 
 const realBundle = realBundleJson as unknown as SleeperFixtureBundle;
@@ -37,14 +43,21 @@ interface StandUpOptions {
   userId?: string | null;
   attach?: boolean;
   syncTickMs?: number;
+  /** Swap the Sleeper fixture bundle, e.g. for a league object with its own scoring dict. */
+  bundle?: SleeperFixtureBundle;
+  /** Replace the Sleeper player dump, e.g. to add a second team defense. */
+  players?: Record<string, Record<string, unknown>>;
+  /** Serve a different ECR / ADP payload — AC-23's degenerate snapshot and its ADP fallback. */
+  ecrData?: Record<string, unknown>;
+  adpData?: Record<string, unknown>;
 }
 
 /** Attaches a harness to the real-league fixture and returns it, ready to poll. */
 const standUp = async (options: StandUpOptions = {}): Promise<Harness> => {
   const harness = createHarness({
-    bundle: realBundle,
+    bundle: options.bundle ?? realBundle,
     visiblePicks: options.visiblePicks ?? 0,
-    players: sleeperPlayersFixture(),
+    players: options.players ?? sleeperPlayersFixture(),
     ...(options.config === undefined ? {} : { config: options.config }),
     ...(options.gameLogCache === undefined ? {} : { gameLogCache: options.gameLogCache }),
     ...(options.syncTickMs === undefined
@@ -57,6 +70,8 @@ const standUp = async (options: StandUpOptions = {}): Promise<Harness> => {
     ...allHandlers({
       scenario: harness.scenario,
       ...(options.counts === undefined ? {} : { counts: options.counts }),
+      ...(options.ecrData === undefined ? {} : { ecrData: options.ecrData }),
+      ...(options.adpData === undefined ? {} : { adpData: options.adpData }),
     }),
   );
 
@@ -191,6 +206,169 @@ describe('attach and the first AppStateSnapshot', () => {
       input: 'not-a-draft',
     });
     expect(harness.orchestrator.snapshot().attach.status).toBe('error');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// AC-50's K/DST fallback, and AC-27's scoring comparison — both end to end through one attach
+// ---------------------------------------------------------------------------------------------
+
+/** AC-23's degenerate cheat sheet: a fetched ECR snapshot with no K and no DST rows. */
+const skillOnlyEcrData = (): Record<string, unknown> => {
+  const raw = ecrFixture() as { players: { player_position_id: string }[] };
+  return {
+    ...raw,
+    players: raw.players.filter(
+      (p) => p.player_position_id !== 'K' && p.player_position_id !== 'DST',
+    ),
+  };
+};
+
+/** The FFC board plus a second defense, so "ADP order" is an order and not a single row. */
+const twoDefenceAdpData = (): Record<string, unknown> => {
+  const raw = ffcFixture() as { players: Record<string, unknown>[] };
+  return {
+    ...raw,
+    players: [
+      ...raw.players,
+      {
+        player_id: 9001,
+        name: 'San Francisco Defense',
+        position: 'DEF',
+        team: 'SF',
+        adp: 90.2,
+        times_drafted: 120,
+      },
+    ],
+  };
+};
+
+/** The FFC board with its kicker and defense removed — neither feed carries K/DST at all. */
+const skillOnlyAdpData = (): Record<string, unknown> => {
+  const raw = ffcFixture() as { players: { position: string }[] };
+  return {
+    ...raw,
+    players: raw.players.filter((p) => p.position !== 'DEF' && p.position !== 'PK'),
+  };
+};
+
+const withSanFranciscoDefense = (): Record<string, Record<string, unknown>> => ({
+  ...sleeperPlayersFixture(),
+  SF: { player_id: 'SF', position: 'DEF', fantasy_positions: ['DEF'], team: 'SF', active: true },
+});
+
+describe('AC-50 — the K/DST filter when the ECR snapshot ranks no K or DST', () => {
+  it('renders the filter in ADP order, from the ADP snapshot, with no ECR rank', async () => {
+    const harness = await standUp({
+      ecrData: skillOnlyEcrData(),
+      adpData: twoDefenceAdpData(),
+      players: withSanFranciscoDefense(),
+    });
+    const byPosition = harness.orchestrator.snapshot().candidateList.data.rowsByPosition;
+
+    // ADP order (SF 90.2 before HOU 100.5), which also inverts their alphabetical order.
+    expect(byPosition?.DST?.map((row) => row.playerId)).toEqual(['SF', 'HOU']);
+    expect(byPosition?.DST?.map((row) => row.ecrRank)).toEqual([null, null]);
+    expect(byPosition?.DST?.map((row) => row.adp)).toEqual([90.2, 100.5]);
+    expect(byPosition?.K?.map((row) => row.playerId)).toEqual(['11533']);
+    // 🔶 AS-7: still no survival math on a K/DST row, whatever the projection holds.
+    expect(byPosition?.DST?.every((row) => row.survival === null)).toBe(true);
+  });
+
+  it('keeps the ADP-only rows out of the ECR-ordered list, the highlight and the simulation', async () => {
+    const harness = await standUp({
+      ecrData: skillOnlyEcrData(),
+      adpData: twoDefenceAdpData(),
+      players: withSanFranciscoDefense(),
+    });
+    const list = harness.orchestrator.snapshot().candidateList.data;
+
+    expect(list.rows.every((row) => row.position !== 'K' && row.position !== 'DST')).toBe(true);
+    expect(['SF', 'HOU', '11533']).not.toContain(list.highlightPlayerId);
+    // The rows the list does show are still the ECR board, in ECR order (🔶 AS-8).
+    expect(list.rows.every((row) => row.ecrRank !== null)).toBe(true);
+  });
+
+  it('leaves the filter empty when neither feed carries K or DST', async () => {
+    const harness = await standUp({
+      ecrData: skillOnlyEcrData(),
+      adpData: skillOnlyAdpData(),
+    });
+    const byPosition = harness.orchestrator.snapshot().candidateList.data.rowsByPosition;
+
+    expect(byPosition?.DST).toEqual([]);
+    expect(byPosition?.K).toEqual([]);
+  });
+
+  it('still ranks K and DST by ECR when the snapshot does carry them', async () => {
+    const harness = await standUp();
+    const byPosition = harness.orchestrator.snapshot().candidateList.data.rowsByPosition;
+
+    expect(byPosition?.DST?.map((row) => row.playerId)).toEqual(['HOU']);
+    expect(byPosition?.DST?.[0]?.ecrRank).toBe(184);
+  });
+});
+
+describe('AC-27 — the scoring warning reads the league\'s settings, not its label', () => {
+  const HALF_PPR_DICT = {
+    pass_yd: 0.04,
+    pass_td: 4,
+    pass_int: -1,
+    pass_2pt: 2,
+    rush_yd: 0.1,
+    rush_td: 6,
+    rush_2pt: 2,
+    rec: 0.5,
+    rec_yd: 0.1,
+    rec_td: 6,
+    rec_2pt: 2,
+    fum_lost: -2,
+  };
+
+  const withLeagueScoring = (scoring: Record<string, number>): SleeperFixtureBundle => ({
+    ...realBundle,
+    league: {
+      league_id: String(realBundle.draft['league_id']),
+      name: 'Willy Half-PPR Home League',
+      scoring_settings: scoring,
+    },
+  });
+
+  const scoringWarning = (harness: Harness) =>
+    harness.orchestrator
+      .snapshot()
+      .preDraftCheck?.warnings.find((w) => w.code === 'scoring-format-mismatch');
+
+  it('warns for a league labelled half_ppr whose settings are full PPR', async () => {
+    const harness = await standUp({
+      bundle: withLeagueScoring({ ...HALF_PPR_DICT, rec: 1 }),
+    });
+
+    expect(scoringWarning(harness)?.message).toContain('rec');
+    expect(scoringWarning(harness)?.message).toMatch(/half/i);
+  });
+
+  it('warns for the live counterexample: a conventional label with 6-point passing TDs', async () => {
+    const harness = await standUp({
+      bundle: withLeagueScoring({ ...HALF_PPR_DICT, pass_td: 6, pass_int: -2 }),
+    });
+
+    expect(scoringWarning(harness)?.message).toContain('pass_td');
+    expect(scoringWarning(harness)?.message).toContain('pass_int');
+  });
+
+  it('warns for a TE-premium bonus the coarse label cannot express', async () => {
+    const harness = await standUp({
+      bundle: withLeagueScoring({ ...HALF_PPR_DICT, bonus_rec_te: 0.5 }),
+    });
+
+    expect(scoringWarning(harness)?.message).toContain('bonus_rec_te');
+  });
+
+  it('stays silent for a league whose settings really are half-PPR', async () => {
+    const harness = await standUp({ bundle: withLeagueScoring(HALF_PPR_DICT) });
+
+    expect(scoringWarning(harness)).toBeUndefined();
   });
 });
 

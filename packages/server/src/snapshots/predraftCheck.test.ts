@@ -1,4 +1,4 @@
-import { PARAMETER_DEFAULTS } from '@sidekick/shared';
+import { PARAMETER_DEFAULTS, SCORING_DEFAULTS } from '@sidekick/shared';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -13,13 +13,15 @@ import { parseEcrHtml } from './fantasypros';
 import { parseAdpResponse } from './ffc';
 import { matchSnapshots } from './match';
 import { buildPreDraftCheck, rankingsDisabledReason } from './predraftCheck';
+import type { LeagueSummary } from './predraftCheck';
 import type { AdpSnapshot, EcrSnapshot, SleeperPlayerRecord, SnapshotBundle } from './types';
 
 const NOW = new Date('2026-08-22T18:00:00.000Z');
 const FRESH = new Date('2026-08-22T12:00:00.000Z').toISOString(); // 6 h old
 const STALE = new Date('2026-08-20T12:00:00.000Z').toISOString(); // 54 h old
 
-const league = { teamCount: 10, scoringType: 'half_ppr', rounds: 15 };
+const league: LeagueSummary = { teamCount: 10, scoringType: 'half_ppr', rounds: 15 };
+const HALF_PPR_SETTINGS: Record<string, number> = { ...SCORING_DEFAULTS.half_ppr };
 
 const makeBundle = (overrides: Partial<SnapshotBundle> = {}): SnapshotBundle => {
   const ecr: EcrSnapshot = { ...parseEcrHtml(ecrFixtureHtml()), capturedAt: FRESH };
@@ -57,6 +59,20 @@ const makeBundle = (overrides: Partial<SnapshotBundle> = {}): SnapshotBundle => 
     });
   }
   return merged;
+};
+
+/** AC-23's degenerate cheat sheet: a fetched ECR snapshot carrying no K and no DST rows. */
+const skillOnlyEcr = (): EcrSnapshot => {
+  const raw = ecrFixture() as { players: { player_position_id: string }[] };
+  const parsed = parseEcrHtml(
+    ecrFixtureHtml({
+      ...raw,
+      players: raw.players.filter(
+        (p) => p.player_position_id !== 'K' && p.player_position_id !== 'DST',
+      ),
+    }),
+  );
+  return { ...parsed, capturedAt: FRESH };
 };
 
 const build = (bundle: SnapshotBundle) =>
@@ -103,18 +119,22 @@ describe('K/DST presence (AC-23)', () => {
   });
 
   it('warns when a fetched ECR snapshot has no K or DST rows', () => {
-    const raw = ecrFixture() as { players: { player_position_id: string }[] };
-    const skillOnly = parseEcrHtml(
-      ecrFixtureHtml({
-        ...raw,
-        players: raw.players.filter(
-          (p) => p.player_position_id !== 'K' && p.player_position_id !== 'DST',
-        ),
-      }),
+    expect(codes(makeBundle({ ecr: skillOnlyEcr() }))).toContain('kdst-missing');
+  });
+
+  it('promises the ADP fallback only when the ADP snapshot can actually supply it (AC-50)', () => {
+    const warning = build(makeBundle({ ecr: skillOnlyEcr() })).warnings.find(
+      (w) => w.code === 'kdst-missing',
     );
-    expect(codes(makeBundle({ ecr: { ...skillOnly, capturedAt: FRESH } }))).toContain(
-      'kdst-missing',
+    expect(warning?.message).toMatch(/ADP order/);
+  });
+
+  it('says the filter will be empty when the ADP snapshot has no K/DST either', () => {
+    const warning = build(makeBundle({ ecr: skillOnlyEcr(), adp: null })).warnings.find(
+      (w) => w.code === 'kdst-missing',
     );
+    expect(warning?.message).toMatch(/empty/);
+    expect(warning?.message).not.toMatch(/fall back to ADP order/);
   });
 });
 
@@ -166,24 +186,99 @@ describe('unmatched entries and missing ADP (AC-25, AC-26)', () => {
 });
 
 describe('scoring format (AC-27)', () => {
+  /** A real league's granular dict, as `/v1/league/<id>` serves it (AC-30's read). */
+  const leagueScoring = (settings: Record<string, number>): LeagueSummary => ({
+    ...league,
+    scoring: { source: 'league-settings', settings },
+  });
+
+  const warningFor = (summary: LeagueSummary | null) =>
+    buildPreDraftCheck({
+      bundle: makeBundle(),
+      league: summary,
+      config: PARAMETER_DEFAULTS,
+      now: NOW,
+    }).warnings.find((w) => w.code === 'scoring-format-mismatch');
+
   it('does not warn for a half-PPR league', () => {
     expect(codes(makeBundle())).not.toContain('scoring-format-mismatch');
   });
 
-  it('warns when the attached draft\'s scoring label is not half-PPR', () => {
+  it('does not warn when the league\'s own settings really are half-PPR', () => {
+    expect(warningFor(leagueScoring({ ...HALF_PPR_SETTINGS }))).toBeUndefined();
+  });
+
+  it('lets the settings outrank the label in both directions', () => {
+    // Labelled "ppr", but the dict pays 0.5 a reception: the rankings do fit this league.
+    const summary = leagueScoring({ ...HALF_PPR_SETTINGS });
+    expect(warningFor({ ...summary, scoringType: 'ppr' })).toBeUndefined();
+  });
+
+  it('warns on the settings, not the label, when a "half_ppr" league pays 1 per reception', () => {
+    const warning = warningFor(leagueScoring({ ...HALF_PPR_SETTINGS, rec: 1 }));
+    expect(warning?.message).toContain('rec 1 vs 0.5');
+    // The label the user recognises is still in the text (it is what Sleeper shows them).
+    expect(warning?.message).toContain('half_ppr');
+  });
+
+  it('warns for the live counterexample: 6-point passing TDs under a conventional label', () => {
+    const warning = warningFor(leagueScoring({ ...HALF_PPR_SETTINGS, pass_td: 6, pass_int: -2 }));
+    expect(warning?.message).toContain('pass_td 6 vs 4');
+    expect(warning?.message).toContain('pass_int -2 vs -1');
+  });
+
+  it('warns for a TE-premium bonus, which no scoring label can express', () => {
+    const warning = warningFor(leagueScoring({ ...HALF_PPR_SETTINGS, bonus_rec_te: 0.5 }));
+    expect(warning?.message).toContain('bonus_rec_te 0.5 vs 0');
+  });
+
+  it('treats a key absent from the dict as zero, never as a match', () => {
+    const noReception = Object.fromEntries(
+      Object.entries(HALF_PPR_SETTINGS).filter(([key]) => key !== 'rec'),
+    );
+    expect(warningFor(leagueScoring(noReception))?.message).toContain('rec 0 vs 0.5');
+  });
+
+  it('ignores the keys half-PPR rankings do not depend on', () => {
+    // A real dict carries ~81 keys; kicking distances and IDP move no skill player's rank.
+    expect(
+      warningFor(leagueScoring({ ...HALF_PPR_SETTINGS, fgm_40_49: 4, idp_sack: 2, def_st_td: 6 })),
+    ).toBeUndefined();
+  });
+
+  it('falls back to the coarse label when there is no dict to read (a mock)', () => {
+    // A mock has `league_id: null`, so nothing granular exists; the label is all there is.
+    expect(warningFor({ ...league, scoringType: 'ppr' })?.message).toContain('ppr');
+    expect(warningFor({ ...league, scoringType: 'half_ppr' })).toBeUndefined();
+    // Sleeper qualifies the label for non-redraft formats; "half" still means half-PPR.
+    expect(warningFor({ ...league, scoringType: 'dynasty_half_ppr' })).toBeUndefined();
+  });
+
+  it('ignores a fallback scoring table, which would only ever match itself', () => {
     const check = buildPreDraftCheck({
       bundle: makeBundle(),
-      league: { ...league, scoringType: 'ppr' },
+      league: {
+        ...league,
+        scoringType: 'ppr',
+        scoring: { source: 'scoring-type-default', settings: { ...HALF_PPR_SETTINGS, rec: 1 } },
+      },
       config: PARAMETER_DEFAULTS,
       now: NOW,
     });
     const warning = check.warnings.find((w) => w.code === 'scoring-format-mismatch');
-    expect(warning?.message).toContain('ppr');
-    expect(warning?.message).toMatch(/half/i);
+    // The label, not the table, is what carries the news here.
+    expect(warning?.message).toContain('"ppr"');
+    expect(warning?.message).not.toContain('rec 1 vs 0.5');
   });
 
-  it('echoes the league summary read from the draft API', () => {
-    expect(build(makeBundle()).leagueSummary).toEqual(league);
+  it('echoes the league summary read from the draft API, without the scoring dict', () => {
+    const check = buildPreDraftCheck({
+      bundle: makeBundle(),
+      league: leagueScoring({ ...HALF_PPR_SETTINGS }),
+      config: PARAMETER_DEFAULTS,
+      now: NOW,
+    });
+    expect(check.leagueSummary).toEqual(league);
   });
 });
 

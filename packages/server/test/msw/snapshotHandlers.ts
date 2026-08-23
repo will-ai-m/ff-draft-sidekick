@@ -63,6 +63,8 @@ export interface SnapshotHandlerOptions {
   ecrHtml?: string;
   /** Serve a non-200 for the ECR page, to exercise AC-28's "no rankings loaded" path. */
   ecrStatus?: number;
+  /** Override the FFC payload served, e.g. an ADP board carrying K/DST the ECR one does not. */
+  adpData?: Record<string, unknown>;
   adpStatus?: number;
   crosswalkStatus?: number;
 }
@@ -88,7 +90,7 @@ export const snapshotHandlers = (options: SnapshotHandlerOptions = {}) => {
       if (![8, 10, 12, 14].includes(teams)) {
         return HttpResponse.json({ status: 'Error', errors: ['Invalid teams'] });
       }
-      const body = ffcFixture() as { meta: Record<string, unknown> };
+      const body = (options.adpData ?? ffcFixture()) as { meta: Record<string, unknown> };
       return HttpResponse.json({ ...body, meta: { ...body.meta, teams } });
     }),
     http.get(CROSSWALK_URL, () => {

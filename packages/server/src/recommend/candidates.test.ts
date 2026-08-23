@@ -391,22 +391,10 @@ describe('the position filter (AC-50)', () => {
     expect(rows[0]?.survival).toBeNull();
   });
 
-  it('falls back to ADP order when the snapshot carries no K/DST rankings', () => {
-    const adpOnly = [
-      ...SNAPSHOT.filter((p) => p.position !== 'DST'),
-      player('dst2', 'San Francisco 49ers', 'DST', null, null, 130),
-      player('dst3', 'Baltimore Ravens', 'DST', null, null, 120),
-    ];
-    const rows = filterCandidateRows({
-      players: adpOnly,
-      board: boardOf(),
-      position: 'DST',
-      survival: null,
-      config: config(),
-    });
-    expect(rows.map((row) => row.playerId)).toEqual(['dst3', 'dst2']);
-    expect(rows[0]?.ecrRank).toBeNull();
-  });
+  // AC-50's "falling back to ADP order when the snapshot carries no K/DST rankings" is covered
+  // end to end instead, over the real ingest pipeline: see orchestrator.test.ts, "AC-50 — the
+  // K/DST filter when the ECR snapshot ranks no K or DST". Hand-built ADP-only rows proved
+  // nothing about whether the pipeline can produce them.
 
   it('excludes drafted players from a filtered view too (AC-53)', () => {
     const rows = filterCandidateRows({
