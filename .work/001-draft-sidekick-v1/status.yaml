@@ -1,15 +1,17 @@
 task: 001-draft-sidekick-v1
 route: feature
-phase: design
-state: awaiting_approval
+phase: develop
+state: running
 blocked_reason: null
-branch: null
-subagent_calls: 3
+branch: village/001-draft-sidekick-v1
+subagent_calls: 4
 repair_passes: {}
 approvals:
   - {gate: spec, approver: willyu, at: "2026-08-23T02:45:17Z"}
+  - {gate: design, approver: willyu, at: "2026-08-23T03:04:31Z"}
 gates: []
 history:
   - {phase: sizing, entered_at: "2026-08-23T02:17:08Z"}
   - {phase: spec, entered_at: "2026-08-23T02:18:34Z"}
   - {phase: design, entered_at: "2026-08-23T02:45:17Z"}
+  - {phase: develop, entered_at: "2026-08-23T03:04:31Z"}

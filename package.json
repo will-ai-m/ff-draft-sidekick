@@ -1,0 +1,38 @@
+{
+  "name": "willy-ff",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Draft Sidekick — a local, free-to-run Sleeper draft assistant",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "tsx watch packages/server/src/index.ts",
+    "dev:web": "npm run dev -w @sidekick/web",
+    "build": "npm run build -w @sidekick/web",
+    "start": "npm run build && tsx packages/server/src/index.ts",
+    "prep:nflverse": "tsx packages/server/scripts/prep-nflverse-data.ts",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p packages/shared/tsconfig.json && tsc --noEmit -p packages/server/tsconfig.json && tsc --noEmit -p packages/web/tsconfig.json"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^20.0.0",
+    "concurrently": "^9.0.0",
+    "eslint": "^9.0.0",
+    "eslint-plugin-react": "^7.34.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "globals": "^15.0.0",
+    "prettier": "^3.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.0.0"
+  }
+}

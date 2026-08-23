@@ -4,9 +4,9 @@ Project conventions every Village agent must respect. Checkers cite this file; v
 
 ## Commands
 
-- test: `{{test command — greenfield repo, no build system yet; the architect's design.md must declare the stack and fill this, e.g. pytest / npm test}}`
-- lint: `{{lint command — fill from design.md's chosen stack}}`
-- typecheck: `{{typecheck command, or "none" — fill from design.md's chosen stack}}`
+- test: `npm test`
+- lint: `npm run lint`
+- typecheck: `npm run typecheck`
 
 ## Conventions
 
