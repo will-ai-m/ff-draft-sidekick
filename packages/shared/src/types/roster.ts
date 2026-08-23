@@ -52,6 +52,11 @@ export interface RosterPanelData {
   slots: SlotConfig;
   /** Filled starting slots per position, capped at the configured slot counts. */
   filledStartingSlots: Record<Position, number>;
+  /**
+   * FLEX slots filled by positional surplus. Kept explicit so the roster panel UI reads roster
+   * math rather than re-deriving it from `slots.FLEX` and `unfilledStartingSlots.flex`.
+   */
+  filledFlexSlots: number;
   unfilledStartingSlots: UnfilledStartingSlots;
   /** The same need still-open picture as weights; sentinel when nothing is open (AC-31). */
   needVector: NeedVector | NoNeedSignal;

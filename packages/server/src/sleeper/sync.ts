@@ -492,6 +492,19 @@ export class BoardSync {
     return this.reason;
   }
 
+  /**
+   * Resolves which seat owns the pick made in a given round from a given board column, for the
+   * *current* ingest — trades included.
+   *
+   * The pick feed can only attribute picks that have happened. FR-6's window is made of picks
+   * that have not, so it needs the resolver itself; exposing it here (rather than letting a
+   * caller rebuild one from a stale copy of `traded_picks`) keeps the window's ownership and
+   * sync's own attribution the same answer, and keeps it correct across a mid-draft re-ingest.
+   */
+  get pickOwnerResolver(): (round: number, draftSlot: number) => string {
+    return buildPickOwnerResolver(this.ingest.draft, this.ingest.tradedPicks);
+  }
+
   get isComplete(): boolean {
     return this.derived.meta.status === 'complete';
   }

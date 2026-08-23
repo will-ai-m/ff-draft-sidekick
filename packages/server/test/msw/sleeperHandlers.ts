@@ -20,6 +20,11 @@ export interface SleeperFixtureBundle {
   picks: Record<string, unknown>[];
   tradedPicks: Record<string, unknown>[];
   leagueUsers: Record<string, unknown>[] | null;
+  /**
+   * The `/v1/league/<id>` object, where the fixture is a real league. It is the only place a
+   * granular per-stat `scoring_settings` dict exists (T4/FR-5); a mock fixture has none.
+   */
+  league?: Record<string, unknown> | null;
 }
 
 /** How the next `/picks` response should fail, when a test wants it to. */
@@ -37,6 +42,8 @@ export interface SleeperScenarioOptions {
   userDrafts?: Record<string, Record<string, unknown>[]>;
   players?: Record<string, Record<string, unknown>>;
   nflState?: Record<string, unknown>;
+  /** Make `/v1/league/<id>` answer with this HTTP status instead of the bundle's league object. */
+  failLeague?: { status: number };
 }
 
 /**
@@ -58,6 +65,7 @@ export class SleeperScenario {
   private readonly userDrafts: Record<string, Record<string, unknown>[]>;
   private readonly players: Record<string, Record<string, unknown>>;
   private readonly nflState: Record<string, unknown>;
+  private readonly leagueFailure: { status: number } | null;
 
   constructor(options: SleeperScenarioOptions) {
     this.bundle = options.bundle;
@@ -66,6 +74,7 @@ export class SleeperScenario {
     this.userDrafts = options.userDrafts ?? {};
     this.players = options.players ?? {};
     this.nflState = options.nflState ?? { season: '2026', league_season: '2026', week: 2 };
+    this.leagueFailure = options.failLeague ?? null;
   }
 
   /** Make the next `times` `/picks` responses fail in the given way. */
@@ -133,6 +142,15 @@ export class SleeperScenario {
       http.get(`${baseUrl}/v1/league/:leagueId/users`, ({ params }) => {
         log(`league_users:${String(params['leagueId'])}`);
         return HttpResponse.json(this.bundle.leagueUsers ?? []);
+      }),
+
+      // The league object itself — the only source of a granular `scoring_settings` dict (FR-5).
+      http.get(`${baseUrl}/v1/league/:leagueId`, ({ params }) => {
+        log(`league:${String(params['leagueId'])}`);
+        if (this.leagueFailure !== null) {
+          return new HttpResponse(null, { status: this.leagueFailure.status });
+        }
+        return HttpResponse.json(this.bundle.league ?? null);
       }),
 
       http.get(`${baseUrl}/v1/user/:userId/drafts/nfl/:season`, ({ params }) => {

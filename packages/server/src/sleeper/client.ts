@@ -121,6 +121,27 @@ export const sleeperTradedPickSchema = z
 
 export const sleeperTradedPickListSchema = z.array(sleeperTradedPickSchema);
 
+/**
+ * The league object. It is the **only** place a granular per-stat `scoring_settings` dict exists
+ * (live-verified 2026-08-22 on league `289646328504385536`: 81 numeric keys), which is why FR-5
+ * fetches it for a real league. A mock has `league_id: null` and therefore no league at all.
+ * `scoring_settings` is nullish here because a caller must degrade rather than crash when Sleeper
+ * answers without one.
+ */
+export const sleeperLeagueSchema = z
+  .object({
+    league_id: z.string(),
+    name: z.string().nullish(),
+    season: z.string().nullish(),
+    status: z.string().nullish(),
+    total_rosters: z.number().nullish(),
+    /** Per-stat point values, e.g. `{pass_td: 6, rec: 0.5}`. Keys are absent, never zero-filled. */
+    scoring_settings: z.record(z.string(), z.number()).nullish(),
+    /** Starting-lineup shape as a flat array; Sidekick reads slots from the draft object instead. */
+    roster_positions: z.array(z.string()).nullish(),
+  })
+  .passthrough();
+
 export const sleeperLeagueUserSchema = z
   .object({
     user_id: z.string(),
@@ -165,6 +186,7 @@ export type SleeperDraftSettings = z.infer<typeof sleeperDraftSettingsSchema>;
 export type SleeperDraft = z.infer<typeof sleeperDraftSchema>;
 export type SleeperPick = z.infer<typeof sleeperPickSchema>;
 export type SleeperTradedPick = z.infer<typeof sleeperTradedPickSchema>;
+export type SleeperLeague = z.infer<typeof sleeperLeagueSchema>;
 export type SleeperLeagueUser = z.infer<typeof sleeperLeagueUserSchema>;
 export type SleeperUser = z.infer<typeof sleeperUserSchema>;
 export type SleeperNflState = z.infer<typeof sleeperNflStateSchema>;
@@ -380,6 +402,11 @@ export class SleeperClient {
 
   getTradedPicks(draftId: string, options: RequestOptions = {}): Promise<SleeperTradedPick[]> {
     return this.request(`/v1/draft/${draftId}/traded_picks`, sleeperTradedPickListSchema, options);
+  }
+
+  /** The league object, for its granular `scoring_settings` dict (FR-5, AC-30). */
+  getLeague(leagueId: string, options: RequestOptions = {}): Promise<SleeperLeague> {
+    return this.request(`/v1/league/${leagueId}`, sleeperLeagueSchema, options);
   }
 
   getLeagueUsers(leagueId: string, options: RequestOptions = {}): Promise<SleeperLeagueUser[]> {

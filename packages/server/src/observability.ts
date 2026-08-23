@@ -93,6 +93,21 @@ export class Observability {
     return this.buffer;
   }
 
+  /**
+   * The most recent poll response's arrival time, or null if none has been recorded.
+   *
+   * A view rebuilt from the poll that has just been applied measures its own reflection lag
+   * against this (FR-5's roster panel does exactly that, AC-31): the sync layer stamps the
+   * response's arrival, and the view stamps the moment it reflected it.
+   */
+  lastPollResponseAt(): number | null {
+    for (let index = this.buffer.length - 1; index >= 0; index -= 1) {
+      const sample = this.buffer[index]!;
+      if (sample.type === 'poll-response') return sample.at;
+    }
+    return null;
+  }
+
   /** Nearest-rank p95 over the retained pick-reflection lags — enough to judge SC-1's ≤3 s bar. */
   pickLagSummary(): LagSummary | null {
     const lags = this.buffer

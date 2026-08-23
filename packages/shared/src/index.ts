@@ -1,6 +1,7 @@
 /** `@sidekick/shared` — types and the configurable-parameter module every package imports. */
 
 export * from './config/parameters';
+export * from './config/scoringDefaults';
 export * from './needvector';
 export * from './types/appstate';
 export * from './types/board';

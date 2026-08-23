@@ -1,0 +1,779 @@
+{
+  "//": "FR-6 window fixture (T5). T2's real-league draft (same 10-team half-PPR league, draft and league ids unchanged) carried two picks further and given two *future*-round traded picks, so the window between the user's current and next pick actually contains one. 24 of 150 picks are made, so pick 25 -- seat 5, the user -- is the in-progress pick. Trades: round 2 roster 5 (seat 7) -> roster 7 (seat 2), already exercised in T2; round 3 roster 4 (seat 8) -> roster 7 (seat 2); round 4 roster 10 (seat 6) -> roster 6 (seat 10). Player ids are real (api.sleeper.app/v1/players/nfl, 2026-08-22). See dev-notes-T5.md.",
+  "draft": {
+    "created": 1787000000000,
+    "creators": ["700000000000000001"],
+    "draft_id": "1200000000000000002",
+    "draft_order": {
+      "700000000000000001": 1,
+      "700000000000000002": 2,
+      "700000000000000003": 3,
+      "700000000000000004": 4,
+      "700000000000000005": 5,
+      "700000000000000006": 6,
+      "700000000000000007": 7,
+      "700000000000000008": 8,
+      "700000000000000009": 9
+    },
+    "last_message_id": null,
+    "last_message_time": null,
+    "last_picked": 1787001200000,
+    "league_id": "1200000000000000001",
+    "metadata": {
+      "description": "",
+      "name": "Willy Half-PPR Home League",
+      "scoring_type": "half_ppr"
+    },
+    "season": "2026",
+    "season_type": "regular",
+    "settings": {
+      "teams": 10,
+      "rounds": 15,
+      "slots_qb": 1,
+      "slots_rb": 2,
+      "slots_wr": 2,
+      "slots_te": 1,
+      "slots_flex": 1,
+      "slots_k": 1,
+      "slots_def": 1,
+      "slots_bn": 6,
+      "pick_timer": 120,
+      "cpu_autopick": 1,
+      "player_type": 0,
+      "reversal_round": 0,
+      "nomination_timer": 0,
+      "enforce_position_limits": 1,
+      "alpha_sort": 0
+    },
+    "slot_to_roster_id": {
+      "1": 3,
+      "2": 7,
+      "3": 1,
+      "4": 9,
+      "5": 2,
+      "6": 10,
+      "7": 5,
+      "8": 4,
+      "9": 8,
+      "10": 6
+    },
+    "sport": "nfl",
+    "start_time": 1787000000000,
+    "status": "drafting",
+    "type": "snake"
+  },
+  "picks": [
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 1,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Bijan",
+        "injury_status": "",
+        "last_name": "Robinson",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "9509",
+        "position": "RB",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "ATL",
+        "years_exp": "4"
+      },
+      "pick_no": 1,
+      "picked_by": "700000000000000001",
+      "player_id": "9509",
+      "reactions": null,
+      "roster_id": 3,
+      "round": 1
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 2,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Ja'Marr",
+        "injury_status": "",
+        "last_name": "Chase",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "7564",
+        "position": "WR",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "CIN",
+        "years_exp": "5"
+      },
+      "pick_no": 2,
+      "picked_by": "700000000000000002",
+      "player_id": "7564",
+      "reactions": null,
+      "roster_id": 7,
+      "round": 1
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 3,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Jahmyr",
+        "injury_status": "",
+        "last_name": "Gibbs",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "9221",
+        "position": "RB",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "DET",
+        "years_exp": "3"
+      },
+      "pick_no": 3,
+      "picked_by": "700000000000000003",
+      "player_id": "9221",
+      "reactions": null,
+      "roster_id": 1,
+      "round": 1
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 4,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Puka",
+        "injury_status": "",
+        "last_name": "Nacua",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "9493",
+        "position": "WR",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "LAR",
+        "years_exp": "3"
+      },
+      "pick_no": 4,
+      "picked_by": "700000000000000004",
+      "player_id": "9493",
+      "reactions": null,
+      "roster_id": 9,
+      "round": 1
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 5,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "CeeDee",
+        "injury_status": "",
+        "last_name": "Lamb",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "6786",
+        "position": "WR",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "DAL",
+        "years_exp": "6"
+      },
+      "pick_no": 5,
+      "picked_by": "700000000000000005",
+      "player_id": "6786",
+      "reactions": null,
+      "roster_id": 2,
+      "round": 1
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 6,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Jaxon",
+        "injury_status": "",
+        "last_name": "Smith-Njigba",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "9488",
+        "position": "WR",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "SEA",
+        "years_exp": "3"
+      },
+      "pick_no": 6,
+      "picked_by": "700000000000000006",
+      "player_id": "9488",
+      "reactions": null,
+      "roster_id": 10,
+      "round": 1
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 7,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "James",
+        "injury_status": "",
+        "last_name": "Cook",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "8138",
+        "position": "RB",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "BUF",
+        "years_exp": "4"
+      },
+      "pick_no": 7,
+      "picked_by": "700000000000000007",
+      "player_id": "8138",
+      "reactions": null,
+      "roster_id": 5,
+      "round": 1
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 8,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Amon-Ra",
+        "injury_status": "",
+        "last_name": "St. Brown",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "7547",
+        "position": "WR",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "DET",
+        "years_exp": "5"
+      },
+      "pick_no": 8,
+      "picked_by": "700000000000000008",
+      "player_id": "7547",
+      "reactions": null,
+      "roster_id": 4,
+      "round": 1
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 9,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Jonathan",
+        "injury_status": "",
+        "last_name": "Taylor",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "6813",
+        "position": "RB",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "IND",
+        "years_exp": "6"
+      },
+      "pick_no": 9,
+      "picked_by": "700000000000000009",
+      "player_id": "6813",
+      "reactions": null,
+      "roster_id": 8,
+      "round": 1
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 10,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Justin",
+        "injury_status": "",
+        "last_name": "Jefferson",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "6794",
+        "position": "WR",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "MIN",
+        "years_exp": "6"
+      },
+      "pick_no": 10,
+      "picked_by": "700000000000000000",
+      "player_id": "6794",
+      "reactions": null,
+      "roster_id": 6,
+      "round": 1
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 10,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Josh",
+        "injury_status": "",
+        "last_name": "Allen",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "4984",
+        "position": "QB",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "BUF",
+        "years_exp": "8"
+      },
+      "pick_no": 11,
+      "picked_by": "700000000000000000",
+      "player_id": "4984",
+      "reactions": null,
+      "roster_id": 6,
+      "round": 2
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 9,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Trey",
+        "injury_status": "",
+        "last_name": "McBride",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "8130",
+        "position": "TE",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "ARI",
+        "years_exp": "4"
+      },
+      "pick_no": 12,
+      "picked_by": "700000000000000009",
+      "player_id": "8130",
+      "reactions": null,
+      "roster_id": 8,
+      "round": 2
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 8,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Brock",
+        "injury_status": "",
+        "last_name": "Bowers",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "11604",
+        "position": "TE",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "LV",
+        "years_exp": "2"
+      },
+      "pick_no": 13,
+      "picked_by": "700000000000000008",
+      "player_id": "11604",
+      "reactions": null,
+      "roster_id": 4,
+      "round": 2
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 7,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Lamar",
+        "injury_status": "",
+        "last_name": "Jackson",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "4881",
+        "position": "QB",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "BAL",
+        "years_exp": "8"
+      },
+      "pick_no": 14,
+      "picked_by": "700000000000000002",
+      "player_id": "4881",
+      "reactions": null,
+      "roster_id": 7,
+      "round": 2
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 6,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Derrick",
+        "injury_status": "",
+        "last_name": "Henry",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "3198",
+        "position": "RB",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "BAL",
+        "years_exp": "10"
+      },
+      "pick_no": 15,
+      "picked_by": "700000000000000006",
+      "player_id": "3198",
+      "reactions": null,
+      "roster_id": 10,
+      "round": 2
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 5,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Jayden",
+        "injury_status": "",
+        "last_name": "Daniels",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "11566",
+        "position": "QB",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "WAS",
+        "years_exp": "2"
+      },
+      "pick_no": 16,
+      "picked_by": "700000000000000005",
+      "player_id": "11566",
+      "reactions": null,
+      "roster_id": 2,
+      "round": 2
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 4,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Christian",
+        "injury_status": "",
+        "last_name": "McCaffrey",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "4034",
+        "position": "RB",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "SF",
+        "years_exp": "9"
+      },
+      "pick_no": 17,
+      "picked_by": "700000000000000004",
+      "player_id": "4034",
+      "reactions": null,
+      "roster_id": 9,
+      "round": 2
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 3,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Drake",
+        "injury_status": "",
+        "last_name": "Maye",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "11564",
+        "position": "QB",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "NE",
+        "years_exp": "2"
+      },
+      "pick_no": 18,
+      "picked_by": "700000000000000003",
+      "player_id": "11564",
+      "reactions": null,
+      "roster_id": 1,
+      "round": 2
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 2,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Sam",
+        "injury_status": "",
+        "last_name": "LaPorta",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "10859",
+        "position": "TE",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "DET",
+        "years_exp": "3"
+      },
+      "pick_no": 19,
+      "picked_by": "700000000000000002",
+      "player_id": "10859",
+      "reactions": null,
+      "roster_id": 7,
+      "round": 2
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 1,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Joe",
+        "injury_status": "",
+        "last_name": "Burrow",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "6770",
+        "position": "QB",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "CIN",
+        "years_exp": "6"
+      },
+      "pick_no": 20,
+      "picked_by": "700000000000000001",
+      "player_id": "6770",
+      "reactions": null,
+      "roster_id": 3,
+      "round": 2
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 1,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Tyler",
+        "injury_status": "",
+        "last_name": "Warren",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "12518",
+        "position": "TE",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "IND",
+        "years_exp": "1"
+      },
+      "pick_no": 21,
+      "picked_by": "700000000000000001",
+      "player_id": "12518",
+      "reactions": null,
+      "roster_id": 3,
+      "round": 3
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 2,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Colston",
+        "injury_status": "",
+        "last_name": "Loveland",
+        "news_updated": "1787000000000",
+        "number": "1",
+        "player_id": "12517",
+        "position": "TE",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "CHI",
+        "years_exp": "1"
+      },
+      "pick_no": 22,
+      "picked_by": "700000000000000002",
+      "player_id": "12517",
+      "reactions": null,
+      "roster_id": 7,
+      "round": 3
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 3,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Nico",
+        "injury_status": "",
+        "last_name": "Collins",
+        "news_updated": "1787000000000",
+        "number": "12",
+        "player_id": "7569",
+        "position": "WR",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "HOU",
+        "years_exp": "6"
+      },
+      "pick_no": 23,
+      "picked_by": "700000000000000003",
+      "player_id": "7569",
+      "reactions": null,
+      "roster_id": 1,
+      "round": 3
+    },
+    {
+      "draft_id": "1200000000000000002",
+      "draft_slot": 4,
+      "is_keeper": null,
+      "metadata": {
+        "first_name": "Kyren",
+        "injury_status": "",
+        "last_name": "Williams",
+        "news_updated": "1787000000000",
+        "number": "23",
+        "player_id": "8150",
+        "position": "RB",
+        "sport": "nfl",
+        "status": "Active",
+        "team": "LAR",
+        "years_exp": "5"
+      },
+      "pick_no": 24,
+      "picked_by": "700000000000000004",
+      "player_id": "8150",
+      "reactions": null,
+      "roster_id": 9,
+      "round": 3
+    }
+  ],
+  "tradedPicks": [
+    {
+      "season": "2026",
+      "round": 2,
+      "roster_id": 5,
+      "previous_owner_id": 5,
+      "owner_id": 7
+    },
+    {
+      "season": "2026",
+      "round": 3,
+      "roster_id": 4,
+      "previous_owner_id": 4,
+      "owner_id": 7
+    },
+    {
+      "season": "2026",
+      "round": 4,
+      "roster_id": 10,
+      "previous_owner_id": 10,
+      "owner_id": 6
+    }
+  ],
+  "leagueUsers": [
+    {
+      "avatar": null,
+      "display_name": "meridian",
+      "is_bot": null,
+      "is_owner": true,
+      "league_id": "1200000000000000001",
+      "metadata": {
+        "team_name": "Gridiron Gophers",
+        "allow_pn": "on"
+      },
+      "settings": null,
+      "user_id": "700000000000000001"
+    },
+    {
+      "avatar": null,
+      "display_name": "coldbrew",
+      "is_bot": null,
+      "is_owner": false,
+      "league_id": "1200000000000000001",
+      "metadata": {
+        "team_name": "Route Tree Huggers",
+        "allow_pn": "on"
+      },
+      "settings": null,
+      "user_id": "700000000000000002"
+    },
+    {
+      "avatar": null,
+      "display_name": "ninefingers",
+      "is_bot": null,
+      "is_owner": false,
+      "league_id": "1200000000000000001",
+      "metadata": {
+        "allow_pn": "on"
+      },
+      "settings": null,
+      "user_id": "700000000000000003"
+    },
+    {
+      "avatar": null,
+      "display_name": "willy",
+      "is_bot": null,
+      "is_owner": false,
+      "league_id": "1200000000000000001",
+      "metadata": {
+        "team_name": "Play Action Heroes",
+        "allow_pn": "on"
+      },
+      "settings": null,
+      "user_id": "700000000000000004"
+    },
+    {
+      "avatar": null,
+      "display_name": "tapedeck",
+      "is_bot": null,
+      "is_owner": false,
+      "league_id": "1200000000000000001",
+      "metadata": {
+        "allow_pn": "on"
+      },
+      "settings": null,
+      "user_id": "700000000000000005"
+    },
+    {
+      "avatar": null,
+      "display_name": "sandlot",
+      "is_bot": null,
+      "is_owner": false,
+      "league_id": "1200000000000000001",
+      "metadata": {
+        "allow_pn": "on"
+      },
+      "settings": null,
+      "user_id": "700000000000000006"
+    },
+    {
+      "avatar": null,
+      "display_name": "moonshot",
+      "is_bot": null,
+      "is_owner": false,
+      "league_id": "1200000000000000001",
+      "metadata": {
+        "allow_pn": "on"
+      },
+      "settings": null,
+      "user_id": "700000000000000007"
+    },
+    {
+      "avatar": null,
+      "display_name": "grillmaster",
+      "is_bot": null,
+      "is_owner": false,
+      "league_id": "1200000000000000001",
+      "metadata": {
+        "allow_pn": "on"
+      },
+      "settings": null,
+      "user_id": "700000000000000008"
+    },
+    {
+      "avatar": null,
+      "display_name": "quietriot",
+      "is_bot": null,
+      "is_owner": false,
+      "league_id": "1200000000000000001",
+      "metadata": {
+        "allow_pn": "on"
+      },
+      "settings": null,
+      "user_id": "700000000000000009"
+    }
+  ]
+}
