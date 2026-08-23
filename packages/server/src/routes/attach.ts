@@ -41,7 +41,10 @@ const asString = (value: unknown): string | null => (typeof value === 'string' ?
 export function createAttachRouter(orchestrator: Orchestrator): Router {
   const router = Router();
 
-  router.post('/api/attach', (req, res) => {
+  router.post('/api/attach', (req, res, next) => {
+    // `.catch(next)` is load-bearing: Express does not await this handler, so a rejection escaping
+    // it is a floating one, and a floating rejection exits the process on Node 20+. See
+    // `createSidekickApp`'s error boundary for what `next` answers with.
     void (async () => {
       const body = (req.body ?? {}) as AttachBody;
 
@@ -80,7 +83,7 @@ export function createAttachRouter(orchestrator: Orchestrator): Router {
         return;
       }
       res.json(outcome.snapshot);
-    })();
+    })().catch(next);
   });
 
   /**
@@ -97,7 +100,7 @@ export function createAttachRouter(orchestrator: Orchestrator): Router {
    * AC-3's convenience list. Offered only when the browser already holds a stored username —
    * pasting stays the primary path, so nothing here is required to attach.
    */
-  router.get('/api/drafts', (req, res) => {
+  router.get('/api/drafts', (req, res, next) => {
     void (async () => {
       const username = asString(req.query['username']);
       if (username === null || username.trim() === '') {
@@ -112,7 +115,7 @@ export function createAttachRouter(orchestrator: Orchestrator): Router {
       } catch (error) {
         res.status(502).json({ error: (error as Error).message });
       }
-    })();
+    })().catch(next);
   });
 
   return router;

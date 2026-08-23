@@ -156,3 +156,195 @@ K/DST rows at all and the filter rendered empty. Made the path real end to end:
 - test: `npm test` → exit 0, `Test Files 40 passed (40) / Tests 655 passed (655)`.
 - lint: `npm run lint` → exit 0, no output.
 - typecheck: `npm run typecheck` → exit 0 (shared, server, web).
+
+## Repair pass 1 (code_review)
+
+Verdict: `.work/001-draft-sidekick-v1/review-code.md` — `fail`, four blocking issues (B1–B4). The 14
+non-blocking observations (N1–N14) are out of scope and untouched.
+
+**Resume history.** This pass ran three times; only infrastructure ended the first two, never a
+design problem. Attempt 1 landed B1 and wrote the red tests for B2/B4 before a stream watchdog
+killed it; attempt 2 hit a session limit before changing anything. Attempt 3 (this one) inherited a
+tree holding B1's fix plus failing tests with no implementations behind them, sanity-checked those
+tests against the verdict (see "Inherited tests" below), and finished B2/B3/B4.
+
+### Changes
+
+**B1 — five literal `0x00` bytes as FNV separators in `simulation/montecarlo.ts`.** Landed in
+attempt 1; re-verified here rather than re-done.
+
+- The five separators are now `\0` escapes: `hashNumber`'s `` `${value}\0` ``, `deriveSeed`'s
+  `` `${player.sleeperPlayerId}\0${player.position}\0` `` (two), `` `${pick.teamId}\0` `` and
+  `'no-need-signal\0'`. Byte scan: 5 × `\0` escape, 0 × literal `0x00`.
+- `file packages/server/src/simulation/montecarlo.ts` → `Java source, Unicode text, UTF-8 text`
+  (was `data`); `grep -rn "deriveSeed" packages/server/src/` now finds the module.
+- **The seed did not move.** Reconstructed the pre-repair file byte-for-byte (every `\0` escape
+  turned back into a literal `0x00` — 5 NUL bytes, 0 escapes, exactly the shape the review's byte
+  scan found), imported both modules side by side and derived a seed from one fixed board:
+  `{"prerepairLiteralNul":2581010503,"currentEscape":2581010503,"identical":true}`. So no survival
+  percentage or plan score changed, which is why no expected value anywhere needed updating.
+- `montecarlo.test.ts:773` "pins the derived seed to a golden value for a fixed board"
+  (`3486165602`) is the standing guard: every other assertion in that file is relative, so this is
+  the only thing that would notice the separators being edited again.
+
+**B2 — a throwing recompute cascade reached the event loop and exited the process; no error
+boundary anywhere.** Four layers, matching the four paths the verdict enumerates.
+
+- `orchestrator.ts` — `settleBurst()` wraps `this.recompute()` in try/catch. On a throw it records
+  `cascadeFailure` (a `DegradedReason`), logs it, broadcasts, and returns; a later cascade that
+  succeeds clears it. This one place covers both callers the verdict names — the burst-debounce
+  `setTimeout` callback (`onNewPicks`) and `flushBurst()` on the Re-sync path — so neither needed
+  its own guard. The pattern is `BoardSync.tick()`'s, one layer down.
+- `cascadeFailure` is held **on the orchestrator, not pushed into `BoardSync`'s degraded state**,
+  deliberately: the board is not what failed, and marking it degraded would put the poll loop into
+  AC-17's full-re-ingest mode over a fault that has nothing to do with Sleeper. `snapshot()` ORs the
+  two sources into the single `degraded` flag every `Insight<T>` already carries and into
+  `sync.status`, and reports the board's own reason first when both are set. `recomputing` needs no
+  change: the failed cascade never advanced `insights.boardVersion`, so AC-21's existing comparison
+  already says "the board moved, this view did not".
+- `observability.ts` — new `CascadeFailedSample` (`type: 'cascade-failed'`, board version, message)
+  + `recordCascadeFailed`. Containing the throw must not also silence it; `index.ts`'s existing sink
+  (everything except `poll-response`) prints it and `/api/debug/metrics` retains it.
+- `routes/attach.ts` (×2) and `routes/resync.ts` — each `void (async …)()` IIFE now ends
+  `.catch(next)`, and the handlers take `next`. Express does not await these, so a rejection was a
+  floating one, which exits 1 on Node 20+.
+- `routes/server.ts` — `errorBoundary`, an `ErrorRequestHandler` mounted last in
+  `createSidekickApp`. Answers a fixed-sentence JSON 500; the real error goes to `console.error`,
+  not the wire. Express's default handler renders `err.stack` into the body, which on this app means
+  absolute developer paths in an HTTP response (exactly what B4 observed live). Delegates to
+  `next(error)` when `res.headersSent` — reachable because `/events` streams.
+- `processGuards.ts` (new) + `index.ts` — `installProcessGuards` registers `uncaughtException` and
+  `unhandledRejection`, reports each fault and returns. Registering the listeners is what replaces
+  Node's `exit(1)` default; that is the whole mechanism. **The one deliberate crash-as-last-resort
+  is documented in the module header**: if reporting the fault *itself* throws, the guard exits 1
+  rather than keeping an unknown-state process alive while emitting nothing. No recovery is
+  attempted here and none should be — each fault's state is its owning module's problem.
+
+**B3 — attach's three third-party fetches ran unbounded while `POST /api/attach` was held open.**
+
+- New 🔶 parameter `snapshotFetchTimeoutMs`, default **15 000 ms**, in
+  `packages/shared/src/config/parameters.ts` and documented in `config.local.json.example`.
+  Kept separate from `initialIngestTimeoutMs` (10 000 ms) rather than reused: these are bulk
+  documents (a ~3 MB crosswalk CSV) on hosts with no contract with us, so they earn a looser ceiling
+  than a Sleeper JSON poll — and the operator should be able to move one without the other.
+- `orchestrator.ts:startSession` now constructs `AbortSignal.timeout(config.snapshotFetchTimeoutMs)`
+  and passes it as `SnapshotLoadInput.signal` — the field was already plumbed to `loadCrosswalk`,
+  `fetchEcrSnapshot` and `fetchAdpSnapshot` and had simply never been given a value in production.
+  One signal for the whole load, not one per request: the parameter budgets the load. Mirrors how
+  `initialIngestTimeoutMs` is passed to the Sleeper calls ten lines earlier.
+- An overrun lands in `SnapshotStore`'s existing `settle()` → `ecrError`/`adpError` → the pre-draft
+  check's `no-ecr-loaded` / no-ADP warnings, i.e. AC-28's "board sync keeps running" path, instead
+  of hanging attach past AC-1's budget. The crosswalk keeps its own stale-cache fallback.
+
+**B4 — prototype-shaped player ids answered 500 with a stack trace instead of AC-65's no-data card.**
+
+- `gamelogs/store.ts:getPlayerCard` — `this.cache?.players[playerId]` → an `Object.hasOwn` guarded
+  read. An inherited `Object.prototype` member is truthy, so `players['toString']` slipped past the
+  `if (!cached)` branch and reached `seasonsFor`, where `Object.entries(cached.seasons)` threw on
+  `undefined`.
+- `orchestrator.ts:playerCard` — same guard on `active.sleeperPlayers[playerId]`, so the
+  `?? playerId` name fallback actually fires instead of resolving to a stringified prototype member.
+- `byPlayerId` needed nothing: it is a `Map`, which has no prototype-key hazard.
+- Chose `Object.hasOwn` over rebuilding the maps with `Object.create(null)`: both maps are parsed
+  straight from third-party JSON at their source, so a null prototype would have to be re-imposed at
+  every parse site, and the guard belongs at the read that takes browser input.
+
+### Inherited tests — sanity-checked against the verdict
+
+Attempt 1 wrote `orchestrator.resilience.test.ts` (7), `processGuards.test.ts` (5) +
+`test/fixtures/processGuardsChild.ts`, and three assertions in `routes/server.test.ts` before it was
+killed; the implementations behind them did not exist. Read all fifteen against B1–B4 before
+writing any code. **None contradicts the verdict and none was modified.** They demand exactly what
+B2/B3/B4 prescribe — degrade-and-log over exit, `.catch` on the three IIFEs, clean 500 JSON with no
+stack or path, a `snapshotFetchTimeoutMs`-bounded attach, and the `hasData:false` card for the five
+prototype-shaped ids. Two notes on how they are built, for the record:
+
+- The resilience suite reaches the cascade throw through a `vi.mock` seam on `simulateSurvival`
+  rather than a fixture. Justified in the file, and correctly: `simulateSurvival` genuinely throws
+  on a picks/window length mismatch (`montecarlo.ts:514`), which is the throw B2 is about, but the
+  orchestrator is what does that wiring, so no fixture can provoke it from outside. The seam is off
+  unless a test arms it and the module is otherwise passed through untouched.
+- `processGuards.test.ts` unit-tests the wrapper against an injected fake `process`, then runs
+  `test/fixtures/processGuardsChild.ts` in a real child under `node --import tsx`. The child is the
+  only honest evidence, since both faults exit 1 on an unguarded process — asserting "still alive"
+  inside the runner would assert nothing.
+
+### Test-first evidence
+
+- failing (the inherited red tests, before any implementation): `npm test` →
+  `Test Files  3 failed | 39 passed (42)` / `Tests  9 failed | 657 passed (666)` / `Errors  5 errors`.
+
+  ```
+   FAIL |server|  src/processGuards.test.ts [ packages/server/src/processGuards.test.ts ]
+   FAIL |server|  src/orchestrator.resilience.test.ts > a recompute that throws > degrades the insights instead of killing the process
+   FAIL |server|  src/orchestrator.resilience.test.ts > a recompute that throws > broadcasts the degraded state rather than leaving the browser on a stale frame
+   FAIL |server|  src/orchestrator.resilience.test.ts > a recompute that throws > recovers on the next cascade that succeeds
+   FAIL |server|  src/orchestrator.resilience.test.ts > a recompute that throws > contains the same throw on the Re-sync path, which flushes the burst by hand
+   FAIL |server|  src/orchestrator.resilience.test.ts > the snapshot fetches at attach > bounds the third-party fetches with 🔶 snapshotFetchTimeoutMs instead of hanging attach
+   FAIL |server|  src/orchestrator.resilience.test.ts > player ids that name an Object.prototype member > answers AC-65’s no-data card rather than throwing out of the index read
+   FAIL |server|  src/routes/server.test.ts > REST endpoints > GET /api/player/:id/gamelog answers the no-data card for a prototype-shaped id
+   FAIL |server|  src/routes/server.test.ts > REST endpoints > answers a route that throws with a clean 500 JSON, never a stack or a path
+   FAIL |server|  src/routes/server.test.ts > REST endpoints > answers a throwing attach the same way, on the other router
+  ```
+
+  `processGuards.test.ts` failed at **collection** — `src/processGuards.ts` did not exist — so its 5
+  tests are absent from the 666 total, which is why the suite gains 16 rather than 15.
+
+  The five `Errors` are the point of B2, reproduced: the throw really did escape to the runtime.
+
+  ```
+  ⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+  Error: simulateSurvival: 3 simulated picks for a window of 4
+   ❯ Orchestrator.recompute packages/server/src/orchestrator.ts:610:22
+   ❯ Orchestrator.settleBurst packages/server/src/orchestrator.ts:529:10
+   ❯ Timeout._onTimeout packages/server/src/orchestrator.ts:518:12
+   ❯ listOnTimeout node:internal/timers:605:17
+
+  ⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+  Error: boom
+   ❯ packages/server/src/routes/server.test.ts:353:64
+   ❯ processTicksAndRejections node:internal/process/task_queues:104:5
+  ```
+
+- passing (targeted): `npx vitest run packages/server/src/processGuards.test.ts packages/server/src/orchestrator.resilience.test.ts packages/server/src/routes/server.test.ts`
+  → `Test Files  3 passed (3)` / `Tests  28 passed (28)`.
+- passing (full): `npm test` → exit 0, `Test Files 42 passed (42)` / `Tests 671 passed (671)`, 8.26 s.
+  Baseline was 655; +16 = 7 resilience + 5 processGuards + 3 `server.test.ts` + 1 golden-seed pin.
+  **Zero pre-existing tests changed behaviour or were removed.**
+- commits: none made by this agent — the orchestrator commits (no git commands run per the task brief).
+
+### Test-file changes
+
+No existing test was modified or deleted. Two additive changes, both flagged:
+
+- `packages/shared/src/config/parameters.test.ts` — added one line,
+  `snapshotFetchTimeoutMs: 15_000`, to the existing "carries the architect-supplied defaults"
+  `toMatchObject`. B3's covering test for the *behaviour* is the resilience suite; this pins the
+  *default* so the new knob cannot drift, matching how every other architect-added parameter is
+  guarded. Additive only — no existing assertion touched.
+- `packages/server/test/msw/snapshotHandlers.ts` — added optional `ecrDelayMs` / `adpDelayMs` /
+  `crosswalkDelayMs`, and made the three resolvers `async`. Required by the inherited B3 test, which
+  stalls ECR and ADP for 4 s to prove the timeout is what ends the wait. All three default to
+  undefined, so every existing handler behaves identically.
+
+### Deliberately not changed
+
+- `selectSlot()`'s direct `recompute()` call is left unguarded. It runs synchronously inside the
+  attach route's IIFE, so a throw there is now caught by `.catch(next)` and answered as a 500 —
+  already covered by B2's route layer, and degrading a seat choice would be a behaviour change the
+  verdict does not ask for.
+- `startSession()`'s first `recompute()` is likewise unguarded: `attach()` already wraps it in a
+  try/catch that tears the half-wired session down and reports a classified failure. Adding a
+  degrade path there would contradict that teardown.
+- All 14 non-blocking observations (N1–N14), including N6's `0.0.0.0` bind and N12's missing
+  `SIGINT`/`SIGTERM` shutdown, which sit next to this pass's files but are out of scope.
+
+### Commands
+
+All four re-run from the repo root, exit codes captured directly (not through a pipe):
+
+- test: `npm test` → **exit 0**, `Test Files 42 passed (42) / Tests 671 passed (671)`, 8.26 s.
+- lint: `npm run lint` (`eslint .`) → **exit 0**, no output.
+- typecheck: `npm run typecheck` → **exit 0** (shared, server, web).
+- build: `npm run build` (`vite build`) → **exit 0**, `55 modules transformed`,
+  `dist/assets/index-D-qxXAQs.js 187.19 kB │ gzip: 57.72 kB`.

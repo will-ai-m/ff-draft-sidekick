@@ -3,7 +3,7 @@ import type { Server } from 'node:http';
 
 import type { AppStateSnapshot } from '@sidekick/shared';
 import { setupServer } from 'msw/node';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import realBundleJson from '../../test/fixtures/sleeper-real-league-draft.json';
 import { createHarness, waitForRecompute } from '../../test/harness';
@@ -37,6 +37,7 @@ interface Running {
 const running: Running[] = [];
 afterEach(async () => {
   while (running.length > 0) await running.pop()?.close();
+  vi.restoreAllMocks();
 });
 
 const start = async (options: { attach?: boolean } = {}): Promise<Running> => {
@@ -306,6 +307,59 @@ describe('REST endpoints', () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as { drafts: { draftId: string }[] };
     expect(body.drafts.map((draft) => draft.draftId)).toContain(DRAFT_ID);
+  });
+
+  it('GET /api/player/:id/gamelog answers the no-data card for a prototype-shaped id', async () => {
+    const { origin } = await start();
+
+    // These are not hypothetical keys: they are every id a browser can send that names an
+    // `Object.prototype` member, and a plain `players[id]` read returns the inherited member
+    // rather than undefined — which used to reach the reader and throw a 500 with a stack.
+    for (const playerId of ['__proto__', 'constructor', 'toString', 'valueOf', 'hasOwnProperty']) {
+      const response = await fetch(`${origin}/api/player/${playerId}/gamelog`);
+      expect(response.status, playerId).toBe(200);
+
+      const card = (await response.json()) as { hasData: boolean; seasons: unknown[] };
+      expect(card.hasData, playerId).toBe(false);
+      expect(card.seasons, playerId).toHaveLength(0);
+    }
+  });
+
+  it('answers a route that throws with a clean 500 JSON, never a stack or a path', async () => {
+    const { origin, harness } = await start();
+    vi.spyOn(harness.orchestrator, 'resync').mockRejectedValue(
+      new Error('boom at /Users/willyu/willy-ff/packages/server/src/orchestrator.ts:742'),
+    );
+
+    const response = await fetch(`${origin}/api/resync`, { method: 'POST' });
+    expect(response.status).toBe(500);
+    expect(response.headers.get('content-type')).toContain('application/json');
+
+    const raw = await response.text();
+    expect((JSON.parse(raw) as { error: string }).error).toEqual(expect.any(String));
+    // Nothing about this machine, and nothing about where the code lives, on the wire.
+    expect(raw).not.toContain('/Users/');
+    expect(raw).not.toContain('orchestrator.ts');
+    expect(raw).not.toContain('    at ');
+
+    // The point of containing it: the draft session is still attached and still answering.
+    const health = (await (await fetch(`${origin}/api/health`)).json()) as { status: string };
+    expect(health.status).toBe('ok');
+    expect(harness.orchestrator.snapshot().attach.status).toBe('attached');
+  });
+
+  it('answers a throwing attach the same way, on the other router', async () => {
+    const { origin, harness } = await start({ attach: false });
+    vi.spyOn(harness.orchestrator, 'attach').mockRejectedValue(new Error('boom'));
+
+    const response = await fetch(`${origin}/api/attach`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ input: DRAFT_ID }),
+    });
+
+    expect(response.status).toBe(500);
+    expect((await response.json()) as { error: string }).toEqual({ error: expect.any(String) });
   });
 
   it('POST /api/detach tears the session down (AC-41)', async () => {

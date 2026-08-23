@@ -33,6 +33,16 @@ export interface ParameterValues {
   snapshotStalenessWarningHours: number;
   /** FFC's supported team-count buckets; nearest match wins, ties toward the larger. PRD AS-6 / AC-24. */
   adpPoolTeamSizes: readonly number[];
+  /**
+   * Budget for the whole third-party snapshot load at attach — the crosswalk download plus the
+   * ECR and ADP fetches, which run behind an open `POST /api/attach`.
+   * **architect-added** — AS-5's `initialIngestTimeoutMs` bounds the *Sleeper* calls only, and
+   * these three hosts are nobody's dependency but ours. Without a bound they inherit undici's
+   * ~300 s defaults and hang attach; with one, a slow source degrades into AC-28's "no rankings
+   * loaded" path instead. Kept separate from the Sleeper budget because these are bulk documents
+   * (a ~3 MB crosswalk CSV) on slower hosts, so they deserve a looser ceiling than a JSON poll.
+   */
+  snapshotFetchTimeoutMs: number;
 
   // ---- Insight refresh (FR-8, FR-9) ---------------------------------------------------
   /** Budget from a burst's final pick to every insight reflecting it. PRD AS-5 / AC-46, AC-53. */
@@ -131,6 +141,7 @@ export const PARAMETER_DEFAULTS: Readonly<ParameterValues> = Object.freeze({
 
   snapshotStalenessWarningHours: 24,
   adpPoolTeamSizes: Object.freeze([8, 10, 12, 14]),
+  snapshotFetchTimeoutMs: 15_000,
 
   insightRefreshLatencyMs: 5000,
   burstDebounceMs: 400,

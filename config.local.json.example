@@ -19,6 +19,8 @@
   "snapshotStalenessWarningHours": 24,
   "// adpPoolTeamSizes": "[PRD AS-6 / AC-24] Team-count pools the ADP source publishes; the nearest one to your league is used, ties resolving toward the larger.",
   "adpPoolTeamSizes": [8, 10, 12, 14],
+  "// snapshotFetchTimeoutMs": "[added] Budget, in ms, for the whole third-party snapshot load at attach — the DynastyProcess crosswalk download plus the FantasyPros ECR and Fantasy Football Calculator ADP fetches together. A source that overruns it is abandoned, and attach continues with the pre-draft check's 'no rankings loaded' / 'no ADP' warnings rather than hanging. Raise it on a slow connection; lower it to fail over to a cached crosswalk sooner.",
+  "snapshotFetchTimeoutMs": 15000,
 
   "// --- Insight refresh ---": "",
   "// insightRefreshLatencyMs": "[PRD AS-5 / AC-46, AC-53] Budget from a burst's final pick to every insight reflecting it, in ms.",

@@ -770,6 +770,27 @@ describe('simulation stability on an unchanged board (SC-2, §T7 done-when 2)', 
     expect(deriveSeed(universeOn(), picks, config({ monteCarloRunCount: 500 }))).not.toBe(base);
   });
 
+  it('pins the derived seed to a golden value for a fixed board', () => {
+    // A GOLDEN PIN, deliberately brittle. Every other assertion in this file is *relative* — the
+    // same board seeds the same stream, a different board a different one — so editing
+    // `deriveSeed`'s hash mixture (a separator, a field's order, a field added or dropped) moves
+    // every survival percentage and plan score on the board while the whole suite stays green.
+    // The FNV separators are NUL characters, which are invisible in an editor, so that edit can
+    // happen by accident: a review found the module's five separators typed as literal 0x00 bytes,
+    // normalised them to spaces to see what would notice, and 124/124 tests still passed while the
+    // seed moved. Nothing in the suite pinned it. This does.
+    //
+    // If this assertion fails you have changed what the simulation samples. That is allowed — but
+    // it is never incidental. Re-derive the value, update the literal below in the same commit as
+    // the change that moved it, and say in the commit message why the stream had to move.
+    const universe = buildSimulationUniverse({
+      players,
+      board: boardOf(),
+      size: config().simUniverseSize,
+    });
+    expect(deriveSeed(universe, picks, config())).toBe(3486165602);
+  });
+
   it('keeps two independent samples inside a band’s width at the default run count', () => {
     // What the run count buys, stated separately from the determinism above: the *estimate* is
     // sound, not merely repeatable. Asserted on the percentages — asserting band equality across

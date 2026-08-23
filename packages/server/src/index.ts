@@ -5,6 +5,7 @@ import { loadConfig } from './config/loadConfig';
 import { GameLogStore } from './gamelogs/store';
 import { Observability } from './observability';
 import { Orchestrator } from './orchestrator';
+import { installProcessGuards } from './processGuards';
 import { createSidekickApp } from './routes/server';
 import { SleeperClient } from './sleeper/client';
 import { PollIntervalController } from './sleeper/instanceHeartbeat';
@@ -30,6 +31,16 @@ const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const WEB_DIST = resolve(SERVER_ROOT, '../web/dist');
 
 export function createServer(): { listen: () => void } {
+  // Installed before anything else can throw: a draft in progress cannot be replayed, so the
+  // process must outlive a bug on a branch nobody exercised. See `processGuards.ts` for the one
+  // case that still exits.
+  installProcessGuards({
+    log: (fault) => {
+      console.error(`[sidekick] ${fault.kind}: ${fault.message}`);
+      if (fault.stack !== null) console.error(fault.stack);
+    },
+  });
+
   const config = loadConfig();
   const observability = new Observability({
     sink: (sample) => {

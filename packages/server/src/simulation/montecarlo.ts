@@ -272,7 +272,7 @@ const hashText = (hash: number, text: string): number => {
   return next >>> 0;
 };
 
-const hashNumber = (hash: number, value: number): number => hashText(hash, `${value} `);
+const hashNumber = (hash: number, value: number): number => hashText(hash, `${value}\0`);
 
 /**
  * The default seed: a 32-bit FNV-1a over everything a run of this simulation reads.
@@ -304,18 +304,18 @@ export function deriveSeed(
   hash = hashNumber(hash, config.reachAdjustmentPerPick);
 
   for (const player of universe) {
-    hash = hashText(hash, `${player.sleeperPlayerId} ${player.position} `);
+    hash = hashText(hash, `${player.sleeperPlayerId}\0${player.position}\0`);
     hash = hashNumber(hash, player.samplingRank);
   }
 
   for (const pick of picks) {
-    hash = hashText(hash, `${pick.teamId} `);
+    hash = hashText(hash, `${pick.teamId}\0`);
     hash = hashNumber(hash, pick.pickNo);
     hash = hashNumber(hash, pick.averageReach);
     hash = hashNumber(hash, pick.unfilledKDstSlots);
     hash = hashNumber(hash, pick.remainingPicks);
     if (pick.bentDistribution === undefined) {
-      hash = hashText(hash, 'no-need-signal ');
+      hash = hashText(hash, 'no-need-signal\0');
     } else {
       for (const position of SKILL_POSITIONS) {
         hash = hashNumber(hash, pick.bentDistribution[position]);

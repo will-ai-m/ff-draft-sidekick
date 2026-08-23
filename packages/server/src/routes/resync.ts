@@ -13,7 +13,10 @@ import type { Orchestrator } from '../orchestrator';
 export function createResyncRouter(orchestrator: Orchestrator): Router {
   const router = Router();
 
-  router.post('/api/resync', (_req, res) => {
+  router.post('/api/resync', (_req, res, next) => {
+    // Express does not await this handler, so without the `.catch` a rejection here is a floating
+    // one — which on Node 20+ exits the process, taking the attached draft with it. Handing it to
+    // `next` routes it to `createSidekickApp`'s error boundary and a clean 500 instead.
     void (async () => {
       const result = await orchestrator.resync();
       if (result === null) {
@@ -27,7 +30,7 @@ export function createResyncRouter(orchestrator: Orchestrator): Router {
         boardVersion: result.boardVersion,
         failure: result.failure ?? null,
       });
-    })();
+    })().catch(next);
   });
 
   return router;

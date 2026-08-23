@@ -54,7 +54,7 @@ import type {
 } from './sleeper/attach';
 import type { SleeperClient } from './sleeper/client';
 import { PollIntervalController } from './sleeper/instanceHeartbeat';
-import type { PollOutcome, ResyncResult } from './sleeper/sync';
+import type { DegradedReason, PollOutcome, ResyncResult } from './sleeper/sync';
 import { buildPreDraftCheck } from './snapshots/predraftCheck';
 import { SnapshotStore } from './snapshots/store';
 import type {
@@ -173,6 +173,14 @@ export class Orchestrator {
   private listeners = new Set<(snapshot: AppStateSnapshot) => void>();
 
   private burst: BurstState | null = null;
+  /**
+   * The last recompute cascade's failure, held until one succeeds — see {@link settleBurst}.
+   *
+   * Kept here rather than pushed into `BoardSync`'s own degraded state on purpose: the board is
+   * not the thing that failed, and marking it degraded would put the poll loop into AC-17's full
+   * re-ingest mode over a fault that has nothing to do with Sleeper.
+   */
+  private cascadeFailure: DegradedReason | null = null;
   private burstTimer: NodeJS.Timeout | null = null;
   private syncTimer: NodeJS.Timeout | null = null;
   private lastSyncSignature: string | null = null;
@@ -281,7 +289,10 @@ export class Orchestrator {
 
     const sync = active.session.sync;
     const indicator = sync.syncIndicator;
-    const degraded = indicator.status === 'degraded';
+    // Two independent ways the derived views stop being trustworthy: the board itself went
+    // degraded (AC-17), or the cascade that builds them threw (AC-48). Either one means nothing
+    // derived may be presented as current, so they collapse into one flag on the wire.
+    const degraded = indicator.status === 'degraded' || this.cascadeFailure !== null;
     // AC-21, stated structurally: an insight computed from an older board is by definition not
     // current. That single comparison covers both halves of §T10's rule — a cascade still
     // debounced and a cascade in flight are both "the board moved, this view has not caught up".
@@ -297,10 +308,10 @@ export class Orchestrator {
       attach,
       sync: {
         lastSuccessfulSyncAt: indicator.lastSuccessfulSyncAt,
-        status: indicator.status,
+        status: degraded ? 'degraded' : 'healthy',
         boardVersion: indicator.boardVersion,
         draftStatus: sync.state.meta.status,
-        degradedReason: sync.degradedReason?.message ?? null,
+        degradedReason: sync.degradedReason?.message ?? this.cascadeFailure?.message ?? null,
       },
       board: sync.state.board,
       pickFeed: sync.state.pickFeed,
@@ -331,6 +342,7 @@ export class Orchestrator {
       this.attachManager.detach();
       this.active = null;
       this.insights = emptyInsights();
+      this.cascadeFailure = null;
       this.broadcast();
       return {
         ok: false,
@@ -381,11 +393,18 @@ export class Orchestrator {
     })) as Record<string, SleeperPlayerRecord>;
 
     this.snapshots.reset();
+    // The three snapshot hosts are third parties with no contract with us, and this runs with
+    // `POST /api/attach` held open. Unbounded, they inherit undici's ~300 s defaults, so one slow
+    // host hangs attach with nothing on screen to explain it. Bounded, an overrun lands in the
+    // pre-draft check's existing `ecrError`/`adpError` warnings and attach completes inside AC-1's
+    // budget — the crosswalk keeps its own fallback to a cached copy. One signal covers all three
+    // because 🔶 `snapshotFetchTimeoutMs` budgets the load, not each request within it.
     const bundle = await this.snapshots.load({
       leagueTeamCount: league.teamCount,
       season: Number(meta.season),
       sleeperPlayers,
       config: this.config,
+      signal: AbortSignal.timeout(this.config.snapshotFetchTimeoutMs),
       ...(this.options.cacheDir === undefined ? {} : { cacheDir: this.options.cacheDir }),
     });
 
@@ -442,6 +461,7 @@ export class Orchestrator {
       ],
     };
     this.insights = emptyInsights();
+    this.cascadeFailure = null;
     roster.start();
 
     // The first cascade runs immediately: attaching mid-draft is just "the first poll", and the
@@ -520,13 +540,38 @@ export class Orchestrator {
     this.burstTimer.unref?.();
   }
 
-  /** The burst went quiet: run the cascade once, record AC-67's sample, and push the result. */
+  /**
+   * The burst went quiet: run the cascade once, record AC-67's sample, and push the result.
+   *
+   * The try/catch is the containment `BoardSync.tick()` already established one layer down. Both
+   * callers reach here from a place a throw cannot survive — the debounce `setTimeout` callback,
+   * where an escaping exception reaches the event loop and exits the process, and `flushBurst()`
+   * inside the Re-sync route's promise, where it becomes an unhandled rejection and does the same.
+   * The cascade is genuinely fail-fast in places (`simulateSurvival` throws on a picks/window
+   * mismatch rather than sampling a wrong window), so "it threw" has to mean something other than
+   * "the draft is over": the board is untouched and keeps updating, and the views derived from it
+   * go degraded with the reason attached until a later cascade succeeds (AC-17, AC-48).
+   */
   private settleBurst(): void {
     const burst = this.burst;
     this.burst = null;
-    if (this.active === null) return;
+    const active = this.active;
+    if (active === null) return;
 
-    this.recompute();
+    try {
+      this.recompute();
+      this.cascadeFailure = null;
+    } catch (error) {
+      const message = `The recompute cascade failed: ${(error as Error).message}`;
+      this.cascadeFailure = { kind: 'recompute-failed', message };
+      // Contained, not swallowed: AC-66's sink is where an operator sees this happened at all.
+      this.observability.recordCascadeFailed({
+        boardVersion: active.session.sync.syncIndicator.boardVersion,
+        message,
+      });
+      this.broadcast();
+      return;
+    }
 
     if (burst !== null) {
       this.observability.recordBurstRefreshed({
@@ -755,6 +800,7 @@ export class Orchestrator {
     this.snapshots.reset();
     this.active = null;
     this.insights = emptyInsights();
+    this.cascadeFailure = null;
     this.clearBurst();
     this.stopSyncTicker();
     this.broadcast();
@@ -766,7 +812,13 @@ export class Orchestrator {
     if (active === null) return null;
 
     const matched = active.bundle.matching.byPlayerId.get(playerId);
-    const sleeper = active.sleeperPlayers[playerId];
+    // `playerId` comes straight off the URL, and `sleeperPlayers` is Sleeper's JSON dump — a plain
+    // object, so `sleeperPlayers['constructor']` yields an inherited `Object.prototype` member
+    // instead of undefined, and the `?? playerId` fallback below never fires. AC-65's contract is
+    // that *any* unknown id answers a no-data card, so the read has to be own-property-only.
+    const sleeper = Object.hasOwn(active.sleeperPlayers, playerId)
+      ? active.sleeperPlayers[playerId]
+      : undefined;
     const name = matched?.playerName ?? sleeper?.full_name ?? playerId;
 
     return this.gameLogStore.getPlayerCard(playerId, {

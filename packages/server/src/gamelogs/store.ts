@@ -106,7 +106,13 @@ export class GameLogStore {
    * table.
    */
   getPlayerCard(playerId: string, options: PlayerCardOptions): PlayerCard {
-    const cached = this.cache?.players[playerId];
+    // `playerId` is browser-supplied and `players` is a plain object parsed from JSON, so a plain
+    // index read answers `players['toString']` with an inherited `Object.prototype` member — truthy,
+    // so it slips past the no-data branch and reaches `seasonsFor` as something with no `.seasons`.
+    // Own-property-only keeps every unknown id on AC-65's "no NFL game data" path.
+    const players = this.cache?.players;
+    const cached =
+      players !== undefined && Object.hasOwn(players, playerId) ? players[playerId] : undefined;
     if (!cached) return this.noData(playerId, options);
 
     const seasons = this.seasonsFor(cached, options.scoring);

@@ -9,7 +9,7 @@
 import { existsSync } from 'node:fs';
 
 import express from 'express';
-import type { Express } from 'express';
+import type { ErrorRequestHandler, Express } from 'express';
 
 import type { SidekickConfig } from '../config/loadConfig';
 import type { Orchestrator } from '../orchestrator';
@@ -31,6 +31,33 @@ export interface SidekickApp {
   app: Express;
   hub: SseHub;
 }
+
+/**
+ * The app's error boundary. Anything a route rejects with, or throws, lands here.
+ *
+ * Two jobs, in order. It answers JSON, because every client of this API parses JSON and Express's
+ * default handler answers an HTML page — a browser fetch that hits it fails on `.json()` with a
+ * parse error that says nothing about what actually broke. And it answers a *fixed* sentence: the
+ * default handler renders `err.stack` into the body, which on this app means absolute paths from
+ * the developer's machine on the wire. The real reason goes to the log, where the operator is.
+ *
+ * The fourth parameter must stay in the signature whether or not it is called: Express identifies
+ * an error handler by arity, and dropping it silently turns this back into ordinary middleware.
+ */
+const errorBoundary: ErrorRequestHandler = (error, _req, res, next) => {
+  console.error('[sidekick] unhandled route error:', error);
+  // Nothing to answer with once the response has started — `/events` streams, so this is reachable.
+  // Express's default handler is the only thing that can close a half-written response cleanly.
+  if (res.headersSent) {
+    next(error);
+    return;
+  }
+  res.status(500).json({
+    error:
+      'The server hit an unexpected error handling that request. The draft session is still ' +
+      'attached — check the server log for what failed.',
+  });
+};
 
 export function createSidekickApp(
   orchestrator: Orchestrator,
@@ -54,6 +81,9 @@ export function createSidekickApp(
   if (options.serveWeb !== false && options.webDist !== undefined && existsSync(options.webDist)) {
     app.use(express.static(options.webDist));
   }
+
+  // Last, so it sees everything mounted above it.
+  app.use(errorBoundary);
 
   return { app, hub };
 }

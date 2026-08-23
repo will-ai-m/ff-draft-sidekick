@@ -42,7 +42,28 @@ export interface BurstRefreshedSample {
   latencyMs: number;
 }
 
-export type ObservabilitySample = PollResponseSample | PickReflectedSample | BurstRefreshedSample;
+/**
+ * A recompute cascade that threw and was contained.
+ *
+ * The cascade is deliberately fail-fast in places — `simulateSurvival` refuses to paper over a
+ * picks/window length mismatch, for one — so a wiring bug surfaces as a throw rather than a
+ * plausible-looking wrong board. Containing it degrades the panels instead of ending the draft,
+ * which means the *reason* has to leave the process some other way or it is simply swallowed.
+ * This is that way: AC-66's sink prints it, `/api/debug/metrics` retains it.
+ */
+export interface CascadeFailedSample {
+  type: 'cascade-failed';
+  /** The board version the failed cascade was computing from. */
+  boardVersion: number;
+  message: string;
+  at: number;
+}
+
+export type ObservabilitySample =
+  | PollResponseSample
+  | PickReflectedSample
+  | BurstRefreshedSample
+  | CascadeFailedSample;
 
 export interface LagSummary {
   count: number;
@@ -125,6 +146,18 @@ export class Observability {
       burstFinalPollResponseAt: args.burstFinalPollResponseAt,
       refreshedAt,
       latencyMs: refreshedAt - args.burstFinalPollResponseAt,
+    };
+    this.push(sample);
+    return sample;
+  }
+
+  /** Stamps a recompute cascade that threw, so containing it does not also silence it. */
+  recordCascadeFailed(args: { boardVersion: number; message: string }): CascadeFailedSample {
+    const sample: CascadeFailedSample = {
+      type: 'cascade-failed',
+      boardVersion: args.boardVersion,
+      message: args.message,
+      at: this.now(),
     };
     this.push(sample);
     return sample;

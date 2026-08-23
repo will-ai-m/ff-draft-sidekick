@@ -42,6 +42,7 @@ describe('PARAMETER_DEFAULTS', () => {
       burstDebounceMs: 400,
       rateLimitBackoffMaxMs: 10_000,
       tendencyPositionalNudgeClamp: 0.5,
+      snapshotFetchTimeoutMs: 15_000,
     });
   });
 
