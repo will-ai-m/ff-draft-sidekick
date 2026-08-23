@@ -1,8 +1,8 @@
 # PRD interview — Draft Sidekick (+ super-consensus rankings)
 
-- **Slug:** `draft-sidekick`  |  **Started:** 2026-08-20  |  **Updated:** 2026-08-20
-- **Phase:** interview
-- **PRD:** `./prd.md` *(not until drafting)*
+- **Slug:** `draft-sidekick`  |  **Started:** 2026-08-20  |  **Updated:** 2026-08-22
+- **Phase:** refining
+- **PRD:** `./prd.md` *(drafted 2026-08-22 from Q1–Q18)*
 
 ---
 
@@ -43,12 +43,16 @@
 
 | Tag | Statement | Raised at |
 |---|---|---|
-| 🔶 AS-1 | Sleeper mock drafts are ordinary draft objects readable via `/v1/draft/<id>` + `/picks` (falsifier: create a mock, curl the endpoints, get 404/empty) | Q0 |
+| ✅ AS-1 | **Verified 2026-08-22** (spiked live against mock draft 1396790135072272384, mid-draft): mocks ARE ordinary draft objects — `/v1/draft/<id>` returns full settings/draft_order/status while `status: "drafting"`, `/picks` streams picks in real time with full player metadata. Schema deltas vs league drafts: `league_id: null` (identifies a mock), `picked_by: ""` and `roster_id: null` on picks → sync code must key on `draft_slot` + `draft_order`, not roster_id/picked_by | Q0 |
 | 🔶 AS-2 | v1 engine = layers 1–4 + 2-pick lookahead, availability via Monte Carlo sim of intervening picks; cross-draft history deferred (falsifier: tendencies add no calibration over layers 1–3 in replayed drafts, or MC misses <5s budget) | Q8 |
-| 🔶 AS-3 | Attach flow: one-time Sleeper username entry → API discovers leagues/drafts → auto-attach to live draft (falsifier: user prefers pasting a draft URL/ID) | Q10 |
+| 🔶 AS-3 | ~~Attach flow: one-time Sleeper username entry → API discovery~~ **Falsifier fired 2026-08-22 (R2): user prefers paste.** Revised: attach = paste draft URL/ID (primary) + teams/owners confirmation display; username discovery = optional convenience | Q10, R2 |
 | 🔶 AS-4 | No explicit run/deferral alerts in v1 — runs captured implicitly by need vectors + tendencies in survival math (falsifier: user wants a visible run alert) | Q16 |
 | 🔵 OQ-1 | No falsifiable success metric — success is subjective ("felt given the best possible information"); objective proxies only (sync lag, latency, zero manual bookkeeping) | Q9 |
-| 🔵 OQ-2 | ECR ingestion route: FantasyPros website direct (user preference — scrape or pre-draft manual upload) vs nflverse mirror. Hard requirement either way: fresh snapshot immediately before each draft | Q17 |
+| 🔵 OQ-2 | **Resolved 2026-08-22 (R3):** ECR = FantasyPros half-PPR cheat-sheet page (`/nfl/rankings/half-point-ppr-cheatsheets.php`), parsed from its embedded `ecrData` JSON. Live-verified: 839 players incl. 35 K + 32 DST, overall/pos ranks, tier, min/max/std-dev, FP player ids (crosswalk key), 107 experts, `last_updated` stamp, no auth. Fetch once pre-draft; nflverse mirror = fallback. Fresh-snapshot requirement unchanged | Q17, R3 |
+| 🔶 AS-5 | *(added at drafting)* Parameter defaults set without user input: candidate list 8 rows; poll 1 s; bands 75/25; refresh ≤5 s; ingest ≤10 s; re-sync ≤5 s; ECR staleness warn 24 h; sim universe top-by-ADP; ≥3 mock rehearsals (falsifier: any proves wrong in first mock) | draft |
+| 🔶 AS-6 | *(added at drafting)* FFC composite ADP (half-PPR, 10-team) approximates Sleeper room behavior (falsifier: observed mock pick order diverges badly) | draft |
+| 🔶 AS-7 | *(added at drafting)* K/DST excluded from prediction/survival math; tracked on rosters with positional ECR only (falsifier: late-round K/DST runs hurt decisions) | draft |
+| 🔶 AS-8 | *(added at review)* FP overall half-PPR ECR usable as-is despite the measured QB skew (+16 median vs ADP, per research/half-ppr-2026-adp-vs-ecr.md) in the Rank-Converter-derived overall order; mitigated by displaying ADP beside ECR, not by correcting (falsifier: skew proves intolerable in mocks → revisit the raw-ECR non-goal) | review |
 
 ---
 
@@ -191,3 +195,17 @@ reversal, note the supersession in the new entry rather than editing the old one
 **Locked:** Authorship non-material; final PRD carries no author attribution. Open thread closed.
 **Opened:** none
 **Tagged:** none
+
+### R2 — Refinement round 2 (3-reviewer subagent pass, user-approved per group)
+**Asked:** 8 verifier-corrected edit groups surfaced with priority/impact/effort; user questions answered (player-dump matching, slot button, Sleeper ADP availability).
+**Answer (decisions):** (1) Terms block — yes. (2) Need-vector definition + engine math — yes. (3) Composed recommendation algorithm — yes. (4) Pre-draft ID-crosswalk matching via `/v1/players/nfl`; "don't worry about the 5%" — NO resolve/bind UI; residual unmatched entries simply excluded. (5) Paste-a-draft-link is the BETTER primary attach ("i can paste a draft list no problem... that's a better idea"); confirm the right draft by showing team names + owners; slot picker when auto-detect fails. (6) FFC ADP confirmed (Sleeper public API has no ADP — verified: player dump carries only `search_rank`). (7) "we dont need metrics bro just make it work" → metrics slimmed to contradiction fixes + recomputing marker. (8) "we dont need eval" → §14 eval tables replaced by a plain validation protocol; bookkeeping (risk reorder, tag completion) approved.
+**Locked:** All of the above; AS-3 superseded (paste-primary); new facts recorded: completed mocks purged from API (live-only data); player dump = 12,221 players with cross-platform IDs (gsis/espn/yahoo/sportradar) enabling crosswalk matching.
+**Opened:** none
+**Tagged:** AS-3 revised; AS-5 list extended (see PRD §12)
+
+### R3 — OQ-2 resolution (ECR source)
+**Asked:** (user volunteered) "this can be fantasypros ecr for aug 22 2026. https://www.fantasypros.com/nfl/rankings/half-point-ppr-cheatsheets.php"
+**Answer:** ECR source = that page. Live-verified by fetch + parse same day: raw HTML embeds `var ecrData = {...}` with 839 ranked players — overall rank, pos rank, tier, min/max/avg/std-dev, bye, FantasyPros player_id, ownership — scoring HALF, year 2026, 107 experts (155 available), `last_updated` timestamp, no auth required. Notably the cheat-sheet page INCLUDES K (35) and DST (32) rows, unlike the pure overall-ECR list (research §1 claim doesn't apply to this page).
+**Locked:** OQ-2 resolved — ingest route = fetch this page once immediately pre-draft, parse `ecrData`; nflverse mirror demoted to fallback if the embed changes. FR-4 and §11 updated; K/DST separate fetch simplified to an absence warning.
+**Opened:** none
+**Tagged:** 🔵 OQ-2 → resolved
