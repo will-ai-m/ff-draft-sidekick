@@ -1,82 +1,193 @@
 ---
 gate: code_review
-verdict: fail
+verdict: pass
 by: code-reviewer
-at: "2026-08-23T09:19:57Z"
+at: "2026-08-23T13:17:03Z"
 ---
 ## Evidence
 
-### Cheap tools (constitution §Commands), all re-run from repo root
+Re-run of a failed gate after repair commit `ed36cd7`. Everything below was re-derived: commands
+re-run from the repo root, `git show ed36cd7` hunks read directly, and each of the four blocking
+issues probed against the running code — including **mutation tests** that revert the repair and
+confirm the new suites go red, so a green suite is not mistaken for a guard that exists.
 
-- `npm test` → exit 0; `Test Files 40 passed (40) / Tests 655 passed (655)`, 8.37 s.
-- `npm run lint` (`eslint .`) → exit 0, no output.
-- `npm run typecheck` (three `tsc --noEmit` invocations) → exit 0.
-- `npm run build` (`vite build`) → exit 0; `55 modules transformed`, `dist/assets/index-vyoFLQZw.js 187.16 kB │ gzip: 57.71 kB`.
-- Domain variants: `Glob .claude/skills/review-*/SKILL.md` matched only `review-shell`; `git diff --name-only 46000ab..HEAD | grep -E '\.(sh|bash|zsh)$'` returned nothing, so no shell checks apply.
+### Cheap tools (constitution §Commands), exit codes captured directly, not through a pipe
 
-### Constitution conformance
+- `npm test` → **exit 0**; `Test Files 42 passed (42) / Tests 671 passed (671)`, no `Errors` line.
+  Re-run a second time at the end of this review on the restored tree — identical result.
+- `npm run lint` (`eslint .`) → **exit 0**, no output.
+- `npm run typecheck` (three `tsc --noEmit`: shared, server, web) → **exit 0**.
+- `npm run build` (`vite build`) → **exit 0**; `55 modules transformed`,
+  `dist/assets/index-D-qxXAQs.js 187.19 kB │ gzip: 57.72 kB`.
+- Domain variants: the only `review-*/SKILL.md` on disk is `review-shell`;
+  `git diff --name-only 5e25747 ed36cd7 | grep -E '\.(sh|bash|zsh)$'` → 0 files. Not applicable.
 
-- **Every 🔶 AS-N default is a configurable parameter** — all 26 keys design.md §T1 tabulates are present in `packages/shared/src/config/parameters.ts` (scripted check: no `MISSING` lines), and every one is documented in `config.local.json.example` (no `UNDOCUMENTED` lines). `loadConfig` (`packages/server/src/config/loadConfig.ts:74-86`) rejects unknown keys and type mismatches rather than silently defaulting. No inline tuning literals found in product code.
-- **Free-to-run, no auth** — every outbound host in product code: `api.sleeper.app`, `www.fantasypros.com`, `fantasyfootballcalculator.com`, `raw.githubusercontent.com`, `github.com`. Grep for `api[_-]?key|authorization|bearer|x-api|secret|token` over `packages/*/src` returns only `match.ts:54-57` name *tokens*. No credential surface.
-- **Sleeper budget ≤120 req/min** — `RequestBudget.tryConsume()` (`packages/server/src/sleeper/client.ts:249-255`) gates *before* every outbound call in `SleeperClient.request` (`client.ts:314-320`), so the ceiling holds by construction even when attach, Re-sync and the poll loop overlap.
-- **Stateless full refetch, never incremental diffs** — `BoardSync.applyPicks` (`sync.ts:588-594`) replaces `lastGoodPicks`/`ingest.picks` wholesale and re-runs `deriveDraftState`; the previous list is used only to compute `added` for UI events. Confirmed no diff-application path exists.
-- **Snapshots immutable during an attached draft (AC-29)** — `SnapshotStore.load` (`snapshots/store.ts:56-70`) returns the frozen bundle on any second call and shares one in-flight promise; `reset()` is called only from `startSession` and `detach` (`orchestrator.ts:383`, `:755`).
-- **Terms vocabulary** — `board`, `window`, `needVector`, `candidateList`, `opponentPanel`, `rosterPanel`, `pickFeed`, `syncIndicator` are the actual identifiers throughout.
-- `.gitignore` covers `node_modules/`, `dist/`, `data/cache/`, `config.local.json`, `*.tsbuildinfo`; `git ls-files` confirms none of them is tracked.
+### B1 — literal NUL separators → `\0` escapes. **Fixed, and the seed is provably unchanged.**
 
-### Handed-to-me finding — ruled: real, and blocking (see B1)
+- `file packages/server/src/simulation/montecarlo.ts` → `Java source, Unicode text, UTF-8 text`
+  (was `data`).
+- Byte scan: **0 literal `0x00`**, **5 `\0` escapes**, at lines 275, 307 (×2), 312, 318 — exactly
+  the five offsets the prior verdict's scan found.
+- Grep sees the module again: `grep -c export …/montecarlo.ts` → `18` (was exit 1, no output);
+  `grep -rn "deriveSeed" packages/server/src/` → finds `montecarlo.ts:298` and `:39`;
+  `grep -rn "export function simulateSurvival" packages/server/src/` → `montecarlo.ts:510`.
+- **Seed unchanged — proved structurally, not by probe.** Reconstructed the pre-repair file from
+  the current one by substituting each `\0` escape back to a literal `0x00`, and compared against
+  `git show 5e25747:…/montecarlo.ts`: `reconstructed == pre-repair file, byte for byte: True`
+  (26595 bytes / 5 NULs pre-repair, 26600 bytes / 5 escapes now). Since `'\0'` in a TS template
+  literal *is* U+0000, the only difference in the whole file is the spelling of the separator, so
+  no survival percentage or plan score can have moved. This is stronger than the maker's runtime
+  probe (which reported `2581010503` both ways on its own board) and does not depend on it.
+- **The golden pin is a real guard, not decoration.** Built a space-separated copy of the module
+  and derived a seed from one fixed board through both: `{"escapeSpelling":1136439564,
+  "spaceSeparated":3675795148,"identical":false}`. So normalising the separators again moves
+  `deriveSeed`, and `montecarlo.test.ts:791`'s `expect(deriveSeed(universe, picks, config()))
+  .toBe(3486165602)` is what would catch it. The comment at `:774-783` states the maintenance
+  contract (re-derive and say why, in the same commit). Probe module deleted; tree clean.
+- Diff is additive elsewhere: `montecarlo.test.ts` gains only the pinned test (+21 lines).
 
-- `file packages/server/src/simulation/montecarlo.ts` → `data`. Python byte scan confirms **5 × 0x00** at offsets 12583, 14557, 14576, 14707, 14995 — the FNV separators in `hashNumber` (`:275`) and `deriveSeed` (`:307`, `:312`, `:318`).
-- Grep really is blind to the whole module: `grep -c export packages/server/src/simulation/montecarlo.ts` → exit 1, no output; `grep -rn "export const runSurvivalSimulation" packages/server/src/` → exit 1; `grep -rl "survivalProbability" packages/server/src --include="*.ts"` → exit 1. `grep -a -c export` → `18`. All 617 lines are invisible to a plain `grep -r` over the repo.
-- The makers' "semantically identical" claim is **true** — probe: `String.fromCharCode(0) === '\0'` → `true`; FNV over both spellings → identical hashes. So the fix costs nothing.
-- The trap is **silent**: I replaced all 5 NULs with spaces and re-ran the affected suites — `montecarlo.test.ts`, `lookahead.test.ts`, `candidates.test.ts`, `e2eReplay.test.ts` → **124/124 passed**, including the SC-2 stability test and the 150-pick replay. Meanwhile the seed genuinely changes (probe: NUL-separated `3567846162` vs space-separated `1837808914`), i.e. every survival percentage and plan score on the board moves with zero test signal. File restored byte-for-byte (`git status` clean on that path).
+### B2 — error containment. **Fixed at all four layers, and each layer probed.**
 
-### Makers' riskier claims — verified
+- `orchestrator.ts:559-573` — `settleBurst()` wraps `this.recompute()` in try/catch, records
+  `cascadeFailure: DegradedReason`, calls `observability.recordCascadeFailed(…)`, broadcasts and
+  returns; success clears it (`:561`). One place covers both callers the prior verdict named —
+  the debounce `setTimeout` callback (`:536-539`) and `flushBurst()` (`:592-598`).
+- **Mutation test (the load-bearing check).** Removed the try/catch from `settleBurst` and re-ran
+  `orchestrator.resilience.test.ts` → `Tests 4 failed | 3 passed (7)` / `Errors 3 errors`, each
+  an `Uncaught Exception: simulateSurvival: 3 simulated picks for a window of 4` with the stack
+  `Orchestrator.recompute → Orchestrator.settleBurst → Timeout._onTimeout → listOnTimeout` —
+  i.e. exactly B2's crash path, reproduced. Restored the file and re-verified by SHA-256
+  (`6673038c…f166b63` before and after); suite back to `7 passed`.
+- The resilience suite genuinely asserts what the task requires (`orchestrator.resilience.test.ts:96-127`):
+  `recomputeCount` unchanged (the cascade really threw), `pickFeed` still length 2 (the board is
+  untouched), `sync.status === 'degraded'`, `sync.degradedReason` contains `simulateSurvival`,
+  `candidateList/opponentPanel/userRoster.degraded === true`, `recomputing === true`, and one
+  `cascade-failed` sample in the observability buffer (logged, not swallowed). Separate cases cover
+  the broadcast (`:129-142`), recovery on the next good cascade (`:144-165`) and the Re-sync/
+  `flushBurst` path (`:167-179`).
+- **Express error handler leaks nothing.** `routes/server.ts:47-59` `errorBoundary` sends a fixed
+  sentence as JSON and `console.error`s the real error; the arity-4 signature is kept deliberately
+  with a comment, and it delegates to `next(error)` when `res.headersSent` (reachable — `/events`
+  streams). Mounted **last** in `createSidekickApp` (`:86`), after every router and the static
+  handler. `createApp` — the form every suite uses — delegates to `createSidekickApp` (`:98`), so
+  tests exercise the production app. `routes/server.test.ts:326-346` asserts status 500,
+  `content-type: application/json`, and that the raw body contains neither `/Users/` nor
+  `orchestrator.ts` nor `    at ` — and that the session is still attached afterwards.
+- All three route IIFEs terminate in `.catch(next)`: `routes/attach.ts:86`, `:118`,
+  `routes/resync.ts:33`. `grep -rn "void (async"` over `packages/server/src` (non-test) finds
+  exactly those three call sites and no fourth.
+- **Process guards verified on a real process, not in-runner.** `packages/server/src/processGuards.ts`
+  registers `uncaughtException` and `unhandledRejection`; `index.ts:37-42` calls
+  `installProcessGuards` as the first statement of `createServer()`, and `index.ts:85-87` invokes
+  `createServer().listen()` when the module is the entrypoint (`npm start` →
+  `tsx packages/server/src/index.ts`). Ran the fixture child directly on **Node v26.0.0**:
+  `node --import tsx packages/server/test/fixtures/processGuardsChild.ts` →
+  `{"alive":true,"faults":["uncaughtException: the recompute cascade exploded","unhandledRejection: a route promise rejected"]}`, **exit 0**. Wrote two unguarded controls of the
+  same two faults in the scratchpad: both **exit 1**. So the guard is what makes the difference,
+  on this Node, for both fault shapes.
+- Remaining `setTimeout` callbacks in server product code are all contained: `orchestrator.ts:536`
+  (now try/catch), `sleeper/client.ts:324` (`controller.abort()`), `sleeper/sync.ts:693` →
+  `tick()`, which already had its own try/catch.
 
-- **T7 board-derived seeding** — probe: two `simulateSurvival` calls on identical inputs produced identical probabilities for all 40 players (`identical=true`); mutating one pick's `averageReach` changed the derived seed (`seedsDifferOnBoardChange=true`). Performance at the stated scale: 2000 runs × 40-player universe × 10-pick window in **13–19 ms** against AC-46's 5 s budget.
-- **T10 `recomputing` derived, not tracked** — `orchestrator.ts:288`, `recomputing = this.insights.boardVersion < indicator.boardVersion`, computed at snapshot time. `recompute()` is synchronous end to end (`:579-652`), so a snapshot cannot mix two board versions. Accurate.
-- **T10 byte-identical SSE frames** — probe with two hub listeners: `firstFrameIdentical=true`, `subsequentIdentical=true`. `SseHub` (`routes/events.ts:35-38`) serializes once per broadcast and writes the same string to every client. Accurate.
-- **T9 in-memory gunzip bounds** — the dev note claims only "gunzips in memory and returns only text", which is accurate about persistence. There are **no bounds**: `gunzipSync(gzipped)` (`gamelogs/nflverse.ts:287`) is called with no `maxOutputLength`, so output is capped only by `buffer.kMaxLength`. Acceptable for a manually-run offline CLI against a trusted GitHub release; recorded as N5, not blocking.
-- **Repair `adpOnlyPlayers` isolation** — holds. `adpOnlyPlayers` is a separate `MatchResult` field (`match.ts:387-400`), never merged into `players`. Its only consumers are `orchestrator.ts:421` (filtered to `!isSkillPosition && !rankedPositions.has(position)`), `orchestrator.ts:714` → `filterCandidateRows` only, and a count in `predraftCheck.ts:156`. It never reaches `computeCandidateList`'s ECR list, `comparePlans`, `simulateSurvival` or `buildOpponentPanel`.
-- **T2 `boardVersion` bumps on any board change** — accurate for the paths it is about (`applyPicks` bumps only when `added.length > 0`, `sync.ts:597-599`; `reingest` always bumps, `:639`). `setUserSlot`/`setMatchedPlayerIds` (`:524-535`) re-derive without bumping, which T10's own dev note documents and mitigates with `coalesce()`. No observable staleness today — recorded as N7.
+### B3 — snapshot fetch timeout. **Fixed, and plumbed to all three third parties.**
 
-### Named risk areas — checked, no defect found
+- Parameter exists: `packages/shared/src/config/parameters.ts:36-45` declares
+  `snapshotFetchTimeoutMs: number` with an `**architect-added**` rationale, and `:144` sets the
+  default `15_000`. Documented in `config.local.json.example:22-23`.
+- **The example file is actually loadable** — `isParameterKey` derives from
+  `Object.keys(PARAMETER_DEFAULTS)` (`parameters.ts:177-181`), so no hand-maintained list can drift.
+  Ran `loadConfig({ configPath: 'config.local.json.example' })` verbatim →
+  `{"snapshotFetchTimeoutMs":15000,"keys":27}`. A user copying the example gets a working config,
+  which is the constitution's "configurable, not hardcoded" requirement.
+- **Call site found**: `orchestrator.ts:405` inside `startSession` —
+  `signal: AbortSignal.timeout(this.config.snapshotFetchTimeoutMs)` passed to `this.snapshots.load({…})`.
+- Plumbed end to end, verified at each fetch: `snapshots/store.ts:88` → `loadCrosswalk` →
+  `crosswalk.ts:157` `doFetch(url, { signal: options.signal, … })`; `store.ts:95` →
+  `fetchEcrSnapshot` → `fantasypros.ts:139`; `store.ts:103` → `fetchAdpSnapshot` → `ffc.ts:166`.
+  All three hosts the prior verdict named are covered.
+- Behaviourally asserted, not just wired: `orchestrator.resilience.test.ts:187-202` attaches with
+  `snapshotFetchTimeoutMs: 150` against handlers stalled 4000 ms and asserts attach still succeeds,
+  `elapsed < 3000`, and the pre-draft check carries `no-ecr-loaded` — i.e. the AC-28 degrade path,
+  not a hang. A companion case (`:204-208`) pins that a responsive source is left alone.
+- One documented consequence, deliberate and stated in the code comment at `orchestrator.ts:396-401`:
+  the single signal budgets the *load*, so a slow crosswalk eats the ECR/ADP budget. Reasonable, and
+  the crosswalk keeps its own stale-cache fallback (`store.ts:82-90`).
 
-- **Prep CLI command injection**: none. `scripts/prep-nflverse-data.ts` and `gamelogs/prep.ts` contain no `exec`/`spawn`/shell invocation and take no user arguments; every URL is template-built from a numeric season derived from `now.getFullYear()`.
-- **Prep memory at scale**: seasons are walked sequentially (`prep.ts:100-157`) with `pbpCsv`/`longs` as per-iteration locals, so the ~98 MB expanded play-by-play of one season is released before the next.
-- **Path traversal via pasted draft URL**: closed. `parseDraftId` (`sleeper/attach.ts:27-45`) accepts only `/^\d{6,}$/` segments, so `draftId` cannot manipulate the outbound path.
-- **Web store leak on unmount**: none. The `EventSource` is opened once at module scope outside React (`main.tsx:16-17`), and every `useEffect` in `packages/web` cleans up — `SyncIndicator.tsx:63-65` (`clearInterval`), `PlayerCard.tsx:302-304` (`removeEventListener`), `AttachScreen.tsx:67-69` (`cancelled` guard). `playerCard.ts` guards its fetch races with a monotonic `sequence` (`:63-79`, `:100`, `:115`).
-- **Re-sync racing an in-flight poll**: fail-safe, not corrupting. Probe (stale 1-pick poll released after a 3-pick Re-sync landed): the board stayed at 3 picks — `checkPickListIntegrity`'s `pick-count-decreased` rule (`sync.ts:304-311`) rejects the stale response. Board never reverts. The spurious degrade it causes is recorded as N3.
-- **Code hygiene**: zero `as any` / `: any`, zero `@ts-ignore` / `@ts-expect-error` / `eslint-disable`, zero `TODO`/`FIXME`/`HACK` in product code. `console.*` appears only in `index.ts` (AC-66 log sink) and the prep CLI.
-- **Dependency hygiene**: `npm audit --omit=dev` → **0 vulnerabilities** in the runtime tree (`express`, `papaparse`, `zod`, `react`, `react-dom`). Dev-only advisories recorded as N10.
+### B4 — prototype-shaped player ids. **Fixed at both reads, and mutation-proved.**
 
-## Blocking issues
+- `gamelogs/store.ts:109-115` — `Object.hasOwn(players, playerId)` guards the cache read;
+  `orchestrator.ts:815-820` — the same guard on `active.sleeperPlayers[playerId]`, so the
+  `?? playerId` name fallback fires. `byPlayerId` is a `Map` and needs nothing.
+- **Mutation test.** Reverted both guards to the plain index reads and re-ran the two suites →
+  `Tests 2 failed | 21 passed (23)`: `routes/server.test.ts` → `__proto__: expected 500 to be 200`,
+  `orchestrator.resilience.test.ts` → `TypeError: Cannot convert undefined or null to object`.
+  So the new tests are real guards over the exact defect. Restored both files, SHA-256 verified
+  (`66afa026…f786f3d73`, `6673038c…f166b63`).
+- That mutation run also **cross-confirms B2's boundary**: the reintroduced throw came back as a
+  clean `500` with `[sidekick] unhandled route error: TypeError…` on the *log*, where pre-repair
+  the same defect rendered Express's HTML page with `/Users/willyu/willy-ff/packages/server/src…`
+  in the response body.
+- `routes/server.test.ts:312-325` drives the real HTTP surface for all five prototype-shaped ids
+  (`__proto__`, `constructor`, `toString`, `valueOf`, `hasOwnProperty`), asserting 200 +
+  `hasData: false` + zero seasons for each.
 
-- **B1 — `packages/server/src/simulation/montecarlo.ts` embeds 5 literal 0x00 bytes as FNV separators (`:275`, `:307`, `:312`, `:318`), making the module invisible to `grep` and its seed silently editable.** Evidence above: `file` calls the module `data`, `grep -rn` finds no symbol in it, the bytes are indistinguishable from spaces in an editor, and normalising them to spaces changes every survival percentage while 124/124 tests still pass. → **Replace each literal 0x00 with the `\0` escape sequence** (verified byte-for-byte equivalent at runtime, so no output changes and no test needs updating). Afterwards `file` must report `ASCII text`/`Unicode text` and `grep -rn "deriveSeed" packages/server/src/` must find the module.
+### No regression from the repair
 
-- **B2 — Three unguarded paths carry an exception from the recompute cascade straight to process death; the server has no error boundary of any kind.** `orchestrator.ts:516-519` arms `setTimeout(() => { this.burstTimer = null; this.settleBurst(); }, burstDebounceMs)` with no try/catch, and `settleBurst` (`:524-539`) runs the entire T5→T6→T7→T8 cascade plus `broadcast()`. The route IIFEs `routes/resync.ts:17`, `routes/attach.ts:45` and `routes/attach.ts:101` use `void (async () => {…})()` with no `.catch`, and `orchestrator.resync()` (`:734-744`) calls `flushBurst()` → `settleBurst()` → `recompute()` inside that promise. Grep confirms **no** `process.on('uncaughtException')`, no `process.on('unhandledRejection')` and no Express error middleware anywhere in `packages/server`. Verified on this Node (v26): a throw inside a `setTimeout` callback exits 1, and an unhandled rejection from a `void (async …)()` exits 1. `simulateSurvival` (`montecarlo.ts:514-519`) *deliberately* throws on a picks/window length mismatch, so the chosen fail-fast currently means the server dies mid-draft rather than degrading a panel. `BoardSync.tick()` (`sync.ts:700-709`) already establishes the correct pattern one layer down, with the comment "an unexpected throw must not kill the loop". → **Wrap `settleBurst()` in the burst timer (and in `flushBurst`) in try/catch that marks the board degraded and broadcasts rather than propagating, add `.catch()` to each `void (async …)()` route IIFE so a failure answers 5xx instead of rejecting, and add an Express error-handling middleware in `createSidekickApp`** so no route can escape to the default handler.
+- 671/671 green (655 baseline + 16: 7 resilience + 5 processGuards + 3 `server.test.ts` + 1 golden
+  seed pin). Confirmed the arithmetic against the prior verdict's recorded 655.
+- **Test files touched by `ed36cd7`, audited one by one**: `orchestrator.resilience.test.ts` (new),
+  `processGuards.test.ts` (new), `test/fixtures/processGuardsChild.ts` (new),
+  `montecarlo.test.ts` (+21, the pin only), and the two flagged additive changes:
+  - `packages/shared/src/config/parameters.test.ts` — exactly **+1 line**
+    (`snapshotFetchTimeoutMs: 15_000`) inside the existing `toMatchObject`. No existing assertion
+    touched. Read the hunk directly.
+  - `packages/server/test/msw/snapshotHandlers.ts` — three optional `*DelayMs` options and the three
+    resolvers made `async`. All default `undefined`, so every existing handler behaves identically;
+    required by B3's covering test. No existing behaviour changed.
+  - `routes/server.test.ts` — a `vi` import, `vi.restoreAllMocks()` added to the existing
+    `afterEach`, and three appended tests. No pre-existing assertion was altered or removed; the
+    `restoreAllMocks` addition can only strengthen isolation.
+- **No pre-existing test was weakened, modified or deleted** beyond those two flagged additive
+  changes. Verified by reading each hunk, not by counting.
+- `SyncIndicator.status` is the binary union `'healthy' | 'degraded'` (`shared/src/types/board.ts:83`),
+  so `snapshot()`'s new `status: degraded ? 'degraded' : 'healthy'` (`orchestrator.ts:311`) is
+  behaviour-identical to the old `indicator.status` whenever `cascadeFailure === null`. No third
+  state was collapsed.
+- The maker's claim that `cascadeFailure` is deliberately kept out of `BoardSync` holds:
+  `sleeper/sync.ts:564` branches on `BoardSync`'s own `this.status`, never on the orchestrator's
+  snapshot, so a cascade failure cannot put the poll loop into AC-17's full-re-ingest mode (N14).
+  `orchestrator.ts:632`'s per-insight `degraded` correctly reads the board only — a successful
+  recompute is by definition not a failed one.
+- Constitution re-checked against the repair's changed lines: the new parameter is configurable and
+  documented; no new outbound host, credential or paid surface; the Sleeper budget path is
+  untouched; no incremental-diff path introduced; and the staleness rule is *strengthened* —
+  a failed cascade now forces `degraded` with `recomputing` true rather than publishing derived
+  views stamped current.
 
-- **B3 — Attach's three third-party fetches run with no timeout while `POST /api/attach` is held open.** `orchestrator.ts:384-390` calls `this.snapshots.load({…})` without `signal`; grep confirms **no production caller anywhere constructs an AbortSignal for these** — `SnapshotLoadInput.signal` (`snapshots/store.ts:27`) is plumbed to `loadCrosswalk` (`:88`), `fetchEcrSnapshot` (`:95`) and `fetchAdpSnapshot` (`:103`) but is always `undefined`, and the only `AbortController` in the server is inside `SleeperClient` (`client.ts:322`), which covers `api.sleeper.app` alone. So `raw.githubusercontent.com`, `www.fantasypros.com` and `fantasyfootballcalculator.com` are each bounded only by undici's ~300 s defaults, with no degraded state and no user feedback in between. The same function passes `initialIngestTimeoutMs` correctly to the Sleeper calls two lines earlier (`:373-381`). → **Pass an `AbortSignal` bounded by `initialIngestTimeoutMs` (or a dedicated snapshot-timeout parameter) into `snapshots.load()`**, so a slow third party surfaces as the pre-draft check's existing `ecrError`/`adpError` path within the AC-1 budget instead of hanging attach.
+### Non-blocking — the prior 14 (N1–N14) stand, unescalated
 
-- **B4 — `GET /api/player/:sleeperPlayerId/gamelog` answers 500 with a stack trace for prototype-shaped ids instead of AC-65's `hasData: false` card.** Verified live against the real app: `__proto__`, `constructor`, `toString` and `valueOf` each returned HTTP 500 whose body is Express's default HTML error page containing `TypeError: Cannot convert undefined or null to object at Object.entries (<anonymous>) at GameLogStore.seasonsFor (/Users/willyu/willy-ff/packages/server/src…)` — absolute filesystem paths disclosed in the response. (`nope` correctly returned 200 with `hasData:false`.) Root cause is plain-object index reads on browser-supplied keys: `gamelogs/store.ts:109` `this.cache?.players[playerId]` and `orchestrator.ts:769` `active.sleeperPlayers[playerId]`, where inherited `Object.prototype` members are truthy and bypass the no-data branch. → **Guard both lookups with `Object.hasOwn(...)` (or build those maps with `Object.create(null)` / a `Map`)** so any unknown id takes the `noData` path; B2's error middleware then covers the residual case without leaking a stack.
+Spot-checked that the repair made none of them worse: N1's `season` query parameter is untouched;
+N6's `0.0.0.0` bind and N12's missing `SIGINT`/`SIGTERM` shutdown are untouched (process guards
+handle faults, not signals); N14's degraded-tick behaviour is unaffected, per the `sync.ts:564`
+check above. Two small new observations, neither blocking and neither a trap:
 
-## Non-blocking observations
-
-- **N1** `routes/attach.ts:109-110` passes the `season` query parameter unvalidated into `getUserDrafts` → `` `/v1/user/${userId}/drafts/nfl/${season}` `` (`client.ts:426`), which is not encoded. Verified: `?season=../../../state/nfl` produced an outbound request to `/v1/user/<id>/drafts/nfl/../../../state/nfl`, and `new URL()` normalises that to `https://api.sleeper.app/v1/user/state/nfl`. Confined to the same public, unauthenticated host and the response still faces Zod, so impact is minimal — but `encodeURIComponent`, or a `/^\d{4}$/` check, would close it. `username` is already encoded (`client.ts:417`).
-- **N2** `BoardSync.resync()` (`sync.ts:663-678`) captures `wasRunning` before awaiting and re-arms the timer afterwards, so a `stop()` during an in-flight Re-sync leaves a timer armed. Verified: `running=false, timer=ARMED`. Benign today (`tick()` returns early at `:701` and the timer is `unref`'d), but it defeats teardown; `if (wasRunning && this.running)` fixes it.
-- **N3** Pressing Re-sync while a poll is in flight makes the stale poll trip `pick-count-decreased`, flipping the board to degraded immediately after a *successful* Re-sync (reproduced). Fail-safe and self-healing on the next tick, but it costs a false degraded flash and an extra full re-ingest exactly when the user asked for a refresh. A poll-in-flight guard, or dropping a poll whose response predates the last re-ingest, would avoid it.
-- **N4** `Observability`'s ring buffer (`observability.ts:61`, `DEFAULT_MAX_SAMPLES = 2000`) records a `poll-response` sample on every poll, i.e. ~1/s. At default cadence the buffer holds only ~33 minutes, so `/api/debug/metrics` loses the AC-66/AC-67 pick-lag and burst-latency history well before a 2½-hour draft ends. The JSDoc at `:54` ("A 15-round draft produces a few hundred samples") understates this by an order of magnitude. The `console.log` sink is unaffected because `index.ts:36` filters `poll-response` out. Consider separate buffers per sample type.
-- **N5** `gunzipSync` (`gamelogs/nflverse.ts:287`) passes no `maxOutputLength`, so decompression is bounded only by `buffer.kMaxLength` (~2 GB). Low risk for a manual offline CLI against a trusted release, but `{ maxOutputLength: … }` sized to the ~98 MB the header itself documents would make the bound real.
-- **N6** `index.ts:65` calls `app.listen(PORT, …)` with no host, binding `0.0.0.0`. For a deliberately auth-less local tool, `app.listen(PORT, '127.0.0.1')` is the safer default — as written, anyone on the LAN can attach, detach and re-sync the draft.
-- **N7** `setUserSlot`/`setMatchedPlayerIds` (`sync.ts:524-535`) change `Board.teams[].isUser` and `pickFeed[].isUserPick`/`matchedToSnapshot` without bumping `boardVersion`, so `recomputing` reads `false` over changed data. No observable staleness today — `selectSlot` recomputes inside `coalesce()` (`orchestrator.ts:353-359`) and `setMatchedPlayerIds` runs before the first cascade — and T10's dev note documents the hazard. But a third caller that forgets would publish stale insights stamped current, which the constitution names the cardinal sin. Bumping the version in both setters would make the invariant structural rather than call-site-dependent.
-- **N8** `SseHub.lastFrame` (`routes/events.ts:27`, `:30`) is assigned in the constructor and then only ever read inside the same callback that assigns it (`:36-37`); `add()` re-serializes instead (`:46`). The constructor assignment is dead and the field could be a local.
-- **N9** `loadCrosswalk` (`snapshots/crosswalk.ts:171-176`) calls `mkdirSync`/`writeFileSync` outside any try/catch *after* a successful download, so an unwritable `data/cache/` fails the whole attach even though the crosswalk is already parsed and in hand. Wrapping the cache write would make it best-effort, matching how `writeHeartbeat` (`instanceHeartbeat.ts:105-109`) already treats its own file.
-- **N10** Dev-dependency advisories: `vite` (direct, `^5.4.0`) is **high** — path traversal in optimized-deps `.map` handling and a `server.fs.deny` bypass — and `vitest` (direct, `^2.0.0`) is **critical** (Vitest UI arbitrary file read/execute; the project never runs `--ui`). Both are the versions design.md §T1 pinned, and `npm audit --omit=dev` is clean, so nothing ships vulnerable — but `npm run dev` runs an affected Vite dev server, and the esbuild advisory lets any visited page talk to it. Worth a deliberate decision rather than drift.
-- **N11** `buildPickSequence` is computed twice per recompute — once inside `computeOpponentPanel` (`opponent/window.ts:319`) and again at `orchestrator.ts:626` for `userRemainingPicks`. 150 elements, so cost is irrelevant, but `computeOpponentPanel` could return the sequence it already built.
-- **N12** `SseHub.close()` (`routes/events.ts:58-63`) exists but is never called — `index.ts` wires no `SIGINT`/`SIGTERM` shutdown, so open SSE connections and the heartbeat entry are never cleaned up on exit. `PollIntervalController.stop()`'s `clearHeartbeat` (`instanceHeartbeat.ts:203-213`) is likewise unreachable on a normal Ctrl-C, which leaves a ghost entry throttling the next instance until it ages out.
-- **N13** `postDetach` (`web/src/state/api.ts:162-164`) is the only API helper that does not catch internally, and `App.tsx:50-52` calls it as `void postDetach()` with no `.catch` — an unreachable server produces an unhandled rejection in the browser. Every sibling (`postAttach`, `postDraftSlot`, `postResync`) returns a typed failure instead.
-- **N14** While degraded, every tick performs a full re-ingest (3–4 requests) at `pollIntervalMs`, so a sustained degraded spell saturates the 120/min budget in ~30 s and then self-refuses for the remainder of the rolling minute. `RequestBudget` keeps AC-10 true and the loop recovers, so this is correctness-preserving — but a degraded-state backoff would recover faster than burning the budget on refusals.
+- **N15** `settleBurst`'s try/catch covers `this.recompute()` only — `this.broadcast()` (both the
+  success path at `orchestrator.ts:583` and inside the catch at `:571`) and
+  `recordBurstRefreshed` sit outside it, so a throwing SSE listener would still reach the burst
+  timer. Now merely a degraded-broadcast loss rather than process death, because `processGuards`
+  backstops it, which is why this is a note and not a finding.
+- **N16** `errorBoundary` logs via `console.error` (`routes/server.ts:48`) rather than the
+  Observability sink, making `routes/server.ts` the third file with a bare `console.*`. Defensible
+  for a boundary that must work when observability does not, but it is a small drift from the
+  AC-66 sink convention. N4's ring-buffer note now also covers the new `cascade-failed` sample; the
+  sample is printed by `index.ts`'s sink immediately, so the durable record is the log, not the
+  2000-entry buffer.
 
 ### Housekeeping
 
-- Two probe files were written and removed: `packages/server/test/zz-review-probe.test.ts` (the repo hook blocks deleting test files, so it was **moved** to the session scratchpad at `/private/tmp/claude-501/-Users-willyu-willy-ff/35e2485e-cedd-4c2d-aaa5-550264a3d5f0/scratchpad/zz-review-probe.test.ts.moved`) and standalone `tsx`/`node` probes kept in the scratchpad. `montecarlo.ts` was temporarily mutated for the B1 experiment and restored byte-for-byte — `git status` shows the working tree carries only the pre-existing `.work/…/review-spec.md` and `.work/…/status.yaml` modifications plus this file. No git write commands were run.
+Two source files were temporarily mutated for the mutation tests (`orchestrator.ts`,
+`gamelogs/store.ts`) and one probe module was created (`simulation/zzProbeSpaceSep.ts`). All were
+restored or deleted and verified: SHA-256 matches the pre-mutation values for both files, the probe
+file is gone, and `git status --porcelain --untracked-files=all` shows only the pre-existing
+` M .work/001-draft-sidekick-v1/status.yaml`. Every scratch artefact (backups, probe scripts,
+command logs) lives in the session scratchpad. No git write commands were run.
