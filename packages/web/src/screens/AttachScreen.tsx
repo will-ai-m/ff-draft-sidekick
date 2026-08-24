@@ -299,8 +299,9 @@ export function AttachScreen({ snapshot, onConfirm }: AttachScreenProps) {
             </section>
           )}
 
-          {preDraftCheck !== null && <PreDraftCheck check={preDraftCheck} />}
-
+          {/* Action row sits ABOVE the pre-draft check: the check's unmatched/warning lists can
+              run long, and the primary action must not require scrolling past them (user request,
+              2026-08-23). The check remains fully visible below for pre-start review. */}
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -314,6 +315,8 @@ export function AttachScreen({ snapshot, onConfirm }: AttachScreenProps) {
               <span className="text-sm text-amber-200">Pick your slot to continue.</span>
             )}
           </div>
+
+          {preDraftCheck !== null && <PreDraftCheck check={preDraftCheck} />}
         </>
       )}
     </main>

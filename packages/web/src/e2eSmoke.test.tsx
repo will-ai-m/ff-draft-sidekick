@@ -111,10 +111,19 @@ describe('the frontend against the end-to-end fixture’s final snapshot', () =>
     expect(errors).toEqual([]);
   });
 
-  it('renders the whole 150-pick feed, the user’s own picks flagged', () => {
+  // 2026-08-23: the feed now defaults to the latest 10 rows with a Show-all toggle (user
+  // request); these two tests were updated from the original render-all contract.
+  it('renders the latest 10 picks by default and the whole 150-pick feed on Show all', () => {
     renderConfirmed();
 
     const feed = screen.getByRole('list', { name: /picks, most recent first/i });
+    expect(feed.querySelectorAll('li')).toHaveLength(10);
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: new RegExp(`show all ${e2eBoard.pickScript.length} picks`, 'i'),
+      }),
+    );
     expect(feed.querySelectorAll('li')).toHaveLength(e2eBoard.pickScript.length);
     // The exact label is the mine-vs-opponent badge; the row's own label merely mentions it.
     expect(screen.getAllByLabelText('Your pick').length).toBe(
@@ -124,6 +133,11 @@ describe('the frontend against the end-to-end fixture’s final snapshot', () =>
 
   it('shows the unmatched pick under its raw name with a visible warning (AC-20)', () => {
     renderConfirmed();
+
+    // The unmatched pick sits outside the latest-10 window in this fixture; the header badge
+    // still counts it collapsed, and expanding surfaces the row's own warning.
+    expect(screen.getByText(/1 unmatched/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /show all \d+ picks/i }));
 
     const warnings = screen.getAllByRole('note');
     expect(warnings).toHaveLength(1);

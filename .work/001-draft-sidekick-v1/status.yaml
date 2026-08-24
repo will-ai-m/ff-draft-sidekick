@@ -1,8 +1,8 @@
 task: 001-draft-sidekick-v1
 route: feature
-phase: docs
-state: running
-blocked_reason: null
+phase: retro
+state: blocked_on_human
+blocked_reason: "circuit breaker: 30/30 subagent calls used (cap: constitution circuit_breaker_cap). Release complete — PR #1 merged to main (784d24f). Remaining phases: retro → improvement. Human decision: raise the cap to run retro+improvement now, or defer them (task ships as done either way; retro never delays the merge)."
 branch: village/001-draft-sidekick-v1
 subagent_calls: 30
 repair_passes: {spec_review: 1, code_review: 1}
@@ -10,11 +10,11 @@ approvals:
   - {gate: spec, approver: willyu, at: "2026-08-23T02:45:17Z"}
   - {gate: design, approver: willyu, at: "2026-08-23T03:04:31Z"}
 gates:
-  - {gate: spec_review, verdict: fail, by: spec-reviewer, at: "2026-08-23T08:30:57Z", artifact: .work/001-draft-sidekick-v1/review-spec.md, evidence: ["AC-50 ADP-order K/DST fallback unreachable (MatchResult ECR-only; predraftCheck promises it)", "AC-27 compares scoring label, not settings (label proven unreliable by codebase's own counterexample)", "634 tests/lint/typecheck green; scope+test audits clean; 5 flagged deviations accepted"]}
-  - {gate: spec_review, verdict: pass, by: spec-reviewer, at: "2026-08-23T09:02:20Z", artifact: .work/001-draft-sidekick-v1/review-spec.md, evidence: ["AC-50 resolved end-to-end (adpOnlyPlayers → kdstAdpFallback → rowsByPosition, K/DST only; real-pipeline test w/ empty-feed control)", "AC-27 compares granular dict vs SCORING_DEFAULTS.half_ppr; label only for mocks; 4 dict-varying tests", "655 tests/lint/typecheck re-run green; 12-file repair, no scope creep"]}
-  - {gate: code_review, verdict: fail, by: code-reviewer, at: "2026-08-23T09:19:57Z", artifact: .work/001-draft-sidekick-v1/review-code.md, evidence: ["NUL-byte FNV separators make montecarlo.ts invisible to grep (probed: seed drift undetected by all 124 tests)", "no error boundary: burst-timer cascade + route IIFEs + no process handlers → unguarded paths to process death (verified exit 1 on Node 26)", "attach's 3 third-party fetches have no timeout (signal plumbed, never constructed)", "prototype-shaped player ids → 500 + stack trace (plain-object index reads)", "655 tests/lint/typecheck/build green; constitution conforms; 14 non-blocking observations"]}
   - {gate: qa, verdict: pass, by: qa, at: "2026-08-23T13:45:00Z", artifact: .work/001-draft-sidekick-v1/qa.md, evidence: ["real server driven over HTTP/SSE/built frontend on T15 fixtures + real nflverse cache + live Sleeper error paths", "latency 12x inside budget at 150 picks (burst p95 414ms/5000); cadence 59 req/60s; second instance back-off real", "kill -9 + cold attach = byte-identical snapshot vs live-watched process", "3 injected faults contained (same pid, degraded+named reason, cleared next cascade)", "AC-64 differential scoring proof; prototype ids clean; 3 non-blocking UX findings for backlog"]}
   - {gate: code_review, verdict: pass, by: code-reviewer, at: "2026-08-23T13:17:03Z", artifact: .work/001-draft-sidekick-v1/review-code.md, evidence: ["B1 verified byte-level (escape↔NUL reconstruction matches pre-repair; golden pin proven a real guard by mutation)", "B2 verified by mutation (try/catch removal → 3 uncaught on named path) + real Node 26 process guard probe (guarded exits 0, controls exit 1)", "B3 snapshotFetchTimeoutMs wired at orchestrator.ts:405 through all 3 fetches", "B4 Object.hasOwn proven by revert-mutation", "671/671 green; no regression; 14 prior + 2 new non-blocking notes stand"]}
+  - {gate: code_review, verdict: fail, by: code-reviewer, at: "2026-08-23T09:19:57Z", artifact: .work/001-draft-sidekick-v1/review-code.md, evidence: ["NUL-byte FNV separators make montecarlo.ts invisible to grep (probed: seed drift undetected by all 124 tests)", "no error boundary: burst-timer cascade + route IIFEs + no process handlers → unguarded paths to process death (verified exit 1 on Node 26)", "attach's 3 third-party fetches have no timeout (signal plumbed, never constructed)", "prototype-shaped player ids → 500 + stack trace (plain-object index reads)", "655 tests/lint/typecheck/build green; constitution conforms; 14 non-blocking observations"]}
+  - {gate: spec_review, verdict: pass, by: spec-reviewer, at: "2026-08-23T09:02:20Z", artifact: .work/001-draft-sidekick-v1/review-spec.md, evidence: ["AC-50 resolved end-to-end (adpOnlyPlayers → kdstAdpFallback → rowsByPosition, K/DST only; real-pipeline test w/ empty-feed control)", "AC-27 compares granular dict vs SCORING_DEFAULTS.half_ppr; label only for mocks; 4 dict-varying tests", "655 tests/lint/typecheck re-run green; 12-file repair, no scope creep"]}
+  - {gate: spec_review, verdict: fail, by: spec-reviewer, at: "2026-08-23T08:30:57Z", artifact: .work/001-draft-sidekick-v1/review-spec.md, evidence: ["AC-50 ADP-order K/DST fallback unreachable (MatchResult ECR-only; predraftCheck promises it)", "AC-27 compares scoring label, not settings (label proven unreliable by codebase's own counterexample)", "634 tests/lint/typecheck green; scope+test audits clean; 5 flagged deviations accepted"]}
 history:
   - {phase: sizing, entered_at: "2026-08-23T02:17:08Z"}
   - {phase: spec, entered_at: "2026-08-23T02:18:34Z"}
@@ -24,3 +24,5 @@ history:
   - {phase: code_review, entered_at: "2026-08-23T09:04:31Z"}
   - {phase: qa, entered_at: "2026-08-23T13:18:59Z"}
   - {phase: docs, entered_at: "2026-08-23T13:43:40Z"}
+  - {phase: release, entered_at: "2026-08-23T13:47:00Z"}
+  - {phase: retro, entered_at: "2026-08-23T13:52:39Z"}

@@ -4,3 +4,4 @@ dist/
 data/cache/
 config.local.json
 *.tsbuildinfo
+.vite/

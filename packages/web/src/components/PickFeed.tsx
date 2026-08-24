@@ -22,7 +22,7 @@
  * T14's `openPlayerCard`. The card is an overlay, so the feed stays mounted and keeps taking SSE
  * frames underneath it.
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { PickFeedEntry, Team } from '@sidekick/shared';
 
 import { openPlayerCard } from '../state/playerCard';
@@ -43,9 +43,15 @@ const unmatchedWarning = (entry: PickFeedEntry): string =>
   `${entry.playerName} is not in the rankings snapshot — shown under the raw Sleeper name and ` +
   `excluded from the candidate list and simulation.`;
 
+/** Feed rows shown by default; the rest stay one click away (user request, 2026-08-23). */
+const PICK_FEED_VISIBLE_COUNT = 10;
+
 export function PickFeed({ pickFeed, teams }: PickFeedProps) {
   const labelFor = useMemo(() => makeTeamLabeller(teams), [teams]);
+  const [showAll, setShowAll] = useState(false);
   const newestFirst = useMemo(() => [...pickFeed].sort((a, b) => b.pickNo - a.pickNo), [pickFeed]);
+  const visible = showAll ? newestFirst : newestFirst.slice(0, PICK_FEED_VISIBLE_COUNT);
+  const hiddenCount = newestFirst.length - visible.length;
   const unmatched = pickFeed.filter((entry) => !entry.matchedToSnapshot).length;
 
   return (
@@ -62,7 +68,7 @@ export function PickFeed({ pickFeed, teams }: PickFeedProps) {
         <p className="text-slate-500">No picks yet.</p>
       ) : (
         <ol aria-label="Picks, most recent first" className="space-y-1">
-          {newestFirst.map((entry) => {
+          {visible.map((entry) => {
             const team = labelFor(entry.teamId);
             return (
               <li
@@ -116,6 +122,19 @@ export function PickFeed({ pickFeed, teams }: PickFeedProps) {
             );
           })}
         </ol>
+      )}
+      {(hiddenCount > 0 || showAll) && newestFirst.length > PICK_FEED_VISIBLE_COUNT && (
+        <button
+          type="button"
+          onClick={() => {
+            setShowAll((v) => !v);
+          }}
+          className="mt-2 text-xs font-medium text-slate-400 hover:text-slate-200"
+        >
+          {showAll
+            ? `Show latest ${PICK_FEED_VISIBLE_COUNT}`
+            : `Show all ${newestFirst.length} picks`}
+        </button>
       )}
     </Panel>
   );

@@ -9,6 +9,7 @@ export default tseslint.config(
     ignores: [
       '**/node_modules/**',
       '**/dist/**',
+      '**/.vite/**',
       'data/cache/**',
       '**/*.tsbuildinfo',
       'prd/**',
