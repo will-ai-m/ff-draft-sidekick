@@ -5,11 +5,12 @@ state: awaiting_approval
 blocked_reason: null
 # 2026-08-23: user requested the retro ("document what can be improved? retro?") — cap raised 30→40 in constitution; breaker cleared.
 branch: village/001-draft-sidekick-v1
-subagent_calls: 31
+subagent_calls: 32
 repair_passes: {spec_review: 1, code_review: 1}
 approvals:
-  # Improvement gate decisions (2026-08-24): M1 approve, M2 approve, M3 approve, M4 approve,
-  # M6 approve (both halves), M7 approve — all at the retro's recommended option.
+  # Improvement gate decisions (2026-08-24): M1 approve, M2 approve (framework derivation-check
+  # only — user declined the PRD/spec text correction; memory file is the guard), M3 approve,
+  # M4 approve, M6 approve (both halves), M7 approve — at the recommended options.
   # M5, M8: no decision yet (pending).
   - {gate: improvement, approver: willyu, at: "2026-08-24T06:41:00Z"}
   - {gate: spec, approver: willyu, at: "2026-08-23T02:45:17Z"}
