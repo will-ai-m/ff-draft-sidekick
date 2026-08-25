@@ -1,0 +1,408 @@
+<title>DST Draft Matrix</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap">
+<style>
+  :root {
+    --bg: #F5F6F8;
+    --surface: #FFFFFF;
+    --surface-alt: #EDEFF3;
+    --ink: #1A2233;
+    --muted: #5B6472;
+    --faint: #8A93A3;
+    --border: #DFE3EA;
+    --accent: #2456A6;
+    --red-ink: #A8271F; --red-bg: #FAECEA; --red-chip: #C0392B;
+    --yel-ink: #7A5A00; --yel-bg: #FBF3D9; --yel-chip: #C9A227;
+    --grn-ink: #1E6E38; --grn-bg: #E6F3EA; --grn-chip: #2E8B4F;
+    --bye-bg: #ECEEF2; --bye-ink: #9AA2B0;
+    --shadow: 0 1px 3px rgba(20,28,45,.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0F141D;
+      --surface: #171E2B;
+      --surface-alt: #1F2836;
+      --ink: #E8ECF3;
+      --muted: #99A3B4;
+      --faint: #6E7889;
+      --border: #273143;
+      --accent: #6FA1E8;
+      --red-ink: #F0968F; --red-bg: #37201F; --red-chip: #D95C50;
+      --yel-ink: #E3C468; --yel-bg: #342C17; --yel-chip: #C9A227;
+      --grn-ink: #86D6A0; --grn-bg: #1B3125; --grn-chip: #3FA366;
+      --bye-bg: #1A2130; --bye-ink: #5D687B;
+      --shadow: 0 1px 3px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0F141D;
+    --surface: #171E2B;
+    --surface-alt: #1F2836;
+    --ink: #E8ECF3;
+    --muted: #99A3B4;
+    --faint: #6E7889;
+    --border: #273143;
+    --accent: #6FA1E8;
+    --red-ink: #F0968F; --red-bg: #37201F; --red-chip: #D95C50;
+    --yel-ink: #E3C468; --yel-bg: #342C17; --yel-chip: #C9A227;
+    --grn-ink: #86D6A0; --grn-bg: #1B3125; --grn-chip: #3FA366;
+    --bye-bg: #1A2130; --bye-ink: #5D687B;
+    --shadow: 0 1px 3px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+    margin: 0;
+    padding: 0 0 4rem;
+    font-size: 15px;
+    line-height: 1.45;
+  }
+  .wrap { max-width: 1600px; margin: 0 auto; padding: 0 20px; }
+
+  header.page { padding: 34px 0 10px; }
+  .kicker {
+    font-family: Oswald, "Arial Narrow", sans-serif;
+    font-weight: 500; font-size: .8rem; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 4px;
+  }
+  h1 {
+    font-family: Oswald, "Arial Narrow", sans-serif;
+    font-weight: 700; font-size: clamp(1.9rem, 3.5vw, 2.7rem);
+    margin: 0; letter-spacing: .01em; text-wrap: balance;
+  }
+  .sub { color: var(--muted); max-width: 68ch; margin: 8px 0 0; }
+
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center;
+    margin: 18px 0 6px; font-size: .85rem; color: var(--muted);
+  }
+  .legend .swatch {
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .legend .dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .dot.red { background: var(--red-chip); }
+  .dot.yel { background: var(--yel-chip); }
+  .dot.grn { background: var(--grn-chip); }
+
+  .callout {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 18px; margin: 16px 0 22px;
+    box-shadow: var(--shadow);
+  }
+  .callout h2 {
+    font-family: Oswald, sans-serif; font-size: .95rem; font-weight: 600;
+    letter-spacing: .08em; text-transform: uppercase; margin: 0 0 8px; color: var(--accent);
+  }
+  .callout ul { margin: 0; padding-left: 1.2em; }
+  .callout li { margin: 3px 0; }
+  .callout .abbr { font-weight: 700; }
+
+  .matrix-scroll {
+    overflow-x: auto; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--surface); box-shadow: var(--shadow);
+  }
+  table { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; }
+  thead th {
+    position: sticky; top: 0; z-index: 3;
+    background: var(--surface-alt);
+    font-family: Oswald, sans-serif; font-weight: 600; font-size: .85rem;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+    padding: 10px 12px; text-align: left;
+    border-bottom: 2px solid var(--border);
+  }
+  thead th.teamcol { left: 0; z-index: 4; }
+  tbody td, tbody th {
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tbody tr:last-child td, tbody tr:last-child th { border-bottom: none; }
+
+  th.team {
+    position: sticky; left: 0; z-index: 2;
+    background: var(--surface);
+    min-width: 218px; max-width: 218px;
+    padding: 12px 14px; text-align: left;
+    border-right: 2px solid var(--border);
+  }
+  .drank {
+    font-family: Oswald, sans-serif; font-weight: 700; font-size: 1.35rem;
+    color: var(--accent); line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .tname {
+    font-family: Oswald, sans-serif; font-weight: 600; font-size: 1.02rem;
+    line-height: 1.15; margin-top: 2px;
+  }
+  .tnote { font-size: .78rem; color: var(--muted); font-weight: 400; margin-top: 4px; line-height: 1.35; }
+  .sos {
+    display: inline-block; margin-top: 7px; font-size: .72rem; font-weight: 600;
+    color: var(--faint); letter-spacing: .05em; text-transform: uppercase;
+  }
+  .sos b { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  td.cell { min-width: 250px; max-width: 250px; padding: 0; }
+  .cellpad { padding: 11px 13px 12px; height: 100%; }
+  td.cell.red .cellpad { background: var(--red-bg); }
+  td.cell.yel .cellpad { background: var(--yel-bg); }
+  td.cell.grn .cellpad { background: var(--grn-bg); }
+  .opp-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .opp {
+    font-family: Oswald, sans-serif; font-weight: 600; font-size: 1.05rem;
+    letter-spacing: .02em;
+  }
+  .offrank {
+    font-family: Oswald, sans-serif; font-weight: 700; font-size: .8rem;
+    padding: 1px 7px 2px; border-radius: 4px; color: #fff;
+    letter-spacing: .04em; white-space: nowrap;
+  }
+  td.cell.red .offrank { background: var(--red-chip); }
+  td.cell.yel .offrank { background: var(--yel-chip); color: #241E08; }
+  td.cell.grn .offrank { background: var(--grn-chip); }
+  .vegas {
+    font-size: .78rem; color: var(--muted); margin-top: 3px;
+    font-variant-numeric: tabular-nums; font-weight: 600;
+  }
+  .blurb { font-size: .82rem; margin-top: 5px; line-height: 1.4; }
+  td.cell.red .blurb { color: var(--red-ink); }
+  td.cell.yel .blurb { color: var(--yel-ink); }
+  td.cell.grn .blurb { color: var(--grn-ink); }
+
+  td.bye .cellpad { background: var(--bye-bg); display: flex; align-items: center; justify-content: center; min-height: 90px; }
+  td.bye .byelabel {
+    font-family: Oswald, sans-serif; font-weight: 600; letter-spacing: .25em;
+    color: var(--bye-ink); font-size: .9rem;
+  }
+
+  footer.notes { margin-top: 22px; color: var(--muted); font-size: .82rem; max-width: 90ch; }
+  footer.notes p { margin: 5px 0; }
+  a { color: var(--accent); }
+</style>
+
+<div class="wrap">
+  <header class="page">
+    <p class="kicker">2026 Fantasy Football &#183; Weeks 1&#8211;5</p>
+    <h1>DST Draft Matrix</h1>
+    <p class="sub">All 32 defenses, ranked by consensus 2026 preseason projection, against their first five opponents.
+    Each cell shows the opponent, that opponent's projected <strong>offense rank</strong> (1 = most dangerous),
+    the Vegas line and total, and a projected score. For a defense you're drafting,
+    <strong>green cells are good matchups</strong> (weak opposing offense) and red cells are bad ones.</p>
+    <div class="legend">
+      <span class="swatch"><span class="dot red"></span> Opp offense ranked 1&#8211;10 (tough)</span>
+      <span class="swatch"><span class="dot yel"></span> 11&#8211;21 (neutral)</span>
+      <span class="swatch"><span class="dot grn"></span> 22&#8211;32 (soft)</span>
+      <span>SOS = avg. opponent offense rank, Wks 1&#8211;5 (higher = softer slate)</span>
+    </div>
+  </header>
+
+  <div class="callout">
+    <h2>Draft-day takeaways</h2>
+    <ul>
+      <li><span class="abbr">Chargers (D#6)</span> have the best early combo of unit + schedule: ARI and LV out of the gate, four soft-or-neutral weeks of five.</li>
+      <li><span class="abbr">Jaguars (D#9)</span> open with the league's worst projected offense (CLE, 40.5 total, &#8722;7) &#8212; a week-1 smash spot.</li>
+      <li><span class="abbr">Broncos (D#1)</span> are the best unit but draw a brutal slate: @KC, LAR, @SF, @LAC in the first five. Talent vs. schedule tradeoff.</li>
+      <li><span class="abbr">49ers (D#18)</span> and <span class="abbr">Patriots (D#8)</span> are prime streamer targets &#8212; SF gets MIA + ARI in weeks 2&#8211;3, NE gets LV in week 5.</li>
+      <li><span class="abbr">Seahawks (D#3)</span> pair an elite unit with @ARI in week 2; <span class="abbr">Vikings (D#7)</span> close weeks 4&#8211;5 with MIA and @NO.</li>
+      <li>Fade early: <span class="abbr">Bills</span> and <span class="abbr">Rams</span> defenses face three top-10 offenses each. <span class="abbr">KC</span> and <span class="abbr">CAR</span> are on bye in week 5.</li>
+    </ul>
+  </div>
+
+  <div class="matrix-scroll">
+    <table id="matrix">
+      <thead>
+        <tr>
+          <th class="teamcol">Defense (2026 proj.)</th>
+          <th>Week 1</th><th>Week 2</th><th>Week 3</th><th>Week 4</th><th>Week 5</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <footer class="notes">
+    <p><strong>Methodology.</strong> Defense and offense ranks are a consensus of 2026 preseason projections (FantasyLife, CBS, NBC Sports, PFF, theScore, WSN, BetMGM, Sharp/Vegas win totals) compiled Aug 22, 2026. Spreads and totals are pre&#8211;Week 1 lookahead lines (DraftKings/FanDuel-fed aggregators; Yahoo, Sportsbook Review, ESPN, FanDuel Research) and will move. Projected scores are implied from spread and total.</p>
+    <p><strong>Notes.</strong> Week 3 BAL&#8211;DAL is a neutral-site game in S&#227;o Paulo. Biggest source disagreements: DAL defense (CBS #16 vs. FantasyLife #27), LAR defense (#1&#8211;#5 depending on Garrett weighting), LAC offense (theScore #3 vs. mid-pack elsewhere).</p>
+  </footer>
+</div>
+
+<script>
+const OFF = {LAR:1,BUF:2,DET:3,DAL:4,CIN:5,SF:6,SEA:7,CHI:8,NE:9,KC:10,BAL:11,LAC:12,GB:13,PHI:14,JAX:15,DEN:16,HOU:17,WAS:18,PIT:19,TB:20,ATL:21,IND:22,MIN:23,CAR:24,MIA:25,NO:26,NYG:27,ARI:28,NYJ:29,TEN:30,LV:31,CLE:32};
+
+const DEF = [
+  ["DEN","Broncos","Elite pass rush, Surtain-anchored secondary"],
+  ["HOU","Texans","Anderson/Hunter edge duo, top-2 pts/drive"],
+  ["SEA","Seahawks","Macdonald's #1 scoring D, reigning champs"],
+  ["LAR","Rams","Added Myles Garrett; PFF's #1 D-line"],
+  ["PHI","Eagles","Fangio scheme, added Greenard & Woolen"],
+  ["LAC","Chargers","Harbaugh-built top-10 unit, soft opening slate"],
+  ["MIN","Vikings","Flores blitzes; led NFL in pressure rate"],
+  ["NE","Patriots","Top-10 in '25; schedule strength questioned"],
+  ["JAX","Jaguars","Strong run D; turnover-reliant '25 output"],
+  ["PIT","Steelers","Watt-led edge trio; post-Tomlin uncertainty"],
+  ["BAL","Ravens","Minter takes over; pass rush must rebound"],
+  ["BUF","Bills","Leonhard overhaul, trending off elite peak"],
+  ["GB","Packers","Gannon's scheme; Parsons injury drags upside"],
+  ["CLE","Browns","Lost Garrett; Verse unproven as replacement"],
+  ["KC","Chiefs","Fell off in '25; secondary depth concerns"],
+  ["DET","Lions","Talented but injury-prone secondary"],
+  ["NO","Saints","Middling metrics inflated by weak opponents"],
+  ["SF","49ers","'25 dip was injuries; Warner/Bosa healthier"],
+  ["ATL","Falcons","Ulbrich blitz scheme, turnover upside"],
+  ["NYG","Giants","Lost Dexter Lawrence; run D leaking"],
+  ["TB","Buccaneers","Outside top-15 two straight years"],
+  ["CHI","Bears","Turnover rate masked poor underlying metrics"],
+  ["IND","Colts","Mid-pack; added Sauce Gardner"],
+  ["CAR","Panthers","Pass rush unproven despite Phillips add"],
+  ["DAL","Cowboys","Was historically bad; big offseason adds"],
+  ["MIA","Dolphins","Lost Chubb & Phillips; weak secondary"],
+  ["WAS","Commanders","Low '25 finish but most-improved candidate"],
+  ["TEN","Titans","Saleh retooling a bottom-5 unit"],
+  ["CIN","Bengals","Added Dexter Lawrence, still shaky overall"],
+  ["LV","Raiders","Crosby remains; nearly unusable in fantasy"],
+  ["NYJ","Jets","Gutted roster after '25 sell-off"],
+  ["ARI","Cardinals","Worst projected unit + NFC West gauntlet"]
+];
+
+// Each week: away, home, "line" (favorite & spread), total, implied score, game blurb.
+const WEEKS = [
+[ // Week 1
+ {a:"NE",h:"SEA",l:"SEA -3.5",t:44.5,s:"24&#8211;20 SEA",b:"Champs' banner night vs Maye's rising Pats &#8212; a defensive grinder Seattle edges."},
+ {a:"SF",h:"LAR",l:"LAR -2.5",t:48.5,s:"26&#8211;23 LAR",b:"NFC West heavyweight opener; Stafford's #1 offense at home in a game with points."},
+ {a:"CHI",h:"CAR",l:"CHI -2.5",t:44.5,s:"24&#8211;21 CHI",b:"Ben Johnson's offense moves it; Bryce Young keeps it close but mistakes loom."},
+ {a:"TB",h:"CIN",l:"CIN -3.5",t:50.5,s:"27&#8211;23 CIN",b:"Big total &#8212; Burrow-to-Chase outscores Tampa. Bad week for either defense."},
+ {a:"NO",h:"DET",l:"DET -7",t:48.5,s:"28&#8211;21 DET",b:"Detroit rolls at home; the Saints' developing offense could gift turnovers."},
+ {a:"BUF",h:"HOU",l:"BUF -1.5",t:45.5,s:"24&#8211;22 BUF",b:"Marquee toss-up: Allen vs Houston's elite rush. Sacks available for both DSTs."},
+ {a:"BAL",h:"IND",l:"BAL -3.5",t:49.5,s:"27&#8211;23 BAL",b:"Lamar/Henry travel well; Taylor keeps pace. High total, defenses on skates."},
+ {a:"CLE",h:"JAX",l:"JAX -7",t:40.5,s:"24&#8211;17 JAX",b:"Week's lowest total vs the league's worst offense &#8212; a dream DST opener for JAX."},
+ {a:"ATL",h:"PIT",l:"PIT -3",t:42.5,s:"23&#8211;20 PIT",b:"Ugly-ball special. Watt & Co. vs Atlanta's shaky QB room; Steelers grind it out."},
+ {a:"NYJ",h:"TEN",l:"TEN -3",t:39.5,s:"21&#8211;18 TEN",b:"Two bottom-5 offenses, lowest total of Week 1. Both DSTs are playable here."},
+ {a:"ARI",h:"LAC",l:"LAC -11.5",t:45.5,s:"29&#8211;17 LAC",b:"Biggest W1 spread. Chargers blow out Brissett's Cards &#8212; an elite DST spot."},
+ {a:"MIA",h:"LV",l:"LV -3",t:41.5,s:"22&#8211;19 LV",b:"Two broken offenses. Willis's first road start invites turnovers; slog either way."},
+ {a:"GB",h:"MIN",l:"MIN -1.5",t:44.5,s:"23&#8211;22 MIN",b:"Divisional coin-flip. Flores blitzes test Love; Parsons' health looms for GB."},
+ {a:"WAS",h:"PHI",l:"PHI -5.5",t:46.5,s:"26&#8211;21 PHI",b:"Eagles at home vs Daniels' health questions; moderate scoring, PHI controls it."},
+ {a:"DAL",h:"NYG",l:"DAL -2.5",t:48.5,s:"26&#8211;23 DAL",b:"Dak & CeeDee vs a depleted Giants D. Shootout-ish; neither DST inspiring."},
+ {a:"DEN",h:"KC",l:"KC -2.5",t:42.5,s:"23&#8211;20 KC",b:"Best defense vs Mahomes at Arrowhead. Low total; Denver's rush eats but KC survives."}
+],
+[ // Week 2
+ {a:"DET",h:"BUF",l:"BUF -3",t:52.5,s:"28&#8211;25 BUF",b:"Week's biggest total. Allen vs Goff trade scores &#8212; avoid both defenses."},
+ {a:"CAR",h:"ATL",l:"ATL -1.5",t:43.5,s:"23&#8211;21 ATL",b:"Sloppy NFC South toss-up between two mid offenses; turnover-driven DST value."},
+ {a:"NO",h:"BAL",l:"BAL -7.5",t:46.5,s:"27&#8211;19 BAL",b:"Shough on the road vs Baltimore &#8212; a strong Ravens DST week."},
+ {a:"MIN",h:"CHI",l:"CHI -3.5",t:45.5,s:"25&#8211;21 CHI",b:"Flores blitz vs Caleb's year-2 leap; Minnesota's unsettled QB caps its offense."},
+ {a:"CIN",h:"HOU",l:"HOU -2.5",t:46.5,s:"25&#8211;22 HOU",b:"Stroud vs Burrow. Houston's edge duo against Cincy's rebuilt line is the swing."},
+ {a:"PIT",h:"NE",l:"NE -4.5",t:43.5,s:"24&#8211;19 NE",b:"Rodgers on the road vs a rising New England defense; modest scoring."},
+ {a:"GB",h:"NYJ",l:"GB -6.5",t:42.5,s:"25&#8211;18 GB",b:"Packers handle the gutted Jets roster &#8212; a nice spot for GB's new-look defense."},
+ {a:"CLE",h:"TB",l:"TB -5.5",t:42.5,s:"24&#8211;19 TB",b:"Cleveland's QB circus on the road makes Tampa's DST an easy stream."},
+ {a:"PHI",h:"TEN",l:"PHI -4.5",t:42.5,s:"24&#8211;19 PHI",b:"Eagles handle Ward's Titans; Fangio's unit in a plus spot."},
+ {a:"JAX",h:"DEN",l:"DEN -2.5",t:43.5,s:"23&#8211;21 DEN",b:"Mile-high grinder. Denver's elite D vs Lawrence keeps this one low."},
+ {a:"LV",h:"LAC",l:"LAC -8.5",t:42.5,s:"26&#8211;17 LAC",b:"Second straight smash spot for the Chargers &#8212; Vegas's offense is bottom-2."},
+ {a:"SEA",h:"ARI",l:"SEA -10",t:44.5,s:"27&#8211;17 SEA",b:"Champs' defense feasts on Brissett; double-digit road favorite."},
+ {a:"WAS",h:"DAL",l:"DAL -4.5",t:51.5,s:"28&#8211;24 DAL",b:"Division shootout with a 51.5 total; both defenses bleed."},
+ {a:"MIA",h:"SF",l:"SF -10.5",t:46.5,s:"29&#8211;18 SF",b:"Willis at Levi's &#8212; a 49ers DST smash week and the start of a soft stretch."},
+ {a:"IND",h:"KC",l:"KC -5.5",t:47.5,s:"27&#8211;21 KC",b:"Jones/Taylor keep it respectable, but Arrowhead is unkind to visiting DSTs."},
+ {a:"NYG",h:"LAR",l:"LAR -8.5",t:47.5,s:"28&#8211;20 LAR",b:"Dart meets Garrett's new home &#8212; the Rams' defense feasts."}
+],
+[ // Week 3
+ {a:"ATL",h:"GB",l:"GB -7.5",t:46.5,s:"27&#8211;20 GB",b:"Atlanta's QB uncertainty travels poorly to Lambeau."},
+ {a:"LAC",h:"BUF",l:"BUF -2.5",t:48.5,s:"26&#8211;23 BUF",b:"Quality shootout &#8212; Herbert keeps pace but Allen at home wins it."},
+ {a:"CAR",h:"CLE",l:"CAR -1.5",t:39.5,s:"21&#8211;19 CAR",b:"Rock fight, lowest total of the week. Cleveland's offense keeps opposing DSTs alive."},
+ {a:"NYJ",h:"DET",l:"DET -9.5",t:45.5,s:"28&#8211;18 DET",b:"Geno at Ford Field as a big dog &#8212; strong Lions DST week."},
+ {a:"HOU",h:"IND",l:"HOU -1.5",t:45.5,s:"24&#8211;22 HOU",b:"Close and modest-scoring; Houston's pass rush is the difference."},
+ {a:"NE",h:"JAX",l:"NE -1.5",t:45.5,s:"24&#8211;22 NE",b:"Toss-up between two ascending teams; middling DST appeal both ways."},
+ {a:"KC",h:"MIA",l:"KC -7",t:44.5,s:"26&#8211;19 KC",b:"Miami's Willis experiment meets Spagnuolo &#8212; a Chiefs DST spot."},
+ {a:"TEN",h:"NYG",l:"NYG -3",t:45.5,s:"24&#8211;21 NYG",b:"Two bottom-tier offenses; both DSTs are streamable."},
+ {a:"CIN",h:"PIT",l:"CIN -1.5",t:47.5,s:"25&#8211;23 CIN",b:"Rivalry scorefest &#8212; Watt vs Burrow is the marquee matchup."},
+ {a:"SEA",h:"WAS",l:"SEA -3.5",t:46.5,s:"25&#8211;22 SEA",b:"Champs' D on the road vs Daniels; moderate total, Seattle edges it."},
+ {a:"ARI",h:"SF",l:"SF -11.5",t:46.5,s:"29&#8211;18 SF",b:"Third straight brutal spot for Arizona &#8212; another 49ers DST smash."},
+ {a:"MIN",h:"TB",l:"TB -1.5",t:44.5,s:"23&#8211;22 TB",b:"Coin-flip between two solid defenses and two shaky-ish offenses."},
+ {a:"LV",h:"NO",l:"NO -3",t:42.5,s:"23&#8211;20 NO",b:"Low total; the Raiders on the road remain a DST target."},
+ {a:"BAL",h:"DAL",l:"BAL -2.5",t:52.5,s:"28&#8211;25 BAL",b:"S&#227;o Paulo neutral-site shootout, 52.5 total &#8212; avoid both defenses."},
+ {a:"LAR",h:"DEN",l:"LAR -2.5",t:45.5,s:"24&#8211;22 LAR",b:"Elite offense vs elite defense. Denver keeps it tight; Stafford makes one more play."},
+ {a:"PHI",h:"CHI",l:"PHI -1.5",t:46.5,s:"24&#8211;23 PHI",b:"Ben Johnson vs Fangio chess match, near pick'em."}
+],
+[ // Week 4
+ {a:"PIT",h:"CLE",l:"PIT -2.5",t:40.5,s:"22&#8211;19 PIT",b:"AFC North mud. Cleveland's offense keeps Pittsburgh's DST elite."},
+ {a:"IND",h:"WAS",l:"WAS -1.5",t:48.5,s:"25&#8211;24 WAS",b:"Near coin-flip with points on both sides; skip both DSTs."},
+ {a:"TEN",h:"BAL",l:"BAL -8.5",t:47.5,s:"28&#8211;20 BAL",b:"Ravens DST smash spot vs Ward; Baltimore controls throughout."},
+ {a:"NE",h:"BUF",l:"BUF -3",t:49.5,s:"26&#8211;23 BUF",b:"Maye's Pats hang around, but scoring is likely in Orchard Park."},
+ {a:"NYJ",h:"CHI",l:"CHI -8.5",t:45.5,s:"27&#8211;19 CHI",b:"Jets' rebuild on the road &#8212; a Bears DST spot."},
+ {a:"JAX",h:"CIN",l:"CIN -2.5",t:51.5,s:"27&#8211;25 CIN",b:"51.5 total, points everywhere; avoid the defenses."},
+ {a:"DAL",h:"HOU",l:"HOU -2.5",t:47.5,s:"25&#8211;23 HOU",b:"Dak vs Houston's rush &#8212; competitive, mid-scoring, Texans at home."},
+ {a:"ARI",h:"NYG",l:"NYG -7",t:45.5,s:"26&#8211;19 NYG",b:"Arizona's offense keeps donating DST value to opponents."},
+ {a:"LAR",h:"PHI",l:"LAR -1.5",t:47.5,s:"25&#8211;23 LAR",b:"Marquee NFC clash; both offenses good enough to score. Rams shade it."},
+ {a:"GB",h:"TB",l:"GB -1.5",t:47.5,s:"25&#8211;23 GB",b:"Tight and moderate; neither DST special this week."},
+ {a:"MIA",h:"MIN",l:"MIN -7.5",t:43.5,s:"26&#8211;18 MIN",b:"Flores vs Willis is a mismatch &#8212; a Vikings DST spot."},
+ {a:"KC",h:"LV",l:"KC -5.5",t:43.5,s:"25&#8211;19 KC",b:"Vegas's bottom-2 offense again; the Chiefs' D travels fine."},
+ {a:"LAC",h:"SEA",l:"SEA -3",t:45.5,s:"24&#8211;21 SEA",b:"Two top-6 defenses &#8212; low-ish scoring, sacks aplenty."},
+ {a:"DEN",h:"SF",l:"SF -2.5",t:46.5,s:"25&#8211;22 SF",b:"Denver's D keeps it close, but the Niners at home edge it."},
+ {a:"DET",h:"CAR",l:"DET -3",t:47.5,s:"25&#8211;22 DET",b:"Carolina hangs around at home; Detroit still scores enough."},
+ {a:"ATL",h:"NO",l:"NO -2.5",t:45.5,s:"24&#8211;22 NO",b:"Divisional slog with modest DST appeal both ways."}
+],
+[ // Week 5
+ {a:"TB",h:"DAL",l:"DAL -3.5",t:52.5,s:"28&#8211;25 DAL",b:"52.5 total &#8212; a shootout. Both DSTs sit."},
+ {a:"PHI",h:"JAX",l:"PHI -2.5",t:44.5,s:"24&#8211;21 PHI",b:"Competitive mid-total game; Eagles' balance travels."},
+ {a:"CIN",h:"MIA",l:"CIN -5.5",t:49.5,s:"28&#8211;22 CIN",b:"Miami can't slow Chase; Willis gives some back, so Cincy's D is fine."},
+ {a:"LV",h:"NE",l:"NE -8.5",t:44.5,s:"27&#8211;18 NE",b:"Patriots DST smash spot vs the league's lowest-scoring offense."},
+ {a:"MIN",h:"NO",l:"MIN -1.5",t:44.5,s:"23&#8211;22 MIN",b:"Low total; Flores vs a bottom-7 offense keeps Minnesota's DST relevant."},
+ {a:"CLE",h:"NYJ",l:"NYJ -1.5",t:39.5,s:"21&#8211;19 NYJ",b:"39.5 total &#8212; whoever plays the Browns is streamable."},
+ {a:"IND",h:"PIT",l:"PIT -2.5",t:47.5,s:"25&#8211;23 PIT",b:"Sneaky-scoring: Taylor vs Watt in a tight one."},
+ {a:"HOU",h:"TEN",l:"HOU -3.5",t:43.5,s:"24&#8211;20 HOU",b:"Another plus matchup for Houston's D; Ward still developing."},
+ {a:"NYG",h:"WAS",l:"WAS -2.5",t:48.5,s:"26&#8211;23 WAS",b:"Division game with points; Commanders at home."},
+ {a:"DEN",h:"LAC",l:"LAC -2.5",t:44.5,s:"24&#8211;21 LAC",b:"Two top-6 defenses, sacks everywhere; Chargers at home edge it."},
+ {a:"DET",h:"ARI",l:"DET -8.5",t:49.5,s:"29&#8211;21 DET",b:"Arizona's brutal early slate continues; Lions score at will."},
+ {a:"CHI",h:"GB",l:"GB -3",t:49.5,s:"26&#8211;23 GB",b:"Rivalry with juice &#8212; both offenses ascending."},
+ {a:"SF",h:"SEA",l:"SEA -3.5",t:48.5,s:"26&#8211;23 SEA",b:"NFC West blood feud; champs at home in a game with points."},
+ {a:"BAL",h:"ATL",l:"BAL -4.5",t:48.5,s:"27&#8211;22 BAL",b:"Lamar handles Atlanta; moderate DST value for Baltimore."},
+ {a:"BUF",h:"LAR",l:"LAR -3",t:53.5,s:"28&#8211;25 LAR",b:"Week's marquee: the #1 vs #2 offense, 53.5 total. Avoid both DSTs."}
+]
+];
+
+// Build team -> per-week game lookup
+const sched = {};
+DEF.forEach(([abbr]) => sched[abbr] = [null,null,null,null,null]);
+WEEKS.forEach((games, wi) => {
+  games.forEach(g => {
+    sched[g.a][wi] = {opp: g.h, at: true, g};
+    sched[g.h][wi] = {opp: g.a, at: false, g};
+  });
+});
+
+function tier(rank){ return rank <= 10 ? "red" : rank <= 21 ? "yel" : "grn"; }
+
+const tbody = document.getElementById("tbody");
+DEF.forEach(([abbr, name, note], i) => {
+  const tr = document.createElement("tr");
+  const games = sched[abbr];
+  const oppRanks = games.filter(Boolean).map(e => OFF[e.opp]);
+  const sos = (oppRanks.reduce((a,b)=>a+b,0) / oppRanks.length).toFixed(1);
+
+  const th = document.createElement("th");
+  th.className = "team";
+  th.setAttribute("scope","row");
+  th.innerHTML = `<span class="drank">#${i+1}</span>
+    <div class="tname">${abbr} &#183; ${name}</div>
+    <div class="tnote">${note}</div>
+    <span class="sos">SOS Wk1&#8211;5: <b>${sos}</b></span>`;
+  tr.appendChild(th);
+
+  games.forEach(entry => {
+    const td = document.createElement("td");
+    if (!entry) {
+      td.className = "cell bye";
+      td.innerHTML = `<div class="cellpad"><span class="byelabel">BYE</span></div>`;
+    } else {
+      const r = OFF[entry.opp];
+      td.className = "cell " + tier(r);
+      td.innerHTML = `<div class="cellpad">
+        <div class="opp-line">
+          <span class="opp">${entry.at ? "@" : "vs"} ${entry.opp}</span>
+          <span class="offrank">OFF #${r}</span>
+        </div>
+        <div class="vegas">${entry.g.l} &#183; O/U ${entry.g.t}${entry.g.s ? " &#183; proj " + entry.g.s : ""}</div>
+        <div class="blurb">${entry.g.b}</div>
+      </div>`;
+    }
+    tr.appendChild(td);
+  });
+  tbody.appendChild(tr);
+});
+</script>
