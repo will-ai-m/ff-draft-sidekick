@@ -1,12 +1,17 @@
 task: 001-draft-sidekick-v1
 route: feature
-phase: retro
-state: blocked_on_human
-blocked_reason: "circuit breaker: 30/30 subagent calls used (cap: constitution circuit_breaker_cap). Release complete — PR #1 merged to main (784d24f). Remaining phases: retro → improvement. Human decision: raise the cap to run retro+improvement now, or defer them (task ships as done either way; retro never delays the merge)."
+phase: improvement
+state: awaiting_approval
+blocked_reason: null
+# 2026-08-23: user requested the retro ("document what can be improved? retro?") — cap raised 30→40 in constitution; breaker cleared.
 branch: village/001-draft-sidekick-v1
-subagent_calls: 30
+subagent_calls: 31
 repair_passes: {spec_review: 1, code_review: 1}
 approvals:
+  # Improvement gate decisions (2026-08-24): M1 approve, M2 approve, M3 approve, M4 approve,
+  # M6 approve (both halves), M7 approve — all at the retro's recommended option.
+  # M5, M8: no decision yet (pending).
+  - {gate: improvement, approver: willyu, at: "2026-08-24T06:41:00Z"}
   - {gate: spec, approver: willyu, at: "2026-08-23T02:45:17Z"}
   - {gate: design, approver: willyu, at: "2026-08-23T03:04:31Z"}
 gates:
@@ -26,3 +31,4 @@ history:
   - {phase: docs, entered_at: "2026-08-23T13:43:40Z"}
   - {phase: release, entered_at: "2026-08-23T13:47:00Z"}
   - {phase: retro, entered_at: "2026-08-23T13:52:39Z"}
+  - {phase: improvement, entered_at: "2026-08-24T05:57:28Z"}

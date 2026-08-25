@@ -18,4 +18,4 @@ Project conventions every Village agent must respect. Checkers cite this file; v
 
 ## Overrides
 
-- circuit_breaker_cap: 30    # max subagent calls per task
+- circuit_breaker_cap: 40    # max subagent calls per task (raised 30→40 on task 001 by user request, 2026-08-23, to run retro/improvement)
