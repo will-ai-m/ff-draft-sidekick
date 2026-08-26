@@ -14,6 +14,7 @@
 import { Router } from 'express';
 import type { Response } from 'express';
 
+import type { Observability } from '../observability';
 import type { Orchestrator } from '../orchestrator';
 
 /** Retry hint the browser's own `EventSource` honours if the process restarts mid-draft. */
@@ -63,7 +64,10 @@ export class SseHub {
   }
 }
 
-export function createEventsRouter(orchestrator: Orchestrator): { router: Router; hub: SseHub } {
+export function createEventsRouter(
+  orchestrator: Orchestrator,
+  observability?: Observability,
+): { router: Router; hub: SseHub } {
   const hub = new SseHub(orchestrator);
   const router = Router();
 
@@ -79,8 +83,16 @@ export function createEventsRouter(orchestrator: Orchestrator): { router: Router
     res.write(`retry: ${RECONNECT_DELAY_MS}\n\n`);
 
     hub.add(res);
+    // Traced because a mid-draft view going away — or every view going away — is precisely the
+    // kind of fact a "why did I miss that pick" reading needs beside the server-side record.
+    const connectedAt = Date.now();
+    observability?.recordEvent('sse-connected', { clients: hub.clientCount });
     req.on('close', () => {
       hub.remove(res);
+      observability?.recordEvent('sse-disconnected', {
+        clients: hub.clientCount,
+        connectedMs: Date.now() - connectedAt,
+      });
       res.end();
     });
   });

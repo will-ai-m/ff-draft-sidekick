@@ -266,6 +266,16 @@ export class RequestBudget {
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
+/** One outbound Sleeper request's outcome, as reported to {@link SleeperClientOptions.onRequest}. */
+export interface SleeperRequestInfo {
+  path: string;
+  durationMs: number;
+  ok: boolean;
+  /** HTTP status when a response arrived; null when the failure happened before one did. */
+  status: number | null;
+  errorKind: SleeperErrorKind | null;
+}
+
 export interface SleeperClientOptions {
   baseUrl?: string;
   /** 🔶 AS-5 `apiBudgetPerMin`. */
@@ -276,6 +286,8 @@ export interface SleeperClientOptions {
   now?: () => number;
   /** Fired on any HTTP 429, so the poll-interval controller can back off reactively (AC-8). */
   onRateLimited?: () => void;
+  /** Fired once per request with its outcome and latency — the trace file's network-level record. */
+  onRequest?: (info: SleeperRequestInfo) => void;
 }
 
 export interface RequestOptions {
@@ -292,6 +304,8 @@ export class SleeperClient {
   private readonly fetchImpl: FetchLike;
   private readonly requestTimeoutMs: number;
   private readonly onRateLimited: (() => void) | undefined;
+  private readonly onRequest: ((info: SleeperRequestInfo) => void) | undefined;
+  private readonly now: () => number;
 
   private playerDump: SleeperPlayerDump | null = null;
   private playerDumpInFlight: Promise<SleeperPlayerDump> | null = null;
@@ -301,7 +315,9 @@ export class SleeperClient {
     this.fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init));
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.onRateLimited = options.onRateLimited;
-    this.budget = new RequestBudget(options.apiBudgetPerMin, options.now ?? Date.now);
+    this.onRequest = options.onRequest;
+    this.now = options.now ?? Date.now;
+    this.budget = new RequestBudget(options.apiBudgetPerMin, this.now);
   }
 
   /** Fetches `path`, classifies every failure, and validates the body against `schema`. */
@@ -311,7 +327,15 @@ export class SleeperClient {
     options: RequestOptions,
     { nullMeansNotFound = true }: { nullMeansNotFound?: boolean } = {},
   ): Promise<T> {
+    const startedAt = this.now();
+    // Reported exactly once per call, on whichever outcome path ends it — including the budget
+    // refusal below, which never reaches the network but is still a fact about this instance's
+    // behaviour that a trace has to carry.
+    const report = (ok: boolean, status: number | null, errorKind: SleeperErrorKind | null): void =>
+      this.onRequest?.({ path, durationMs: this.now() - startedAt, ok, status, errorKind });
+
     if (!this.budget.tryConsume()) {
+      report(false, null, 'budget-exhausted');
       throw new SleeperApiError(
         'budget-exhausted',
         path,
@@ -333,8 +357,10 @@ export class SleeperClient {
       response = await this.fetchImpl(`${this.baseUrl}${path}`, { signal: controller.signal });
     } catch (error) {
       if (timedOut) {
+        report(false, null, 'timeout');
         throw new SleeperApiError('timeout', path, `${path} did not respond in time.`);
       }
+      report(false, null, 'network');
       throw new SleeperApiError(
         'network',
         path,
@@ -347,12 +373,15 @@ export class SleeperClient {
 
     if (response.status === 429) {
       this.onRateLimited?.();
+      report(false, 429, 'rate-limited');
       throw new SleeperApiError('rate-limited', path, `Sleeper rate-limited ${path}.`, 429);
     }
     if (response.status === 404) {
+      report(false, 404, 'not-found');
       throw new SleeperApiError('not-found', path, `Sleeper has no ${path}.`, 404);
     }
     if (!response.ok) {
+      report(false, response.status, 'http-error');
       throw new SleeperApiError(
         'http-error',
         path,
@@ -365,6 +394,7 @@ export class SleeperClient {
     try {
       body = await response.json();
     } catch (error) {
+      report(false, response.status, 'malformed');
       throw new SleeperApiError(
         'malformed',
         path,
@@ -375,11 +405,13 @@ export class SleeperClient {
     // Sleeper answers 200 with a `null` body for an id it does not know — including a mock draft
     // that has since been purged. That is a not-found, not a malformed payload.
     if (body === null && nullMeansNotFound) {
+      report(false, response.status, 'not-found');
       throw new SleeperApiError('not-found', path, `Sleeper has no ${path}.`);
     }
 
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
+      report(false, response.status, 'malformed');
       throw new SleeperApiError(
         'malformed',
         path,
@@ -389,6 +421,7 @@ export class SleeperClient {
           .join('; ')}`,
       );
     }
+    report(true, response.status, null);
     return parsed.data;
   }
 

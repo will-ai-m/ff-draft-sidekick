@@ -188,3 +188,32 @@ describe('player dump caching', () => {
     expect(scenario.requests.filter((r) => r === 'players')).toHaveLength(1);
   });
 });
+
+describe('per-request tracing (onRequest)', () => {
+  it('reports a successful request with its status and latency', async () => {
+    const seen: import('./client').SleeperRequestInfo[] = [];
+    const client = makeClient({ onRequest: (info) => seen.push(info) });
+
+    await client.getDraftPicks(String(bundle.draft['draft_id']));
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ ok: true, status: 200, errorKind: null });
+    expect(seen[0]!.path).toContain('/picks');
+    expect(seen[0]!.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('reports each failure exactly once, classified — a 429 and a budget refusal alike', async () => {
+    const seen: import('./client').SleeperRequestInfo[] = [];
+    scenario.failNextPicks({ kind: 'http', status: 429 });
+    const client = makeClient({ apiBudgetPerMin: 1, onRequest: (info) => seen.push(info) });
+    const draftId = String(bundle.draft['draft_id']);
+
+    await expect(client.getDraftPicks(draftId)).rejects.toBeInstanceOf(SleeperApiError);
+    // The budget is now spent, so this second call is refused before reaching the network.
+    await expect(client.getDraftPicks(draftId)).rejects.toMatchObject({ kind: 'budget-exhausted' });
+
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toMatchObject({ ok: false, status: 429, errorKind: 'rate-limited' });
+    expect(seen[1]).toMatchObject({ ok: false, status: null, errorKind: 'budget-exhausted' });
+  });
+});

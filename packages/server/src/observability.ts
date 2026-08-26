@@ -1,11 +1,19 @@
 /**
- * Latency instrumentation for the SC-1 / SC-2 mock-rehearsal judgment (AC-66, AC-67).
+ * Latency instrumentation for the SC-1 / SC-2 mock-rehearsal judgment (AC-66, AC-67), plus the
+ * app-event channel every other module reports through.
  *
  * The PRD's own validation protocol (§14) treats the p95 verdict as something a human forms while
- * watching a live mock draft, not something CI asserts. So this module's job is narrow: timestamp
- * the moment each poll response arrives and the moment each dependent view is rebuilt from it, and
- * keep enough recent samples that a rehearsal can be judged. The sync layer records; the server
- * orchestration layer decides how to surface (log line, debug endpoint).
+ * watching a live mock draft, not something CI asserts. So the latency half stays narrow:
+ * timestamp the moment each poll response arrives and the moment each dependent view is rebuilt
+ * from it, and keep enough recent samples that a rehearsal can be judged.
+ *
+ * The app-event half ({@link Observability.recordEvent}) is the general tap: attaches, polls,
+ * recompute outputs, degraded transitions — anything a post-draft "what exactly happened"
+ * investigation needs. Events flagged `noise` (an unchanged 1 Hz poll, a healthy Sleeper request)
+ * skip the ring buffer so they cannot evict the latency samples the buffer exists for; every
+ * sample, noisy or not, reaches the sink, where `index.ts` persists it to the trace file.
+ * Every sample carries the attached draft's id ({@link Observability.setDraftId}), so one trace
+ * file covering several drafts still slices cleanly.
  */
 
 /** The views a pick must reach before SC-1's "reflected everywhere" clock stops (AC-11). */
@@ -56,14 +64,44 @@ export interface CascadeFailedSample {
   /** The board version the failed cascade was computing from. */
   boardVersion: number;
   message: string;
+  /** The throw's stack, when it carried one — the "which line" a post-mortem starts from. */
+  stack: string | null;
   at: number;
+}
+
+/**
+ * A general app event: something happened that a post-draft investigation may need. The event
+ * name is free-form by design — the set grows with the app, and the trace file is schemaless.
+ */
+export interface AppEventSample {
+  type: 'app-event';
+  event: string;
+  at: number;
+  /**
+   * High-frequency routine traffic (an unchanged poll, a healthy HTTP request). Noise reaches the
+   * sink — the on-disk trace wants full fidelity — but stays out of the ring buffer and out of
+   * the live console.
+   */
+  noise: boolean;
+  data: Record<string, unknown>;
 }
 
 export type ObservabilitySample =
   | PollResponseSample
   | PickReflectedSample
   | BurstRefreshedSample
-  | CascadeFailedSample;
+  | CascadeFailedSample
+  | AppEventSample;
+
+/**
+ * What actually reaches the buffer and the sink: the sample plus the attached draft's id. The
+ * intersection distributes over the union so `sample.type === '…'` still narrows normally.
+ */
+export type RecordedSample = ObservabilitySample extends infer S
+  ? S extends ObservabilitySample
+    ? S & { draftId: string | null }
+    : never
+  : never;
 
 export interface LagSummary {
   count: number;
@@ -75,17 +113,18 @@ export interface ObservabilityOptions {
   /** Ring-buffer size. A 15-round draft produces a few hundred samples; this bounds a long night. */
   maxSamples?: number;
   now?: () => number;
-  /** Optional side-channel (a structured log line, say) invoked for every recorded sample. */
-  sink?: (sample: ObservabilitySample) => void;
+  /** Optional side-channel (the trace file, a structured log line) invoked for every sample. */
+  sink?: (sample: RecordedSample) => void;
 }
 
 const DEFAULT_MAX_SAMPLES = 2000;
 
 export class Observability {
-  private readonly buffer: ObservabilitySample[] = [];
+  private readonly buffer: RecordedSample[] = [];
   private readonly maxSamples: number;
   private readonly now: () => number;
-  private readonly sink: ((sample: ObservabilitySample) => void) | undefined;
+  private readonly sink: ((sample: RecordedSample) => void) | undefined;
+  private draftId: string | null = null;
 
   constructor(options: ObservabilityOptions = {}) {
     this.maxSamples = options.maxSamples ?? DEFAULT_MAX_SAMPLES;
@@ -93,10 +132,41 @@ export class Observability {
     this.sink = options.sink;
   }
 
+  /** Stamped onto every subsequent sample. Set at attach, cleared (null) at detach. */
+  setDraftId(draftId: string | null): void {
+    this.draftId = draftId;
+  }
+
   private push(sample: ObservabilitySample): void {
-    this.buffer.push(sample);
+    const recorded: RecordedSample = { ...sample, draftId: this.draftId };
+    this.buffer.push(recorded);
     while (this.buffer.length > this.maxSamples) this.buffer.shift();
-    this.sink?.(sample);
+    this.sink?.(recorded);
+  }
+
+  /**
+   * Records one general app event. `noise: true` marks routine high-frequency traffic: it still
+   * reaches the sink (the trace file wants everything) but bypasses the ring buffer, so summaries
+   * and `/api/debug/metrics` keep their latency-sample depth.
+   */
+  recordEvent(
+    event: string,
+    data: Record<string, unknown> = {},
+    options: { noise?: boolean } = {},
+  ): AppEventSample {
+    const sample: AppEventSample = {
+      type: 'app-event',
+      event,
+      at: this.now(),
+      noise: options.noise ?? false,
+      data,
+    };
+    if (sample.noise) {
+      this.sink?.({ ...sample, draftId: this.draftId });
+    } else {
+      this.push(sample);
+    }
+    return sample;
   }
 
   /** Stamps a poll response's arrival and hands the timestamp back to correlate reflections with. */
@@ -152,18 +222,23 @@ export class Observability {
   }
 
   /** Stamps a recompute cascade that threw, so containing it does not also silence it. */
-  recordCascadeFailed(args: { boardVersion: number; message: string }): CascadeFailedSample {
+  recordCascadeFailed(args: {
+    boardVersion: number;
+    message: string;
+    stack?: string | null;
+  }): CascadeFailedSample {
     const sample: CascadeFailedSample = {
       type: 'cascade-failed',
       boardVersion: args.boardVersion,
       message: args.message,
+      stack: args.stack ?? null,
       at: this.now(),
     };
     this.push(sample);
     return sample;
   }
 
-  samples(): readonly ObservabilitySample[] {
+  samples(): readonly RecordedSample[] {
     return this.buffer;
   }
 
@@ -184,20 +259,12 @@ export class Observability {
 
   /** Nearest-rank p95 over the retained pick-reflection lags — enough to judge SC-1's ≤3 s bar. */
   pickLagSummary(): LagSummary | null {
-    return summarize(
-      this.buffer
-        .filter((s): s is PickReflectedSample => s.type === 'pick-reflected')
-        .map((s) => s.lagMs),
-    );
+    return summarize(this.buffer.flatMap((s) => (s.type === 'pick-reflected' ? [s.lagMs] : [])));
   }
 
   /** The same nearest-rank p95 over burst refreshes — SC-2's ≤5 s bar (AC-67). */
   burstLatencySummary(): LagSummary | null {
-    return summarize(
-      this.buffer
-        .filter((s): s is BurstRefreshedSample => s.type === 'burst-refreshed')
-        .map((s) => s.latencyMs),
-    );
+    return summarize(this.buffer.flatMap((s) => (s.type === 'burst-refreshed' ? [s.latencyMs] : [])));
   }
 }
 

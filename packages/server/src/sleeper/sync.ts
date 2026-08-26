@@ -428,6 +428,13 @@ const degradedReasonFromError = (error: unknown): DegradedReason =>
     : { kind: 'unknown', message: (error as Error).message };
 
 /**
+ * How many picks one `picks-observed` trace event carries in full. A recovery re-ingest can
+ * report a whole board's worth at once; past this the event keeps the count and drops the tail —
+ * the picks themselves are still individually present in the feed and later events.
+ */
+const PICKS_PER_EVENT_LIMIT = 40;
+
+/**
  * Holds the one attached draft's board and drives the poll loop.
  *
  * `boardVersion` is monotonic and bumps whenever the board actually changes — every applied poll
@@ -450,6 +457,8 @@ export class BoardSync {
   private version = 1;
   private status: 'healthy' | 'degraded' = 'healthy';
   private reason: DegradedReason | null = null;
+  /** When the current degraded episode began — the recovery event reports the outage's length. */
+  private degradedSince: number | null = null;
   private lastSuccessAt: string;
 
   private timer: NodeJS.Timeout | null = null;
@@ -539,6 +548,16 @@ export class BoardSync {
   }
 
   private markDegraded(reason: DegradedReason): PollOutcome {
+    // The transition is traced once per episode; repeat failures while already degraded are
+    // visible as the individual `poll` events, not as a fresh transition each time.
+    if (this.status !== 'degraded') {
+      this.degradedSince = this.now();
+      this.observability?.recordEvent('sync-degraded', {
+        kind: reason.kind,
+        message: reason.message,
+        boardVersion: this.version,
+      });
+    }
     this.status = 'degraded';
     this.reason = reason;
     this.emitChange();
@@ -561,10 +580,36 @@ export class BoardSync {
    * reports rather than re-testing it against the state that went bad.
    */
   async pollOnce(): Promise<PollOutcome> {
-    if (this.status === 'degraded') {
-      return this.reingest(this.config.initialIngestTimeoutMs);
-    }
+    const startedAt = this.now();
+    const mode = this.status === 'degraded' ? 're-ingest' : 'picks';
+    const outcome =
+      mode === 're-ingest'
+        ? await this.reingest(this.config.initialIngestTimeoutMs)
+        : await this.pollPicks();
 
+    // Every poll is traced — an unchanged one as noise, so the on-disk record still shows the
+    // loop's true cadence (and its effective, back-off-adjusted interval) without drowning the
+    // ring buffer between picks.
+    this.observability?.recordEvent(
+      'poll',
+      {
+        mode,
+        outcome: outcome.status,
+        boardVersion: this.version,
+        newPicks: outcome.status === 'applied' ? outcome.newPicks.length : 0,
+        ...(outcome.status === 'degraded'
+          ? { reasonKind: outcome.reason.kind, reason: outcome.reason.message }
+          : {}),
+        durationMs: this.now() - startedAt,
+        intervalMs: this.intervalMs(),
+      },
+      { noise: outcome.status === 'unchanged' },
+    );
+    return outcome;
+  }
+
+  /** The healthy-path poll body: fetch the complete pick list, verify it, apply it. */
+  private async pollPicks(): Promise<PollOutcome> {
     let picks: SleeperPick[];
     try {
       picks = await this.client.getDraftPicks(this.derived.meta.draftId, {
@@ -610,10 +655,24 @@ export class BoardSync {
         pollResponseAt,
       });
     }
+    this.recordPicksObserved('poll', newFeedEntries);
 
     for (const listener of this.newPickListeners) listener(newFeedEntries);
     this.emitChange();
     return { status: 'applied', newPicks: newFeedEntries, boardVersion: this.version };
+  }
+
+  /** The draft's own story, in the trace: who took whom, when, attributed to which seat. */
+  private recordPicksObserved(source: 'poll' | 're-ingest', entries: readonly PickFeedEntry[]): void {
+    if (this.observability === undefined || entries.length === 0) return;
+    this.observability.recordEvent('picks-observed', {
+      source,
+      count: entries.length,
+      picks: entries.slice(0, PICKS_PER_EVENT_LIMIT),
+      ...(entries.length > PICKS_PER_EVENT_LIMIT
+        ? { truncated: entries.length - PICKS_PER_EVENT_LIMIT }
+        : {}),
+    });
   }
 
   private async reingest(timeoutMs: number): Promise<PollOutcome> {
@@ -639,6 +698,16 @@ export class BoardSync {
     this.version += 1;
     this.intervalController?.recordSuccess();
 
+    // A re-ingest that ends a degraded episode is AC-17's recovery — trace it with the outage's
+    // measured length, which no single poll event carries.
+    if (this.degradedSince !== null) {
+      this.observability?.recordEvent('sync-recovered', {
+        outageMs: this.now() - this.degradedSince,
+        boardVersion: this.version,
+      });
+      this.degradedSince = null;
+    }
+
     const newFeedEntries = this.derived.pickFeed.filter((entry) => !seen.has(entry.pickNo));
     for (const entry of newFeedEntries) {
       this.observability?.recordPickReflected({ pickNo: entry.pickNo, view: 'board', pollResponseAt });
@@ -648,6 +717,7 @@ export class BoardSync {
         pollResponseAt,
       });
     }
+    this.recordPicksObserved('re-ingest', newFeedEntries);
 
     if (newFeedEntries.length > 0) {
       for (const listener of this.newPickListeners) listener(newFeedEntries);

@@ -1,5 +1,5 @@
 {
-  "name": "willy-ff",
+  "name": "ff-draft-sidekick",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -17,6 +17,7 @@
     "build": "npm run build -w @sidekick/web",
     "start": "npm run build && tsx packages/server/src/index.ts",
     "prep:nflverse": "tsx packages/server/scripts/prep-nflverse-data.ts",
+    "trace:report": "tsx packages/server/scripts/trace-report.ts",
     "test": "vitest run",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p packages/shared/tsconfig.json && tsc --noEmit -p packages/server/tsconfig.json && tsc --noEmit -p packages/web/tsconfig.json"

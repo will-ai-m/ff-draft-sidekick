@@ -97,6 +97,8 @@ export interface MetricsSummary {
 
 /** Everything scoped to one attached draft. Dropping this reference drops the whole draft (AC-41). */
 interface ActiveSession {
+  /** When the attach completed — the detach event reports the session's total length from it. */
+  attachedAt: number;
   session: DraftSession;
   league: LeagueSettings;
   bundle: SnapshotBundle;
@@ -328,8 +330,13 @@ export class Orchestrator {
   // -------------------------------------------------------------------------------------------
 
   async attach(request: AttachRequest): Promise<AttachOutcome> {
+    this.observability.recordEvent('attach-requested', { input: request.input });
     const result = await this.attachManager.attach(request);
     if (!result.ok) {
+      this.observability.recordEvent('attach-failed', {
+        kind: result.failure.kind,
+        message: result.failure.message,
+      });
       this.broadcast();
       return { ok: false, failure: result.failure, snapshot: this.snapshot() };
     }
@@ -343,6 +350,12 @@ export class Orchestrator {
       this.active = null;
       this.insights = emptyInsights();
       this.cascadeFailure = null;
+      this.observability.recordEvent('attach-failed', {
+        kind: 'unknown',
+        message: (error as Error).message,
+        stack: (error as Error).stack ?? null,
+      });
+      this.observability.setDraftId(null);
       this.broadcast();
       return {
         ok: false,
@@ -355,8 +368,38 @@ export class Orchestrator {
       };
     }
 
+    this.recordAttachSucceeded();
     this.broadcast();
     return { ok: true, snapshot: this.snapshot() };
+  }
+
+  /** The one-per-attach trace record of what this session actually is and started from. */
+  private recordAttachSucceeded(): void {
+    const active = this.active;
+    if (active === null) return;
+    const state = active.session.sync.state;
+    this.observability.recordEvent('attach-succeeded', {
+      draftId: state.meta.draftId,
+      isMock: state.meta.isMock,
+      draftStatus: state.meta.status,
+      draftType: state.meta.type,
+      season: state.meta.season,
+      teamCount: state.meta.teamCount,
+      rounds: state.meta.rounds,
+      userTeamId: state.userTeamId,
+      picksAlreadyMade: state.pickFeed.length,
+      matchedPlayers: active.players.length,
+      adpOnlyPlayers: active.bundle.matching.adpOnlyPlayers.length,
+      teams: state.teams.map((team) => ({
+        teamId: team.teamId,
+        draftSlot: team.draftSlot,
+        name: team.displayName ?? team.ownerDisplayName,
+        isBotSeat: team.isBotSeat,
+      })),
+      // The whole pre-draft check rides along: snapshot ages, sources, scoring divergence and
+      // every warning — the exact "what did the instance know at the start" record.
+      preDraftCheck: active.preDraftCheck,
+    });
   }
 
   /** AC-5's manual slot choice, once the user's id was not found in `draft_order`. */
@@ -367,6 +410,13 @@ export class Orchestrator {
       // The seat changes who "mine" is, so every derived view changes with it — recompute inside
       // the same coalesced window rather than waiting for the next pick to land.
       if (result.ok) this.recompute();
+      this.observability.recordEvent('slot-selected', {
+        draftSlot,
+        ok: result.ok,
+        ...(result.ok
+          ? { userTeamId: this.active?.session.sync.state.userTeamId ?? null }
+          : { failureKind: result.failure.kind }),
+      });
       this.broadcast();
     });
 
@@ -379,6 +429,10 @@ export class Orchestrator {
   private async startSession(session: DraftSession): Promise<void> {
     const { client } = this.options;
     const meta = session.sync.state.meta;
+
+    // From here every sample belongs to this draft. Set before the first recompute so even the
+    // opening cascade's trace record is attributed.
+    this.observability.setDraftId(meta.draftId);
 
     // FR-5: read the league's own settings once per attach. Scoring resolves here too, so FR-11's
     // game-log scorer and FR-4's format warning read the one answer (AC-30, AC-64).
@@ -442,6 +496,7 @@ export class Orchestrator {
     );
 
     this.active = {
+      attachedAt: this.now(),
       session,
       league,
       bundle,
@@ -568,6 +623,7 @@ export class Orchestrator {
       this.observability.recordCascadeFailed({
         boardVersion: active.session.sync.syncIndicator.boardVersion,
         message,
+        stack: (error as Error).stack ?? null,
       });
       this.broadcast();
       return;
@@ -632,6 +688,7 @@ export class Orchestrator {
     const degraded = indicator.status === 'degraded';
     const userTeamId = state.userTeamId;
     const picksMade = state.pickFeed.length;
+    const startedAt = this.now();
 
     // FR-6 — the window and its rows, then FR-7's bend on top of them.
     const panel = computeOpponentPanel({
@@ -645,6 +702,7 @@ export class Orchestrator {
       board: state.board,
     });
     const entries = tendencies.enrichPanel(panel.entries);
+    const panelDoneAt = this.now();
 
     // FR-8 — the display extension is resolved before the simulation runs (AC-42).
     const ensureIncluded = candidateSimulationIds({
@@ -661,6 +719,7 @@ export class Orchestrator {
       ensureIncluded,
       degraded,
     });
+    const simulationDoneAt = this.now();
 
     // FR-9/FR-10 — the user's own need vector, never an opponent's.
     const userRoster = roster.userPanel();
@@ -694,6 +753,85 @@ export class Orchestrator {
       candidateList,
     };
     this.recomputes += 1;
+    this.recordRecompute({
+      boardVersion: indicator.boardVersion,
+      picksMade,
+      degraded,
+      startedAt,
+      panelDoneAt,
+      simulationDoneAt,
+      ensuredCandidates: ensureIncluded.length,
+      candidateList,
+      userRoster,
+      windowLength: panel.window.picks.length,
+    });
+  }
+
+  /**
+   * The per-cascade trace record: how long each stage took, and — the part a post-draft "why did
+   * it tell me that" reading needs — exactly what the cascade decided to recommend and from what.
+   */
+  private recordRecompute(args: {
+    boardVersion: number;
+    picksMade: number;
+    degraded: boolean;
+    startedAt: number;
+    panelDoneAt: number;
+    simulationDoneAt: number;
+    ensuredCandidates: number;
+    candidateList: CandidateListData;
+    userRoster: RosterPanelData | null;
+    windowLength: number;
+  }): void {
+    const finishedAt = this.now();
+    const { candidateList } = args;
+    const highlightRow =
+      candidateList.highlightPlayerId === null
+        ? null
+        : (candidateList.rows.find(
+            (row) => row.playerId === candidateList.highlightPlayerId,
+          ) ?? null);
+    const round3 = (value: number): number => Math.round(value * 1000) / 1000;
+
+    this.observability.recordEvent('recompute', {
+      recomputeSeq: this.recomputes,
+      boardVersion: args.boardVersion,
+      picksMade: args.picksMade,
+      degraded: args.degraded,
+      durationMs: finishedAt - args.startedAt,
+      phases: {
+        opponentPanelMs: args.panelDoneAt - args.startedAt,
+        simulationMs: args.simulationDoneAt - args.panelDoneAt,
+        candidateListMs: finishedAt - args.simulationDoneAt,
+      },
+      simulation: {
+        runs: this.config.monteCarloRunCount,
+        universeSize: this.config.simUniverseSize,
+        ensuredCandidates: args.ensuredCandidates,
+        windowLength: args.windowLength,
+      },
+      output: {
+        highlightPlayerId: candidateList.highlightPlayerId,
+        highlightPlayerName: highlightRow?.playerName ?? null,
+        reasonKind: candidateList.reasonKind,
+        reason: candidateList.reason,
+        disabledReason: candidateList.disabledReason,
+        planWinner: candidateList.planComparison?.winner ?? null,
+        planTooClose: candidateList.planComparison?.tooClose ?? null,
+        topRows: candidateList.rows.slice(0, 10).map((row) => ({
+          playerId: row.playerId,
+          playerName: row.playerName,
+          position: row.position,
+          ecrRank: row.ecrRank,
+          adp: row.adp,
+          survival:
+            row.survival === null
+              ? null
+              : { probability: round3(row.survival.probability), band: row.survival.band },
+        })),
+      },
+      needVector: args.userRoster?.needVector ?? null,
+    });
   }
 
   private candidateList(input: {
@@ -785,6 +923,14 @@ export class Orchestrator {
     // asked for from ending on a `recomputing` panel, and records AC-67's sample once rather
     // than recomputing here and again when the armed debounce fires.
     this.flushBurst();
+    this.observability.recordEvent('resync', {
+      ok: result.ok,
+      durationMs: result.durationMs,
+      boardVersion: result.boardVersion,
+      ...(result.failure === undefined
+        ? {}
+        : { failureKind: result.failure.kind, failure: result.failure.message }),
+    });
     return result;
   }
 
@@ -792,6 +938,12 @@ export class Orchestrator {
   detach(): void {
     const active = this.active;
     if (active !== null) {
+      this.observability.recordEvent('detached', {
+        draftId: active.session.sync.state.meta.draftId,
+        attachedForMs: this.now() - active.attachedAt,
+        picksSeen: active.session.sync.state.pickFeed.length,
+        recomputes: this.recomputes,
+      });
       for (const unsubscribe of active.unsubscribe) unsubscribe();
       active.roster.stop();
       active.tendencies.discard();
@@ -803,6 +955,7 @@ export class Orchestrator {
     this.cascadeFailure = null;
     this.clearBurst();
     this.stopSyncTicker();
+    this.observability.setDraftId(null);
     this.broadcast();
   }
 

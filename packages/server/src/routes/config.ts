@@ -19,7 +19,16 @@ import type { Orchestrator } from '../orchestrator';
 /** How many recent samples the debug endpoint returns; the full ring buffer is larger. */
 const DEBUG_SAMPLE_LIMIT = 200;
 
-export function createConfigRouter(orchestrator: Orchestrator, config: SidekickConfig): Router {
+export interface ConfigRouterExtras {
+  /** This process's trace file, so "where is the full record" is answerable from the browser. */
+  traceFilePath?: (() => string | null) | undefined;
+}
+
+export function createConfigRouter(
+  orchestrator: Orchestrator,
+  config: SidekickConfig,
+  extras: ConfigRouterExtras = {},
+): Router {
   const router = Router();
 
   router.get('/api/config', (_req, res) => {
@@ -35,6 +44,7 @@ export function createConfigRouter(orchestrator: Orchestrator, config: SidekickC
         pickReflectionLatencyMs: config.pickReflectionLatencyMs,
         insightRefreshLatencyMs: config.insightRefreshLatencyMs,
       },
+      traceFile: extras.traceFilePath?.() ?? null,
       samples: metrics.samples.slice(-DEBUG_SAMPLE_LIMIT),
     });
   });

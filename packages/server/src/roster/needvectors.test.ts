@@ -334,9 +334,8 @@ const syncFor = (
 const rosterSamples = (observability: Observability): PickReflectedSample[] =>
   observability
     .samples()
-    .filter(
-      (sample): sample is PickReflectedSample =>
-        sample.type === 'pick-reflected' && sample.view === 'roster',
+    .flatMap((sample) =>
+      sample.type === 'pick-reflected' && sample.view === 'roster' ? [sample] : [],
     );
 
 describe('RosterPanelTracker (AC-31, AC-66)', () => {

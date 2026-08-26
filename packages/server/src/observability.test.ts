@@ -64,3 +64,57 @@ describe('Observability (AC-66)', () => {
     expect(obs.samples()).toHaveLength(3);
   });
 });
+
+describe('app events and the trace sink', () => {
+  it('records an app event into the buffer and the sink', () => {
+    const seen: unknown[] = [];
+    const obs = new Observability({ now: () => 42, sink: (sample) => seen.push(sample) });
+
+    obs.recordEvent('attach-succeeded', { draftId: 'd1' });
+
+    expect(obs.samples()).toHaveLength(1);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      type: 'app-event',
+      event: 'attach-succeeded',
+      at: 42,
+      noise: false,
+      data: { draftId: 'd1' },
+    });
+  });
+
+  it('sends a noise event to the sink but keeps it out of the ring buffer', () => {
+    const seen: unknown[] = [];
+    const obs = new Observability({ sink: (sample) => seen.push(sample) });
+
+    obs.recordEvent('poll', { outcome: 'unchanged' }, { noise: true });
+    obs.recordPollResponse('picks');
+
+    // The unchanged poll persisted (trace file fidelity) without occupying a buffer slot that
+    // the latency summaries depend on.
+    expect(seen).toHaveLength(2);
+    expect(obs.samples().map((s) => s.type)).toEqual(['poll-response']);
+  });
+
+  it('stamps the attached draft id onto every sample, and null again after detach', () => {
+    const seen: { draftId: string | null }[] = [];
+    const obs = new Observability({ sink: (sample) => seen.push(sample) });
+
+    obs.recordEvent('server-started');
+    obs.setDraftId('draft-9');
+    obs.recordPollResponse('picks');
+    obs.recordEvent('recompute', {}, { noise: false });
+    obs.setDraftId(null);
+    obs.recordEvent('detached');
+
+    expect(seen.map((s) => s.draftId)).toEqual([null, 'draft-9', 'draft-9', null]);
+    // The buffer carries the same stamp, so /api/debug/metrics can slice by draft too.
+    expect(obs.samples().map((s) => s.draftId)).toEqual([null, 'draft-9', 'draft-9', null]);
+  });
+
+  it('retains the cascade stack so a contained throw is still diagnosable later', () => {
+    const obs = new Observability();
+    obs.recordCascadeFailed({ boardVersion: 3, message: 'boom', stack: 'Error: boom\n  at x' });
+    expect(obs.samples()[0]).toMatchObject({ type: 'cascade-failed', stack: 'Error: boom\n  at x' });
+  });
+});

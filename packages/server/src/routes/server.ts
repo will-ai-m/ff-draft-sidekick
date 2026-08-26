@@ -12,8 +12,10 @@ import express from 'express';
 import type { ErrorRequestHandler, Express } from 'express';
 
 import type { SidekickConfig } from '../config/loadConfig';
+import type { Observability } from '../observability';
 import type { Orchestrator } from '../orchestrator';
 import { createAttachRouter } from './attach';
+import { createClientLogRouter } from './clientLog';
 import { createConfigRouter } from './config';
 import { createEventsRouter } from './events';
 import type { SseHub } from './events';
@@ -25,6 +27,10 @@ export interface CreateAppOptions {
   webDist?: string;
   /** Set false to serve the API alone (tests, and `npm run dev`, where Vite serves the frontend). */
   serveWeb?: boolean;
+  /** When present: HTTP access events, SSE connect/disconnect events, `/api/client-log`. */
+  observability?: Observability;
+  /** Where this process's trace file lives, surfaced on `/api/debug/metrics`. */
+  traceFilePath?: () => string | null;
 }
 
 export interface SidekickApp {
@@ -67,23 +73,62 @@ export function createSidekickApp(
   const app = express();
   app.use(express.json());
 
+  // The access log: every request's method, path, status and latency, traced on completion.
+  // Successes are noise (on disk only); a 4xx/5xx is not, so it also reaches the console and the
+  // ring buffer. `/events` is exempt — it is a stream whose "finish" is just the tab leaving, and
+  // the SSE hub below records that with more meaning.
+  const observability = options.observability;
+  if (observability !== undefined) {
+    app.use((req, res, next) => {
+      if (req.path === '/events') {
+        next();
+        return;
+      }
+      const startedAt = Date.now();
+      res.on('finish', () => {
+        observability.recordEvent(
+          'http',
+          {
+            method: req.method,
+            path: req.path,
+            status: res.statusCode,
+            durationMs: Date.now() - startedAt,
+          },
+          { noise: res.statusCode < 400 },
+        );
+      });
+      next();
+    });
+  }
+
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok' });
   });
 
-  const { router: events, hub } = createEventsRouter(orchestrator);
+  const { router: events, hub } = createEventsRouter(orchestrator, observability);
   app.use(createAttachRouter(orchestrator));
   app.use(createResyncRouter(orchestrator));
   app.use(createPlayerGamelogRouter(orchestrator));
-  app.use(createConfigRouter(orchestrator, config));
+  app.use(createConfigRouter(orchestrator, config, { traceFilePath: options.traceFilePath }));
+  app.use(createClientLogRouter(observability));
   app.use(events);
 
   if (options.serveWeb !== false && options.webDist !== undefined && existsSync(options.webDist)) {
     app.use(express.static(options.webDist));
   }
 
-  // Last, so it sees everything mounted above it.
-  app.use(errorBoundary);
+  // Last, so it sees everything mounted above it. Traced before it answers: the fixed sentence
+  // the client receives deliberately says nothing, so the trace has to say everything.
+  const tracedBoundary: ErrorRequestHandler = (error, req, res, next) => {
+    observability?.recordEvent('route-error', {
+      method: req.method,
+      path: req.path,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? (error.stack ?? null) : null,
+    });
+    errorBoundary(error, req, res, next);
+  };
+  app.use(tracedBoundary);
 
   return { app, hub };
 }
