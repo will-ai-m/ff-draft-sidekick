@@ -37,6 +37,7 @@ import { Observability } from './observability';
 import type { LagSummary, ObservabilitySample } from './observability';
 import { buildPickSequence, computeOpponentPanel, countRemainingPicks } from './opponent/window';
 import {
+  applyEndgameKdstOverride,
   candidateSimulationIds,
   computeCandidateList,
   filterCandidateRows,
@@ -734,6 +735,16 @@ export class Orchestrator {
             picksMade,
           ).get(userTeamId) ?? 0);
 
+    // The bench phase's roster totals (FR-9/FR-10 amendment): every pick the user's seat has
+    // made, by position — starters and bench together, which is what the caps count against.
+    const userRosterCounts: Partial<Record<Position, number>> = {};
+    if (userTeamId !== null) {
+      for (const entry of state.pickFeed) {
+        if (entry.teamId !== userTeamId || entry.position === null) continue;
+        userRosterCounts[entry.position] = (userRosterCounts[entry.position] ?? 0) + 1;
+      }
+    }
+
     const candidateList =
       userTeamId === null
         ? this.seatUnresolvedList(players, state.board, survival)
@@ -744,6 +755,9 @@ export class Orchestrator {
             needVector: userRoster?.needVector ?? NO_NEED_SIGNAL,
             survival,
             userRemainingPicks,
+            unfilledK: userRoster?.unfilledStartingSlots.dedicated.K ?? 0,
+            unfilledDst: userRoster?.unfilledStartingSlots.dedicated.DST ?? 0,
+            benchPhase: { rosterCounts: userRosterCounts, slots: state.meta.slots },
           });
 
     this.insights = {
@@ -841,14 +855,25 @@ export class Orchestrator {
     needVector: Parameters<typeof computeCandidateList>[0]['needVector'];
     survival: Parameters<typeof computeCandidateList>[0]['survival'];
     userRemainingPicks: number;
+    unfilledK: number;
+    unfilledDst: number;
+    benchPhase: Parameters<typeof computeCandidateList>[0]['benchPhase'];
   }): CandidateListData {
     const list = computeCandidateList({ ...input, config: this.config });
-    return list.disabledReason !== null
-      ? list
-      : {
-          ...list,
-          rowsByPosition: this.rowsByPosition(input.players, input.board, input.survival),
-        };
+    if (list.disabledReason !== null) return list;
+
+    const rowsByPosition = this.rowsByPosition(input.players, input.board, input.survival);
+    // FR-9's endgame guard, applied over the finished list: when the user's remaining picks have
+    // caught up with their unfilled K/DST slots, the highlight moves there (AS-7 amendment,
+    // 2026-08-27). The guard reads the same per-position rows the AC-50 filter shows.
+    return applyEndgameKdstOverride({
+      list: { ...list, rowsByPosition },
+      userRemainingPicks: input.userRemainingPicks,
+      unfilledK: input.unfilledK,
+      unfilledDst: input.unfilledDst,
+      kdstRows: { K: rowsByPosition.K ?? [], DST: rowsByPosition.DST ?? [] },
+      config: this.config,
+    });
   }
 
   /**

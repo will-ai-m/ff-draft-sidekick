@@ -14,10 +14,13 @@
  *
  * **What one simulated pick does**, per AC-42, in order:
  *
- *  1. **K/DST saturation (AC-47).** If the team's unfilled K/DST starting slots have caught up
- *     with the picks it has left, this pick consumes no skill player at all. Checked before any
- *     draw, and never modelled as a draw from a K/DST pool — there is no K/DST simulation
- *     universe to draw from (🔶 AS-7).
+ *  1. **K/DST placement (AC-47, amended 2026-08-27).** If the team's unfilled K/DST starting
+ *     slots have caught up with the picks it has left, this pick consumes no skill player at
+ *     all. Within the team's last `unfilled + kdstEarlyPickWindow` picks the same thing happens
+ *     *probabilistically*, at `unfilled / remaining` — the 08-27 mock-rehearsal trace showed
+ *     real rooms drafting K/DST with five and six picks still in hand, which the deadline-only
+ *     rule modelled as skill-player demand and so overstated top-board scarcity. Either way it
+ *     is never a draw from a K/DST pool — there is no K/DST simulation universe (🔶 AS-7).
  *  2. **The position.** Drawn from the team's FR-7 tendency-bent distribution. A team with **no
  *     bent distribution** is the `NO_NEED_SIGNAL` team (FR-6 publishes none for it): per Terms it
  *     skips the position draw entirely and samples straight from ADP order across QB/RB/WR/TE.
@@ -73,6 +76,7 @@ export type SurvivalConfig = Pick<
   | 'simUniverseSize'
   | 'monteCarloRunCount'
   | 'reachAdjustmentPerPick'
+  | 'kdstEarlyPickWindow'
   | 'survivalBandLikelyGoneMax'
   | 'survivalBandLikelyAvailableMin'
 >;
@@ -243,6 +247,27 @@ export function planKDstSaturation(picks: readonly SimulatedPick[]): boolean[] {
   });
 }
 
+/**
+ * The probability one simulated pick is spent on K/DST (AC-47 as amended 2026-08-27).
+ *
+ * A uniform-placement model: a team that must spend `unfilled` of its `remaining` picks on
+ * K/DST, and is inside its last `unfilled + earlyWindow` picks, is treated as placing those
+ * K/DST picks uniformly among what it has left — so the chance this particular pick is one of
+ * them is `unfilled / remaining`. At the deadline (`remaining <= unfilled`) that reaches 1,
+ * which is exactly the original hard saturation rule; outside the window it is 0, so an early-
+ * round pick never goes to a kicker. 🔶 `kdstEarlyPickWindow` = 0 restores deadline-only.
+ *
+ * Calibration evidence for the window's existence: the 2026-08-27 mock trace shows nine seats
+ * taking their first DST with four to six picks still in hand, which the deadline-only model
+ * scored as skill-player demand — one measured source of the projection's survival pessimism.
+ */
+export function kdstPickChance(unfilled: number, remaining: number, earlyWindow: number): number {
+  if (unfilled <= 0) return 0;
+  if (remaining <= unfilled) return 1;
+  if (remaining > unfilled + Math.max(0, earlyWindow)) return 0;
+  return unfilled / remaining;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Randomness
 // ---------------------------------------------------------------------------------------------
@@ -298,10 +323,14 @@ const hashNumber = (hash: number, value: number): number => hashText(hash, `${va
 export function deriveSeed(
   universe: readonly UniversePlayer[],
   picks: readonly SimulatedPick[],
-  config: Pick<SurvivalConfig, 'monteCarloRunCount' | 'reachAdjustmentPerPick'>,
+  config: Pick<
+    SurvivalConfig,
+    'monteCarloRunCount' | 'reachAdjustmentPerPick' | 'kdstEarlyPickWindow'
+  >,
 ): number {
   let hash = hashNumber(FNV_OFFSET_BASIS, config.monteCarloRunCount);
   hash = hashNumber(hash, config.reachAdjustmentPerPick);
+  hash = hashNumber(hash, config.kdstEarlyPickWindow);
 
   for (const player of universe) {
     hash = hashText(hash, `${player.sleeperPlayerId}\0${player.position}\0`);
@@ -546,7 +575,26 @@ export function simulateSurvival(input: SimulateSurvivalInput): SurvivalProjecti
   const allPool = Int32Array.from(universe, (player) => player.index);
   const positionByIndex = universe.map((player) => player.position);
 
-  const saturated = planKDstSaturation(picks);
+  // K/DST placement (AC-47 as amended). With an early window the walk is stochastic and
+  // per-run — whether pick N went to a kicker changes whether pick N+3 must — so the counters
+  // live inside the run loop; with the window at 0 the deterministic deadline plan is
+  // precomputed once, exactly as before the amendment. Deterministic outcomes (chance 0 or 1)
+  // never consume randomness, so a window-less draw replays the identical stream.
+  const earlyWindow = config.kdstEarlyPickWindow;
+  const saturatedPlan = earlyWindow > 0 ? null : planKDstSaturation(picks);
+  const teamIds = [...new Set(picks.map((pick) => pick.teamId))];
+  const teamIndexByStep = Int32Array.from(picks, (pick) => teamIds.indexOf(pick.teamId));
+  const initialUnfilled = Int32Array.from(
+    teamIds,
+    (id) => picks.find((pick) => pick.teamId === id)!.unfilledKDstSlots,
+  );
+  const initialRemaining = Int32Array.from(
+    teamIds,
+    (id) => picks.find((pick) => pick.teamId === id)!.remainingPicks,
+  );
+  const unfilledInRun = new Int32Array(teamIds.length);
+  const remainingInRun = new Int32Array(teamIds.length);
+
   // The board seeds itself unless a caller overrides it — see `deriveSeed` for why that is the
   // simulation's contract with SC-2 rather than a testing convenience.
   const random =
@@ -562,9 +610,22 @@ export function simulateSurvival(input: SimulateSurvivalInput): SurvivalProjecti
     for (const position of SKILL_POSITIONS) {
       availableByPosition[position] = initialByPosition[position];
     }
+    unfilledInRun.set(initialUnfilled);
+    remainingInRun.set(initialRemaining);
 
     for (let step = 0; step < picks.length && poolLeft > 0; step += 1) {
-      if (saturated[step] === true) continue;
+      if (saturatedPlan !== null) {
+        if (saturatedPlan[step] === true) continue;
+      } else {
+        const team = teamIndexByStep[step]!;
+        const remaining = remainingInRun[team]!;
+        remainingInRun[team] = remaining - 1;
+        const chance = kdstPickChance(unfilledInRun[team]!, remaining, earlyWindow);
+        if (chance >= 1 || (chance > 0 && random() < chance)) {
+          unfilledInRun[team] = unfilledInRun[team]! - 1;
+          continue; // Spent on K/DST — no skill player leaves the board (🔶 AS-7).
+        }
+      }
 
       const pick = picks[step]!;
       const reach = config.reachAdjustmentPerPick * pick.averageReach;

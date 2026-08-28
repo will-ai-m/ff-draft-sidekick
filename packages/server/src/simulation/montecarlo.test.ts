@@ -14,6 +14,7 @@ import {
   buildSimulationUniverse,
   createSeededRandom,
   deriveSeed,
+  kdstPickChance,
   planKDstSaturation,
   simulateSurvival,
   survivalBand,
@@ -43,6 +44,7 @@ const config = (overrides: Partial<SurvivalConfig> = {}): SurvivalConfig => ({
   simUniverseSize: PARAMETER_DEFAULTS.simUniverseSize,
   monteCarloRunCount: PARAMETER_DEFAULTS.monteCarloRunCount,
   reachAdjustmentPerPick: PARAMETER_DEFAULTS.reachAdjustmentPerPick,
+  kdstEarlyPickWindow: PARAMETER_DEFAULTS.kdstEarlyPickWindow,
   survivalBandLikelyGoneMax: PARAMETER_DEFAULTS.survivalBandLikelyGoneMax,
   survivalBandLikelyAvailableMin: PARAMETER_DEFAULTS.survivalBandLikelyAvailableMin,
   ...overrides,
@@ -307,6 +309,78 @@ describe('the K/DST saturation rule (AC-47)', () => {
     const picks = [simPick({ unfilledKDstSlots: 0, remainingPicks: 0 })];
 
     expect(planKDstSaturation(picks)).toEqual([false]);
+  });
+
+  describe('the early placement window (AC-47 amendment, 2026-08-27)', () => {
+    it('is the hard deadline rule at the boundary, and silent outside the window', () => {
+      expect(kdstPickChance(2, 2, 4)).toBe(1);
+      expect(kdstPickChance(2, 1, 4)).toBe(1);
+      expect(kdstPickChance(2, 7, 4)).toBe(0); // beyond unfilled + window
+      expect(kdstPickChance(0, 1, 4)).toBe(0);
+      expect(kdstPickChance(2, 5, 0)).toBe(0); // window 0 restores deadline-only
+    });
+
+    it('places K/DST uniformly across the picks the team has left', () => {
+      expect(kdstPickChance(2, 4, 4)).toBe(0.5);
+      expect(kdstPickChance(1, 4, 4)).toBe(0.25);
+      expect(kdstPickChance(2, 6, 4)).toBeCloseTo(2 / 6);
+    });
+
+    it('spares skill players when a window team may take K/DST early, raising survival', () => {
+      // One opponent pick between user turns; that team has 5 picks left draft-wide and both
+      // K/DST slots open. The deadline-only model spends this pick on a skill player every run
+      // (5 > 2); the placement window says 2-in-5 runs go to K/DST — the exact behaviour nine
+      // seats showed in the 2026-08-27 mock trace, taking DSTs with 4-6 picks in hand.
+      const players = Array.from({ length: 8 }, (_, i) =>
+        candidate(`rb${i}`, 'RB', i + 1, i + 1),
+      );
+      const picks = [simPick({ unfilledKDstSlots: 2, remainingPicks: 5 })];
+      const totalSurvival = (earlyWindow: number): number => {
+        const projection = project({
+          picks,
+          players,
+          config: { kdstEarlyPickWindow: earlyWindow, monteCarloRunCount: 400 },
+          seed: 7,
+        });
+        let total = 0;
+        for (const survival of projection.survivalByPlayerId.values()) {
+          total += survival.probability;
+        }
+        return total;
+      };
+
+      // Deadline-only: exactly one of eight is drafted per run — 7 expected survivors.
+      expect(totalSurvival(0)).toBeCloseTo(7, 5);
+      // With the window, 2/5 of runs spend the pick on K/DST and everyone survives.
+      const withWindow = totalSurvival(PARAMETER_DEFAULTS.kdstEarlyPickWindow);
+      expect(withWindow).toBeGreaterThan(7.2);
+      expect(withWindow).toBeLessThanOrEqual(8);
+    });
+
+    it('walks the counters per run — an early K/DST pick relieves the deadline behind it', () => {
+      // Two picks by one team, remaining 3 with 2 K/DST slots open: chance 2/3 then, if K/DST
+      // was taken, 1/2 — and if not, the second pick sits at the 2>=2 deadline and saturates.
+      // Either path spends at most one skill pick, so at least 7 of 8 always survive.
+      const players = Array.from({ length: 8 }, (_, i) =>
+        candidate(`wr${i}`, 'WR', i + 1, i + 1),
+      );
+      const picks = [
+        simPick({ pickNo: 5, unfilledKDstSlots: 2, remainingPicks: 3 }),
+        simPick({ pickNo: 15, unfilledKDstSlots: 2, remainingPicks: 3 }),
+      ];
+      const projection = project({
+        picks,
+        players,
+        config: { monteCarloRunCount: 300 },
+        seed: 11,
+      });
+
+      let total = 0;
+      for (const survival of projection.survivalByPlayerId.values()) {
+        total += survival.probability;
+      }
+      expect(total).toBeGreaterThanOrEqual(7);
+    });
   });
 
   it('consumes no skill player, so a saturated window leaves the board untouched', () => {
@@ -788,7 +862,9 @@ describe('simulation stability on an unchanged board (SC-2, §T7 done-when 2)', 
       board: boardOf(),
       size: config().simUniverseSize,
     });
-    expect(deriveSeed(universe, picks, config())).toBe(3486165602);
+    // Re-pinned 2026-08-27: the stream moved because `kdstEarlyPickWindow` joined the seed —
+    // the early K/DST placement window changes what a draw samples, so it must (AC-47 amendment).
+    expect(deriveSeed(universe, picks, config())).toBe(2646130542);
   });
 
   it('keeps two independent samples inside a band’s width at the default run count', () => {

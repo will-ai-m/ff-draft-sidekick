@@ -44,7 +44,18 @@ export type HighlightReasonKind =
   | 'value'
   | 'best-available'
   | 'too-close-to-call'
-  | 'lookahead-not-applicable';
+  | 'lookahead-not-applicable'
+  /**
+   * FR-9's endgame guard (added 2026-08-27): the user's remaining picks have caught up with
+   * their unfilled K/DST starting slots, so the highlight is the top available K/DST.
+   */
+  | 'endgame-kdst'
+  /**
+   * The bench phase's roster-balance redirect (added 2026-08-27): starters are full, the raw
+   * top-ECR player sits at a capped position the roster already holds enough of, so the
+   * highlight is the best player at a position that still adds bench value.
+   */
+  | 'bench-depth';
 
 /**
  * Exactly one highlighted candidate plus its reason. The reason string is produced server-side

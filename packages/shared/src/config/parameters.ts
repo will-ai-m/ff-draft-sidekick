@@ -92,6 +92,14 @@ export interface ParameterValues {
    * **architect-added** — PRD AC-42 says only "adjusted by the team's reach profile".
    */
   reachAdjustmentPerPick: number;
+  /**
+   * How many picks before the hard AC-47 deadline a simulated team may start spending picks on
+   * K/DST: within its last `unfilled + this` picks, each simulated pick goes to K/DST with
+   * probability `unfilled / remaining` (1 at the deadline, which is AC-47's original rule).
+   * 0 restores the deadline-only model. PRD AS-5 / FR-8 (amended 2026-08-27: the 08-27 mock
+   * rehearsal showed real rooms drafting K/DST several rounds before they are forced to).
+   */
+  kdstEarlyPickWindow: number;
   /** Survival at or below this is "likely gone". PRD AS-5 / AC-44. */
   survivalBandLikelyGoneMax: number;
   /** Survival at or above this is "likely available". PRD AS-5 / AC-44. */
@@ -110,6 +118,23 @@ export interface ParameterValues {
   planTotalTooCloseEcrRanks: number;
   /** How many of the user's own picks the lookahead ever reaches ahead. PRD AS-2 / AC-60. */
   lookaheadMaxPicks: number;
+  /**
+   * FR-9's endgame guard: when the user's remaining picks are at or below their unfilled K/DST
+   * starting slots plus this buffer, the highlight moves to the top available K/DST so a
+   * follow-the-highlight user cannot finish with those slots empty. The buffer is the slack for
+   * one ignored recommendation. PRD AS-5 / FR-9 (amended 2026-08-27: AS-7's falsifier fired —
+   * a fully-followed mock rehearsal produced a 6-QB, no-K, no-DST roster).
+   */
+  endgameKdstBufferPicks: number;
+  /**
+   * The bench phase's roster cap for positions that are NOT FLEX-eligible: once the user's
+   * starters are full, such a position stops entering plans or the highlight when the roster
+   * already holds `starting slots + this` of it (a 1-QB league caps at 2 QBs). FLEX-eligible
+   * positions are never capped — bench depth there always starts. PRD AS-5 / FR-9, FR-10
+   * (amended 2026-08-27: the no-need→raw-ECR regime recommended QB3 through QB6 in the mock
+   * rehearsal, amplified by AS-8's known QB-vs-market ECR skew reading as repeated "value").
+   */
+  benchPositionHeadroom: number;
 
   // ---- Multi-instance and rate limiting (FR-1) ----------------------------------------
   /**
@@ -154,6 +179,7 @@ export const PARAMETER_DEFAULTS: Readonly<ParameterValues> = Object.freeze({
   simUniverseSize: 40,
   monteCarloRunCount: 2000,
   reachAdjustmentPerPick: 1,
+  kdstEarlyPickWindow: 4,
   survivalBandLikelyGoneMax: 0.25,
   survivalBandLikelyAvailableMin: 0.75,
 
@@ -163,6 +189,8 @@ export const PARAMETER_DEFAULTS: Readonly<ParameterValues> = Object.freeze({
   nearTieEcrRanks: 3,
   planTotalTooCloseEcrRanks: 3,
   lookaheadMaxPicks: 2,
+  endgameKdstBufferPicks: 1,
+  benchPositionHeadroom: 1,
 
   secondInstanceBackoffFactor: 0.5,
   rateLimitBackoffMaxMs: 10_000,

@@ -35,7 +35,7 @@
  * survival number — but it silently costs AC-49 the survival column on some rows.
  */
 
-import { isSkillPosition } from '@sidekick/shared';
+import { NO_NEED_SIGNAL, SKILL_POSITIONS, isSkillPosition } from '@sidekick/shared';
 import type {
   Board,
   CandidateListData,
@@ -46,6 +46,8 @@ import type {
   NoNeedSignal,
   ParameterValues,
   Position,
+  SkillPosition,
+  SlotConfig,
   Survival,
 } from '@sidekick/shared';
 
@@ -60,7 +62,42 @@ export type CandidateListConfig = Pick<
   | 'nearTieEcrRanks'
   | 'planTotalTooCloseEcrRanks'
   | 'lookaheadMaxPicks'
+  | 'benchPositionHeadroom'
+  | 'flexEligiblePositions'
 >;
+
+export type EndgameKdstConfig = Pick<ParameterValues, 'endgameKdstBufferPicks'>;
+
+// ---------------------------------------------------------------------------------------------
+// The bench phase (FR-9/FR-10 amendment, 2026-08-27)
+// ---------------------------------------------------------------------------------------------
+
+/** What the bench phase reads off the user's roster. Counts are totals — starters and bench. */
+export interface BenchPhaseInput {
+  rosterCounts: Partial<Record<Position, number>>;
+  slots: SlotConfig;
+}
+
+/**
+ * The positions that still add value once the starters are full — the bench phase's answer to
+ * AC-54's "positions the user still needs", which runs dry at the no-need sentinel.
+ *
+ * A FLEX-eligible position always qualifies: its depth starts games. A non-FLEX position (QB in
+ * a 1-QB league) has a weekly ceiling, so it stops qualifying once the roster holds
+ * `starting slots + 🔶 benchPositionHeadroom` of it. Born from the 08-27 rehearsal, where the
+ * no-need→raw-ECR regime — amplified by AS-8's QB-vs-market ECR skew reading as "value" pick
+ * after pick — recommended QB3 through QB6 while the bench held two running backs.
+ */
+export function benchPlanPositions(
+  bench: BenchPhaseInput,
+  config: Pick<CandidateListConfig, 'benchPositionHeadroom' | 'flexEligiblePositions'>,
+): SkillPosition[] {
+  return SKILL_POSITIONS.filter(
+    (position) =>
+      config.flexEligiblePositions.includes(position) ||
+      (bench.rosterCounts[position] ?? 0) < bench.slots[position] + config.benchPositionHeadroom,
+  );
+}
 
 /**
  * The shape of a snapshot player this module needs. Structural and narrow, as every other insight
@@ -231,6 +268,11 @@ export interface ComputeCandidateListInput {
   config: CandidateListConfig;
   /** AC-50's active filter, or null/absent for the whole list. */
   positionFilter?: Position | null;
+  /**
+   * The user's roster totals and slot shape, for the bench phase. Read only while `needVector`
+   * is the no-need sentinel; absent, the pre-amendment raw best-available regime applies.
+   */
+  benchPhase?: BenchPhaseInput | null;
 }
 
 const DISABLED_REASON =
@@ -259,6 +301,18 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
   if (input.players.length === 0) return disabledList();
 
   const available = availableInEcrOrder(input.players, board);
+
+  // The bench phase (FR-9/FR-10 amendment, 2026-08-27): starters full, so plans and the
+  // highlight draw only from positions that still add bench value. The displayed rows stay raw
+  // ECR order (🔶 AS-8) — the *recommendation* is constrained, never the board.
+  const benchPositions =
+    input.needVector === NO_NEED_SIGNAL && input.benchPhase != null
+      ? benchPlanPositions(input.benchPhase, config)
+      : null;
+  const allowed = benchPositions === null ? null : new Set<Position>(benchPositions);
+  const pool =
+    allowed === null ? available : available.filter((player) => allowed.has(player.position));
+
   const comparison = comparePlans({
     players: input.players,
     board,
@@ -266,9 +320,12 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
     projection: survival,
     userRemainingPicks: input.userRemainingPicks,
     config,
+    ...(benchPositions === null ? {} : { benchPositions }),
   });
 
-  const topEcr = available[0] ?? null;
+  const rawTop = available[0] ?? null;
+  // Every bench-eligible position empty on the board is the raw regime again, not a dead end.
+  const topEcr = pool[0] ?? rawTop;
   if (topEcr === null) {
     return {
       rows: [],
@@ -297,15 +354,33 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
 
   // ---- 2. The single decisive factor, by AC-51's precedence ----------------------------------
   const moved = highlight.sleeperPlayerId !== topEcr.sleeperPlayerId;
-  const planned = new Set(planPositions(input.needVector));
+  const planned = new Set(benchPositions ?? planPositions(input.needVector));
   const currentPickNo = input.window.inProgressPickNo;
   const valueGap =
     !moved && topEcr.adp !== null && currentPickNo !== null ? currentPickNo - topEcr.adp : null;
 
+  // The bench redirect: the board's raw top sits at a capped position the roster already holds
+  // enough of. That fact outranks the ladder below — it IS the single decisive factor — and the
+  // reason must acknowledge the player the user can see leading the list.
+  const redirected =
+    allowed !== null &&
+    rawTop !== null &&
+    rawTop.sleeperPlayerId !== highlight.sleeperPlayerId &&
+    !allowed.has(rawTop.position);
+
   let reasonKind: HighlightReasonKind;
   let baseClause: string;
 
-  if (!comparison.applicable) {
+  if (redirected) {
+    const count = input.benchPhase?.rosterCounts[rawTop.position] ?? 0;
+    const starts = input.benchPhase?.slots[rawTop.position] ?? 0;
+    reasonKind = 'bench-depth';
+    baseClause =
+      `Roster balance: ${rawTop.playerName} (${rawTop.position}) leads the board, but you ` +
+      `already carry ${count} ${rawTop.position}${count === 1 ? '' : 's'} for ` +
+      `${starts} starting slot${starts === 1 ? '' : 's'} — ` +
+      `${highlight.playerName} (${highlight.position}) is the best pick that still adds depth.`;
+  } else if (!comparison.applicable) {
     // AC-59: no plan comparison to make, so the ECR-ordered highlight stands and says so.
     const picks = input.userRemainingPicks;
     reasonKind = 'lookahead-not-applicable';
@@ -340,8 +415,12 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
   }
 
   // ---- 3. The within-noise test, last, on the resolved highlight (AC-52) ---------------------
+  // Skipped entirely on a bench redirect: the cap is the story, and the "other candidate" a tie
+  // line would name must itself come from the positions the bench phase still allows.
   const tieClauses: string[] = [];
-  const other = available.find((player) => player.position !== highlight.position) ?? null;
+  const other = redirected
+    ? null
+    : (pool.find((player) => player.position !== highlight.position) ?? null);
   const highlightSurvival = survivalOf(survival, highlight);
   const otherSurvival = other === null ? null : survivalOf(survival, other);
 
@@ -403,5 +482,89 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
     reasonKind,
     planComparison: comparison,
     disabledReason: null,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// The endgame K/DST guard (FR-9, amended 2026-08-27)
+// ---------------------------------------------------------------------------------------------
+
+export interface EndgameKdstOverrideInput {
+  /** The list `computeCandidateList` produced. Returned untouched unless the guard fires. */
+  list: CandidateListData;
+  /** Picks the user still owns in the draft, counting the one on the clock. */
+  userRemainingPicks: number;
+  /** The user's unfilled dedicated K / DST starting slots (FR-5's roster arithmetic). */
+  unfilledK: number;
+  unfilledDst: number;
+  /**
+   * AC-50's per-position row sets for K and DST — positional ECR order, ADP order when the
+   * snapshot ranks neither (AC-23's degenerate case). The guard highlights the head of one of
+   * these, so what it recommends is exactly what the position filter shows first.
+   */
+  kdstRows: { K: readonly CandidateRow[]; DST: readonly CandidateRow[] };
+  config: EndgameKdstConfig;
+}
+
+/**
+ * FR-9's endgame guard: when the user's remaining picks have caught up with their unfilled K/DST
+ * starting slots (plus a one-pick buffer for an ignored recommendation), the highlight moves to
+ * the top available K/DST and says why.
+ *
+ * Exists because AS-7's falsifier fired: 🔶 AS-7 keeps K/DST out of every piece of prediction
+ * math — deliberately, and this guard does not change that — but composed with FR-9's ECR-value
+ * highlighting it meant a user who followed every recommendation of the 2026-08-27 mock
+ * rehearsal finished with six quarterbacks and no kicker or defense. The guard is roster
+ * arithmetic, not prediction: no survival number, no plan, just "you are out of road".
+ *
+ * The plan comparison is suppressed while the guard holds — a two-skill-pick plan beside a
+ * "draft a kicker now" highlight would be two recommendations on one screen.
+ */
+export function applyEndgameKdstOverride(input: EndgameKdstOverrideInput): CandidateListData {
+  const { list, config } = input;
+  if (list.disabledReason !== null) return list;
+
+  const unfilledK = Math.max(0, input.unfilledK);
+  const unfilledDst = Math.max(0, input.unfilledDst);
+  const unfilled = unfilledK + unfilledDst;
+  if (unfilled === 0 || input.userRemainingPicks <= 0) return list;
+  if (input.userRemainingPicks > unfilled + config.endgameKdstBufferPicks) return list;
+
+  // The best row per open position, then the better of the two by ADP (the market's order is
+  // the only cross-position signal K/DST have — 🔶 AS-7 gives them no other number), falling
+  // back to ECR, then to K first for pure determinism.
+  const candidates: CandidateRow[] = [];
+  if (unfilledK > 0 && input.kdstRows.K.length > 0) candidates.push(input.kdstRows.K[0]!);
+  if (unfilledDst > 0 && input.kdstRows.DST.length > 0) candidates.push(input.kdstRows.DST[0]!);
+  if (candidates.length === 0) return list;
+
+  const target = [...candidates].sort(
+    (a, b) =>
+      (a.adp ?? Infinity) - (b.adp ?? Infinity) ||
+      (a.ecrRank ?? Infinity) - (b.ecrRank ?? Infinity) ||
+      (a.position === 'K' ? -1 : 1),
+  )[0]!;
+
+  const openSlots = [
+    ...(unfilledK > 0 ? [unfilledK > 1 ? `${unfilledK} K` : 'K'] : []),
+    ...(unfilledDst > 0 ? [unfilledDst > 1 ? `${unfilledDst} DST` : 'DST'] : []),
+  ].join(' and ');
+  const picks = input.userRemainingPicks;
+  const reason =
+    `Endgame: ${picks} pick${picks === 1 ? '' : 's'} left and your ${openSlots} ` +
+    `slot${unfilled === 1 ? ' is' : 's are'} still open — ` +
+    `${target.playerName} is the top ${target.position} on the board.`;
+
+  const rows = list.rows.some((row) => row.playerId === target.playerId)
+    ? list.rows
+    : [...list.rows, { ...target, addedForHighlight: true }];
+
+  return {
+    ...list,
+    rows,
+    highlightPlayerId: target.playerId,
+    reason,
+    reasonKind: 'endgame-kdst',
+    planComparison: null,
   };
 }

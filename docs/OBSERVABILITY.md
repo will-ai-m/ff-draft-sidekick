@@ -36,6 +36,28 @@ have `event`), and `draftId` (null outside an attached draft), so `jq`/`grep` sl
 jq -c 'select(.event == "recompute") | {picks: .data.picksMade, rec: .data.output.highlightPlayerName, why: .data.output.reason}' data/traces/trace-*.jsonl
 ```
 
+## Scoring the survival model
+
+```bash
+npm run trace:calibrate                  # every trace in data/traces/
+npm run trace:calibrate -- path/to/trace.jsonl
+```
+
+Every recompute records the survival probability shown per candidate, and the pick events record
+what the room actually did — so each finished draft scores the FR-8 Monte Carlo model for free
+(OQ-1's calibration metric, made runnable). The report gives calibration by band (did "likely
+available" players actually survive at ~their predicted rate?), mean predicted vs observed, a
+Brier score against the constant-base-rate baseline, and the biggest surprises, in two views:
+**decision-time** (the forecast in force at each of your picks — what you actually acted on) and
+**all recomputes** (more samples, serially correlated).
+
+One rule to respect when extending it: a forecast made at `picksMade = pm` projects to the
+smallest user pick **strictly greater than `pm + 1`** — score against any other horizon and the
+numbers lie (the first analysis of the 08-27 rehearsal did exactly that, and read optimism as
+pessimism). Candidates the user drafted themselves are censored, not scored. Re-run after every
+mock; tune `reachAdjustmentPerPick` and `kdstEarlyPickWindow` in `config.local.json` against the
+result, and treat bot-room numbers as directional only — human rooms are the real target.
+
 ## What is recorded
 
 **Lifecycle** — `server-started` (port, pid, node version, game-log cache status, the *entire

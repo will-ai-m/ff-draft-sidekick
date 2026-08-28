@@ -261,6 +261,14 @@ export interface ComparePlansInput {
   userRemainingPicks: number;
   config: LookaheadConfig;
   shelfSize?: number;
+  /**
+   * The bench phase's plan positions (FR-9/FR-10 amendment, 2026-08-27): once the starters are
+   * full, `needVector` is the no-need sentinel and AC-54's source runs dry — these are the
+   * positions that still add bench value (FLEX-eligible ones, plus capped ones under their
+   * roster cap), so the same joint two-pick scarcity scoring keeps working through the bench
+   * rounds instead of ceding to raw-ECR best-available. Ignored while a need vector exists.
+   */
+  benchPositions?: readonly SkillPosition[];
 }
 
 const noComparison = (applicable: boolean): PlanComparison => ({
@@ -297,9 +305,13 @@ export function comparePlans(input: ComparePlansInput): PlanComparison {
     return noComparison(false);
   }
 
-  const positions = planPositions(input.needVector);
+  const positions =
+    input.needVector === NO_NEED_SIGNAL
+      ? (input.benchPositions ?? [])
+      : planPositions(input.needVector);
   const best = bestAvailableByPosition(input.players, input.board);
-  // No unfilled starting slot the board can still fill: the best-available regime, not a plan.
+  // No position a plan may draw from that the board can still fill: the best-available regime,
+  // not a plan. (Need phase: no unfilled starting slot; bench phase: every position capped.)
   if (positions.every((position) => !best.has(position))) return noComparison(true);
 
   const noSurvivorRank = worstOverallEcrRank(input.players) + 1;

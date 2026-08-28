@@ -85,6 +85,8 @@ const config = (overrides: Partial<CandidateListConfig> = {}): CandidateListConf
   nearTieEcrRanks: PARAMETER_DEFAULTS.nearTieEcrRanks,
   planTotalTooCloseEcrRanks: PARAMETER_DEFAULTS.planTotalTooCloseEcrRanks,
   lookaheadMaxPicks: PARAMETER_DEFAULTS.lookaheadMaxPicks,
+  benchPositionHeadroom: PARAMETER_DEFAULTS.benchPositionHeadroom,
+  flexEligiblePositions: PARAMETER_DEFAULTS.flexEligiblePositions,
   ...overrides,
 });
 
@@ -452,6 +454,7 @@ describe('composed against T7’s own simulation output', () => {
       simUniverseSize: 6,
       monteCarloRunCount: 200,
       reachAdjustmentPerPick: PARAMETER_DEFAULTS.reachAdjustmentPerPick,
+      kdstEarlyPickWindow: PARAMETER_DEFAULTS.kdstEarlyPickWindow,
       survivalBandLikelyGoneMax: PARAMETER_DEFAULTS.survivalBandLikelyGoneMax,
       survivalBandLikelyAvailableMin: PARAMETER_DEFAULTS.survivalBandLikelyAvailableMin,
     };
