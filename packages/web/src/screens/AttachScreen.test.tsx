@@ -217,22 +217,30 @@ describe('AttachScreen — manual slot picker (AC-5)', () => {
     );
   });
 
-  it('posts the chosen slot to the attach route', async () => {
+  it('posts the clicked seat to the attach route — one button per slot, no dropdown', async () => {
     const fetchMock = stubFetch((url) =>
       url.startsWith('/api/drafts') ? jsonResponse({ drafts: [] }) : jsonResponse(makeSnapshot()),
     );
     render(<AttachScreen snapshot={unresolved()} onConfirm={vi.fn()} />);
 
-    const picker = screen.getByRole('region', { name: /your draft slot/i });
-    fireEvent.change(within(picker).getByRole('combobox', { name: /draft slot/i }), {
-      target: { value: '2' },
-    });
-    fireEvent.click(within(picker).getByRole('button', { name: /use this slot/i }));
+    // The teams list itself is the picker (user request, 2026-08-26): no combobox anywhere,
+    // one "This is me" button beside every seat row.
+    expect(screen.queryByRole('combobox')).toBeNull();
+    const teams = screen.getByRole('region', { name: /teams and owners/i });
+    expect(within(teams).getAllByRole('button', { name: /this is me/i })).toHaveLength(4);
+
+    fireEvent.click(within(teams).getByRole('button', { name: /this is me — slot 2/i }));
 
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((call) => call[0] === '/api/attach')).toBe(true);
     });
     const call = fetchMock.mock.calls.find((c) => c[0] === '/api/attach');
     expect(JSON.parse((call?.[1] as RequestInit).body as string)).toEqual({ draftSlot: 2 });
+  });
+
+  it('offers no seat buttons once the seat is resolved', () => {
+    stubFetch(() => jsonResponse({ drafts: [] }));
+    render(<AttachScreen snapshot={makeSnapshot()} onConfirm={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /this is me/i })).toBeNull();
   });
 });

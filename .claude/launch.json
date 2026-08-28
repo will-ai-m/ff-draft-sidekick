@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "draft-sidekick",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "PORT=3001 exec npm run dev"],
       "port": 5173
     }
   ]

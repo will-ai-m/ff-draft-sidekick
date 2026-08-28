@@ -51,7 +51,6 @@ export function AttachScreen({ snapshot, onConfirm }: AttachScreenProps) {
   const [drafts, setDrafts] = useState<DraftSummary[]>([]);
   const [draftsError, setDraftsError] = useState<string | null>(null);
 
-  const [slotChoice, setSlotChoice] = useState('');
 
   useEffect(() => {
     if (storedUsername === '') return;
@@ -81,10 +80,10 @@ export function AttachScreen({ snapshot, onConfirm }: AttachScreenProps) {
     });
   };
 
-  const chooseSlot = (): void => {
-    if (slotChoice === '') return;
+  const chooseSlot = (draftSlot: number): void => {
+    if (pending) return;
     setPending(true);
-    void postDraftSlot(Number(slotChoice)).then((result) => {
+    void postDraftSlot(draftSlot).then((result) => {
       setPending(false);
       if (!result.ok) setFailure(result.failure);
     });
@@ -238,7 +237,7 @@ export function AttachScreen({ snapshot, onConfirm }: AttachScreenProps) {
               {snapshot.board.teams.map((team) => (
                 <li
                   key={team.teamId}
-                  className="flex items-baseline gap-3 rounded-md border border-slate-800 px-3 py-2"
+                  className="flex items-center gap-3 rounded-md border border-slate-800 px-3 py-2"
                 >
                   <span className="w-16 shrink-0 text-xs uppercase tracking-wide text-slate-500">
                     Slot {team.draftSlot}
@@ -247,6 +246,19 @@ export function AttachScreen({ snapshot, onConfirm }: AttachScreenProps) {
                   <span className="text-xs text-slate-400">{team.ownerDisplayName ?? '—'}</span>
                   {team.isUser && (
                     <span className="ml-auto text-xs font-semibold text-emerald-400">You</span>
+                  )}
+                  {needsSlot && (
+                    <button
+                      type="button"
+                      aria-label={`This is me — slot ${team.draftSlot}`}
+                      onClick={() => {
+                        chooseSlot(team.draftSlot);
+                      }}
+                      disabled={pending}
+                      className="ml-auto shrink-0 rounded-md border border-amber-500/50 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-500/25 disabled:opacity-50"
+                    >
+                      This is me
+                    </button>
                   )}
                 </li>
               ))}
@@ -264,38 +276,9 @@ export function AttachScreen({ snapshot, onConfirm }: AttachScreenProps) {
               <p className="mt-1 text-sm text-amber-100">
                 Sidekick could not find your Sleeper user id in this draft&apos;s order.
                 Mine-vs-opponent, next-pick and survival output stay blocked until you pick your
-                seat.
+                seat — click <span className="font-semibold">This is me</span> next to your seat in
+                the list above.
               </p>
-              <div className="mt-3 flex items-end gap-2">
-                <div className="flex flex-col gap-1">
-                  <label htmlFor="slot-select" className="text-xs font-medium text-amber-200">
-                    Draft slot
-                  </label>
-                  <select
-                    id="slot-select"
-                    value={slotChoice}
-                    onChange={(event) => {
-                      setSlotChoice(event.target.value);
-                    }}
-                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                  >
-                    <option value="">Select a slot…</option>
-                    {snapshot.board.teams.map((team) => (
-                      <option key={team.teamId} value={team.draftSlot}>
-                        Slot {team.draftSlot} — {seatLabel(team)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <button
-                  type="button"
-                  onClick={chooseSlot}
-                  disabled={slotChoice === '' || pending}
-                  className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50"
-                >
-                  Use this slot
-                </button>
-              </div>
             </section>
           )}
 
