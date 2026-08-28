@@ -686,6 +686,18 @@ export class BoardSync {
       return this.markDegraded(this.noteApiError(error));
     }
 
+    // AC-17's "adopts whatever Sleeper now reports rather than re-testing it against the state
+    // that went bad" means no comparison against the OLD state — it does not mean adopting a
+    // list that is inconsistent WITH ITSELF. Adopting one flaps: the adopted state passes for
+    // healthy, and the very next poll re-fails the same absolute check, forever (observed live
+    // 2026-08-27 against a dissolving mock lobby — a 1 Hz degraded/recovered oscillation).
+    // Refusing it instead holds one steady degraded state, still re-ingesting every poll, and
+    // recovery happens the moment Sleeper's list is self-consistent again.
+    const internal = checkPickListIntegrity(null, ingest.picks);
+    if (internal !== null) {
+      return this.markDegraded({ kind: internal.kind, message: internal.message });
+    }
+
     const pollResponseAt = this.observability?.recordPollResponse('re-ingest') ?? this.now();
     const seen = new Set(this.lastGoodPicks.map((pick) => pick.pick_no));
 

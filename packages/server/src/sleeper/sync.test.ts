@@ -493,6 +493,47 @@ describe('BoardSync (FR-2, FR-3)', () => {
     expect(sync.syncIndicator.status).toBe('healthy');
   });
 
+  it('holds one steady degraded state on a persistently holed pick list, never flapping (AC-17)', async () => {
+    // Live regression, 2026-08-27: a dissolving mock lobby served a pick list with pick 11
+    // missing, poll after poll. Re-ingest used to adopt it and mark healthy, and the next poll
+    // re-degraded — a 1 Hz degraded/recovered oscillation (15 flips in 32 s in the trace).
+    const transitions: string[] = [];
+    const observability = new Observability({
+      sink: (sample) => {
+        if (
+          sample.type === 'app-event' &&
+          (sample.event === 'sync-degraded' || sample.event === 'sync-recovered')
+        ) {
+          transitions.push(sample.event);
+        }
+      },
+    });
+    const sync = await makeSync({ observability });
+    const goodBoard = structuredClone(sync.state.board);
+
+    scenario.picksOverride = [
+      ...realBundle.picks.slice(0, 10),
+      { ...realBundle.picks[11]! }, // pick_no 12 with no 11 before it — and it stays that way
+    ];
+
+    for (let poll = 0; poll < 5; poll += 1) {
+      clock += 1000;
+      expect((await sync.pollOnce()).status).toBe('degraded');
+      expect(sync.syncIndicator.status).toBe('degraded');
+    }
+    // One transition in, zero recoveries out, and the board stayed frozen at last-good.
+    expect(transitions).toEqual(['sync-degraded']);
+    expect(sync.state.board).toEqual(goodBoard);
+
+    // The moment Sleeper's list is self-consistent again, one re-ingest recovers.
+    scenario.picksOverride = null;
+    scenario.advance(2);
+    clock += 1000;
+    expect((await sync.pollOnce()).status).toBe('reingested');
+    expect(sync.syncIndicator.status).toBe('healthy');
+    expect(transitions).toEqual(['sync-degraded', 'sync-recovered']);
+  });
+
   it('rebuilds the whole board out of cadence on Re-sync, inside the budget (AC-19)', async () => {
     const sync = await makeSync();
     scenario.advance(6);
