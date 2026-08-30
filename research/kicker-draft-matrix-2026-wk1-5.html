@@ -1,0 +1,480 @@
+<title>Kicker Draft Matrix</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap">
+<style>
+  :root {
+    --bg: #F5F6F8;
+    --surface: #FFFFFF;
+    --surface-alt: #EDEFF3;
+    --ink: #1A2233;
+    --muted: #5B6472;
+    --faint: #8A93A3;
+    --border: #DFE3EA;
+    --accent: #2456A6;
+    --red-ink: #A8271F; --red-bg: #FAECEA; --red-chip: #C0392B;
+    --yel-ink: #7A5A00; --yel-bg: #FBF3D9; --yel-chip: #C9A227;
+    --grn-ink: #1E6E38; --grn-bg: #E6F3EA; --grn-chip: #2E8B4F;
+    --neu-ink: #5B6472; --neu-bg: #EDEFF3; --neu-chip: #9AA2B0;
+    --bye-bg: #ECEEF2; --bye-ink: #9AA2B0;
+    --shadow: 0 1px 3px rgba(20,28,45,.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0F141D;
+      --surface: #171E2B;
+      --surface-alt: #1F2836;
+      --ink: #E8ECF3;
+      --muted: #99A3B4;
+      --faint: #6E7889;
+      --border: #273143;
+      --accent: #6FA1E8;
+      --red-ink: #F0968F; --red-bg: #37201F; --red-chip: #D95C50;
+      --yel-ink: #E3C468; --yel-bg: #342C17; --yel-chip: #C9A227;
+      --grn-ink: #86D6A0; --grn-bg: #1B3125; --grn-chip: #3FA366;
+      --neu-ink: #99A3B4; --neu-bg: #222B3B; --neu-chip: #5D687B;
+      --bye-bg: #1A2130; --bye-ink: #5D687B;
+      --shadow: 0 1px 3px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0F141D;
+    --surface: #171E2B;
+    --surface-alt: #1F2836;
+    --ink: #E8ECF3;
+    --muted: #99A3B4;
+    --faint: #6E7889;
+    --border: #273143;
+    --accent: #6FA1E8;
+    --red-ink: #F0968F; --red-bg: #37201F; --red-chip: #D95C50;
+    --yel-ink: #E3C468; --yel-bg: #342C17; --yel-chip: #C9A227;
+    --grn-ink: #86D6A0; --grn-bg: #1B3125; --grn-chip: #3FA366;
+    --neu-ink: #99A3B4; --neu-bg: #222B3B; --neu-chip: #5D687B;
+    --bye-bg: #1A2130; --bye-ink: #5D687B;
+    --shadow: 0 1px 3px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+    margin: 0;
+    padding: 0 0 4rem;
+    font-size: 15px;
+    line-height: 1.45;
+  }
+  .wrap { max-width: 1700px; margin: 0 auto; padding: 0 20px; }
+
+  header.page { padding: 34px 0 10px; }
+  .kicker {
+    font-family: Oswald, "Arial Narrow", sans-serif;
+    font-weight: 500; font-size: .8rem; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 4px;
+  }
+  h1 {
+    font-family: Oswald, "Arial Narrow", sans-serif;
+    font-weight: 700; font-size: clamp(1.9rem, 3.5vw, 2.7rem);
+    margin: 0; letter-spacing: .01em; text-wrap: balance;
+  }
+  .sub { color: var(--muted); max-width: 72ch; margin: 8px 0 0; }
+
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center;
+    margin: 18px 0 6px; font-size: .85rem; color: var(--muted);
+  }
+  .legend .swatch { display: inline-flex; align-items: center; gap: 7px; }
+  .legend .dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .dot.red { background: var(--red-chip); }
+  .dot.yel { background: var(--yel-chip); }
+  .dot.grn { background: var(--grn-chip); }
+  .dot.neu { background: var(--neu-chip); }
+
+  .callout {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 18px; margin: 16px 0 22px;
+    box-shadow: var(--shadow);
+  }
+  .callout h2 {
+    font-family: Oswald, sans-serif; font-size: .95rem; font-weight: 600;
+    letter-spacing: .08em; text-transform: uppercase; margin: 0 0 8px; color: var(--accent);
+  }
+  .callout ul, .callout ol { margin: 0; padding-left: 1.2em; }
+  .callout li { margin: 3px 0; }
+  .callout .abbr { font-weight: 700; }
+
+  .matrix-scroll {
+    overflow-x: auto; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--surface); box-shadow: var(--shadow);
+  }
+  table { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; }
+  thead th {
+    position: sticky; top: 0; z-index: 3;
+    background: var(--surface-alt);
+    font-family: Oswald, sans-serif; font-weight: 600; font-size: .85rem;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+    padding: 10px 12px; text-align: left;
+    border-bottom: 2px solid var(--border);
+  }
+  thead th.teamcol { left: 0; z-index: 4; }
+  tbody td, tbody th {
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tbody tr:last-child td, tbody tr:last-child th { border-bottom: none; }
+
+  th.team {
+    position: sticky; left: 0; z-index: 2;
+    background: var(--surface);
+    min-width: 230px; max-width: 230px;
+    padding: 12px 14px; text-align: left;
+    border-right: 2px solid var(--border);
+  }
+  .drank {
+    font-family: Oswald, sans-serif; font-weight: 700; font-size: 1.35rem;
+    color: var(--accent); line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .tname {
+    font-family: Oswald, sans-serif; font-weight: 600; font-size: 1.02rem;
+    line-height: 1.15; margin-top: 2px;
+  }
+  .tnote { font-size: .78rem; color: var(--muted); font-weight: 400; margin-top: 4px; line-height: 1.35; }
+  .sos {
+    display: inline-block; margin-top: 7px; font-size: .72rem; font-weight: 600;
+    color: var(--faint); letter-spacing: .05em; text-transform: uppercase;
+  }
+  .sos b { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  td.cell { min-width: 265px; max-width: 265px; padding: 0; }
+  .cellpad { padding: 11px 13px 12px; height: 100%; }
+  td.cell.red .cellpad { background: var(--red-bg); }
+  td.cell.yel .cellpad { background: var(--yel-bg); }
+  td.cell.grn .cellpad { background: var(--grn-bg); }
+  .opp-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .opp {
+    font-family: Oswald, sans-serif; font-weight: 600; font-size: 1.05rem;
+    letter-spacing: .02em;
+  }
+  .vegas {
+    font-size: .76rem; color: var(--muted);
+    font-variant-numeric: tabular-nums; font-weight: 600;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+  .chip {
+    font-family: Oswald, sans-serif; font-weight: 600; font-size: .72rem;
+    letter-spacing: .04em; padding: 2px 8px 3px; border-radius: 999px;
+    color: #fff; white-space: nowrap;
+  }
+  .chip.grn { background: var(--grn-chip); }
+  .chip.red { background: var(--red-chip); }
+  .chip.yel { background: var(--yel-chip); color: #241E08; }
+  .chip.neu { background: var(--neu-chip); color: #fff; }
+  .blurb { font-size: .8rem; margin-top: 6px; line-height: 1.4; }
+  td.cell.red .blurb { color: var(--red-ink); }
+  td.cell.yel .blurb { color: var(--yel-ink); }
+  td.cell.grn .blurb { color: var(--grn-ink); }
+
+  td.bye .cellpad { background: var(--bye-bg); display: flex; align-items: center; justify-content: center; min-height: 100px; }
+  td.bye .byelabel {
+    font-family: Oswald, sans-serif; font-weight: 600; letter-spacing: .25em;
+    color: var(--bye-ink); font-size: .9rem;
+  }
+
+  footer.notes { margin-top: 22px; color: var(--muted); font-size: .82rem; max-width: 95ch; }
+  footer.notes p { margin: 5px 0; }
+  a { color: var(--accent); }
+</style>
+
+<div class="wrap">
+  <header class="page">
+    <p class="kicker">2026 Fantasy Football &#183; Weeks 1&#8211;5</p>
+    <h1>Kicker Draft Matrix</h1>
+    <p class="sub">All 32 projected 2026 starting kickers, ranked by draft value, against their first five games.
+    Each cell shows the matchup plus a chip for every kicker-relevant factor:
+    <strong>green = working for the kicker</strong> (dome, weak opposing defense, high implied team total),
+    <strong>red = working against him</strong> (wind venue, elite opposing defense, low implied total, TD-chasing game script).
+    Gray/yellow chips are neutral. Cell tint is the net of the chips.</p>
+    <div class="legend">
+      <span class="swatch"><span class="dot grn"></span> Factor favors the kicker</span>
+      <span class="swatch"><span class="dot red"></span> Factor works against him</span>
+      <span class="swatch"><span class="dot yel"></span> Neutral / middling</span>
+      <span class="swatch"><span class="dot neu"></span> Ordinary outdoor venue (no strong lean)</span>
+      <span>K-SOS = avg. greens minus reds per game, Wks 1&#8211;5 (higher = friendlier slate)</span>
+    </div>
+  </header>
+
+  <div class="callout">
+    <h2>What actually makes a fantasy kicker &#8212; the factors behind the chips</h2>
+    <ol>
+      <li><span class="abbr">Implied team total (Vegas).</span> The single most information-dense pregame number for scoring volume &#8212; more projected points means more FG + XP tries. Chip: <strong>green &#8805; 24 implied points, red &lt; 21</strong>, yellow between. A spread of &#8805; 7 either way adds a script chip: big favorites control games and kick; big underdogs chase touchdowns and go for it.</li>
+      <li><span class="abbr">Venue &#8212; dome vs. outdoors.</span> Indoor games score ~9% more (46.2 vs 42.4 pts/gm) and wind is the #1 physics factor for kicks: distance and accuracy degrade past ~15 mph, crosswinds worst. Chip: <strong>green for domes/closed roofs</strong> (ATL, ARI, DAL, DET, HOU, IND, LAC, LAR, LV, MIN, NO), <strong>red for chronic wind bowls</strong> (Highmark, Soldier, Cleveland lakefront, Gillette, MetLife), gray for ordinary outdoor sites. Denver is green: altitude adds ~5 yards of range. Weeks 1&#8211;5 are September, so cold/snow isn't yet in play &#8212; wind venues are the only real weather risk.</li>
+      <li><span class="abbr">Opposing defense.</span> Elite defenses shrink scoring drives and kick attempts. Chip: <strong>red vs a top-10 projected defense, green vs 22&#8211;32</strong>. (Caveat baked into blurbs: a bend-don't-break top defense can still force field goals.)</li>
+      <li><span class="abbr">The kicker's own leg + job security</span> (row-level, in the notes): 50+ yard range turns 3s into 5s in most scoring formats, and camp battles/injuries are the biggest bust risk at the position.</li>
+      <li><span class="abbr">Own-offense shape</span> (row-level): you want an offense that <em>moves the ball but stalls</em> &#8212; red-zone trip rate is sticky year to year, red-zone conversion is noise. Elite TD offenses pay in XPs; FG-heavy offenses (Pittsburgh-style) pay in 3s. Aggressive 4th-down coaches steal attempts.</li>
+    </ol>
+  </div>
+
+  <div class="callout">
+    <h2>Draft-day takeaways</h2>
+    <ul>
+      <li><span class="abbr">Aubrey (K1, DAL)</span> is the rare kicker worth a round: best leg alive, #4 offense, dome home, and a Wk 2 WAS shootout (implied 28). Blemishes: a windy MetLife opener, and Wk 3 vs BAL moving to S&#227;o Paulo, outdoors.</li>
+      <li><span class="abbr">Bates (K2, DET)</span> has the best early slate on the board (K-SOS +2.6) &#8212; three bottom-11 defenses (NYJ, CAR, ARI) and an implied total of 24.8+ every single week.</li>
+      <li><span class="abbr">Loop (K16, BAL)</span> is the late-round sleeper the chips flag: second-best K-SOS (+2.4) and a 26.5+ implied total in all five weeks &#8212; nobody else clears 26 more than twice.</li>
+      <li><span class="abbr">Dicker (K3, LAC)</span> opens with back-to-back indoor smashes vs ARI (implied 28.5) and LV (25.5), then cools off at BUF/SEA.</li>
+      <li><span class="abbr">Fairbairn (K6, HOU)</span> is the value pick: four of five opponents have bottom-11 defenses and NRG's roof erases weather.</li>
+      <li><span class="abbr">Little (K5, JAX)</span> is the talent-vs-schedule tradeoff &#8212; the biggest leg in football, but DEN/NE/PHI defenses in weeks 2&#8211;5.</li>
+      <li>Fade early: <span class="abbr">Ryland (ARI)</span> has the slate's worst K-SOS (&#8722;2.0) despite the dome, and <span class="abbr">Folk (NYJ)</span>, <span class="abbr">Szmyt (CLE)</span>, <span class="abbr">Slye (TEN)</span> pair barren offenses with wind venues and low totals. <span class="abbr">Butker (KC)</span> and <span class="abbr">Fitzgerald (CAR)</span> hit bye in week 5 &#8212; though Butker's four pre-bye weeks grade out well (+1.8).</li>
+    </ul>
+  </div>
+
+  <div class="matrix-scroll">
+    <table id="matrix">
+      <thead>
+        <tr>
+          <th class="teamcol">Kicker (2026 proj.)</th>
+          <th>Week 1</th><th>Week 2</th><th>Week 3</th><th>Week 4</th><th>Week 5</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <footer class="notes">
+    <p><strong>Methodology.</strong> Schedule, spreads and totals are the same pre&#8211;Week 1 lookahead lines used in the companion DST matrix (compiled Aug 2026, DraftKings/FanDuel-fed aggregators) and will move. Implied team totals are derived from spread + total. Opposing-defense ranks are the same 2026 consensus defense projection used in the DST matrix (1 = best defense). Factor selection and thresholds follow the research synthesis in <code>factors.md</code>: Vegas implied totals (Tier 1), dome +9% scoring / wind &#8805;15 mph (Tier 2), Denver altitude +5 yds (Tier 3), home/away for kickers &#8776; negligible (+0.2&#8211;0.5 pts) and therefore not charted.</p>
+    <p><strong>Notes.</strong> Kicker identities are projected 2026 starters based on 2025 season-enders; camp battles flagged in the row notes (LAR, IND, MIA, NYG, BUF, ATL). Week 3 BAL&#8211;DAL is a neutral-site game in S&#227;o Paulo &#8212; charted as outdoors, so Dallas loses its dome chip that week. September weather mutes the wind-venue penalty relative to Nov/Dec; treat red venue chips as a soft deduction until mid-season.</p>
+  </footer>
+</div>
+
+<script>
+// Opposing DEFENSE rank (1 = toughest to score on), from the DST matrix consensus order.
+const DEFR = {DEN:1,HOU:2,SEA:3,LAR:4,PHI:5,LAC:6,MIN:7,NE:8,JAX:9,PIT:10,BAL:11,BUF:12,GB:13,CLE:14,KC:15,DET:16,NO:17,SF:18,ATL:19,NYG:20,TB:21,CHI:22,IND:23,CAR:24,DAL:25,MIA:26,WAS:27,TEN:28,CIN:29,LV:30,NYJ:31,ARI:32};
+
+// Game venue by home team.
+const DOME = new Set(["ATL","ARI","DAL","DET","HOU","IND","LAC","LAR","LV","MIN","NO"]);
+const WINDY = new Set(["BUF","CHI","CLE","NE","NYG","NYJ"]);
+const ALT = new Set(["DEN"]);
+
+// [team, kicker, note] in 2026 draft-rank order.
+const KICKERS = [
+  ["DAL","Brandon Aubrey","Best leg in football, 60+ range; #4 offense under a roof"],
+  ["DET","Jake Bates","Huge leg, #3 offense, Ford Field; dream early slate"],
+  ["LAC","Cameron Dicker","Elite accuracy, SoFi indoors; two opening smash spots"],
+  ["CIN","Evan McPherson","Big leg on the #5 offense; mild-weather outdoor home"],
+  ["JAX","Cam Little","Owns the NFL distance record (68); brutal Wk 2–5 defenses"],
+  ["HOU","Ka'imi Fairbairn","50+ attempt volume king; NRG roof, soft opposing slate"],
+  ["PIT","Chris Boswell","FG-heavy offense = attempt volume; wind-tested at Acrisure"],
+  ["LAR","Joshua Karty","#1 offense + SoFi carry the seat — job watch after shaky '25"],
+  ["MIN","Will Reichard","Accurate year-3 leg, US Bank dome, Flores-driven field position"],
+  ["KC","Harrison Butker","Proven, but TD-heavy drives and Arrowhead wind; Wk 5 bye"],
+  ["BUF","Tyler Bass","#2 offense = XP monster; new Highmark still a wind bowl"],
+  ["PHI","Jake Elliott","Clutch vet; tush-push aggressiveness steals short FGs"],
+  ["NE","Andy Borregales","Year-2 leg on the rising #9 offense; Gillette swirl"],
+  ["SEA","Jason Myers","Steady vet, mild Lumen conditions, top-7 offense"],
+  ["SF","Eddy Piñeiro","Career ~88% accuracy; #6 offense healthier in '26"],
+  ["BAL","Tyler Loop","Tucker's successor, big leg; #11 offense travels well"],
+  ["CHI","Cairo Santos","Ben Johnson offense bump vs Soldier Field lakefront wind"],
+  ["DEN","Wil Lutz","Mile High adds ~5 yds range; low-total defensive scripts cap him"],
+  ["GB","Brandon McManus","Reliable vet; Lambeau is fine in September"],
+  ["WAS","Matt Gay","Strong leg, mid offense; totals spike in division games"],
+  ["TB","Chase McLaughlin","Quietly elite accuracy; offense projected to slip"],
+  ["ATL","Parker Romo","Won the post-Koo job; dome home, middling offense"],
+  ["IND","Michael Badgley","Lucas Oil dome; job unsettled (Shrader rehabbing)"],
+  ["MIA","Jason Sanders","Health + a Willis-led offense cap the attempt volume"],
+  ["NO","Blake Grupe","Superdome helps, but a bottom-7 offense feeds it"],
+  ["CAR","Ryan Fitzgerald","Year-2 leg; improving offense, modest volume; Wk 5 bye"],
+  ["NYG","Younghoe Koo","Rebound bid at windy MetLife after a shaky 2025"],
+  ["ARI","Chad Ryland","Dome home wasted on the worst-projected supporting cast"],
+  ["NYJ","Nick Folk","Ageless at 41, but the offense is barren and MetLife blows"],
+  ["TEN","Joey Slye","Big leg, bottom-5 offense, low totals every week"],
+  ["LV","Daniel Carlson","Allegiant dome wasted on a bottom-2 offense"],
+  ["CLE","Andre Szmyt","Whoever kicks for the league's worst offense"]
+];
+
+// Each week: away, home, line (favorite & spread), total. Same slate as the DST matrix.
+const WEEKS = [
+[ // Week 1
+ {a:"NE",h:"SEA",l:"SEA -3.5",t:44.5},
+ {a:"SF",h:"LAR",l:"LAR -2.5",t:48.5},
+ {a:"CHI",h:"CAR",l:"CHI -2.5",t:44.5},
+ {a:"TB",h:"CIN",l:"CIN -3.5",t:50.5},
+ {a:"NO",h:"DET",l:"DET -7",t:48.5},
+ {a:"BUF",h:"HOU",l:"BUF -1.5",t:45.5},
+ {a:"BAL",h:"IND",l:"BAL -3.5",t:49.5},
+ {a:"CLE",h:"JAX",l:"JAX -7",t:40.5},
+ {a:"ATL",h:"PIT",l:"PIT -3",t:42.5},
+ {a:"NYJ",h:"TEN",l:"TEN -3",t:39.5},
+ {a:"ARI",h:"LAC",l:"LAC -11.5",t:45.5},
+ {a:"MIA",h:"LV",l:"LV -3",t:41.5},
+ {a:"GB",h:"MIN",l:"MIN -1.5",t:44.5},
+ {a:"WAS",h:"PHI",l:"PHI -5.5",t:46.5},
+ {a:"DAL",h:"NYG",l:"DAL -2.5",t:48.5},
+ {a:"DEN",h:"KC",l:"KC -2.5",t:42.5}
+],
+[ // Week 2
+ {a:"DET",h:"BUF",l:"BUF -3",t:52.5},
+ {a:"CAR",h:"ATL",l:"ATL -1.5",t:43.5},
+ {a:"NO",h:"BAL",l:"BAL -7.5",t:46.5},
+ {a:"MIN",h:"CHI",l:"CHI -3.5",t:45.5},
+ {a:"CIN",h:"HOU",l:"HOU -2.5",t:46.5},
+ {a:"PIT",h:"NE",l:"NE -4.5",t:43.5},
+ {a:"GB",h:"NYJ",l:"GB -6.5",t:42.5},
+ {a:"CLE",h:"TB",l:"TB -5.5",t:42.5},
+ {a:"PHI",h:"TEN",l:"PHI -4.5",t:42.5},
+ {a:"JAX",h:"DEN",l:"DEN -2.5",t:43.5},
+ {a:"LV",h:"LAC",l:"LAC -8.5",t:42.5},
+ {a:"SEA",h:"ARI",l:"SEA -10",t:44.5},
+ {a:"WAS",h:"DAL",l:"DAL -4.5",t:51.5},
+ {a:"MIA",h:"SF",l:"SF -10.5",t:46.5},
+ {a:"IND",h:"KC",l:"KC -5.5",t:47.5},
+ {a:"NYG",h:"LAR",l:"LAR -8.5",t:47.5}
+],
+[ // Week 3
+ {a:"ATL",h:"GB",l:"GB -7.5",t:46.5},
+ {a:"LAC",h:"BUF",l:"BUF -2.5",t:48.5},
+ {a:"CAR",h:"CLE",l:"CAR -1.5",t:39.5},
+ {a:"NYJ",h:"DET",l:"DET -9.5",t:45.5},
+ {a:"HOU",h:"IND",l:"HOU -1.5",t:45.5},
+ {a:"NE",h:"JAX",l:"NE -1.5",t:45.5},
+ {a:"KC",h:"MIA",l:"KC -7",t:44.5},
+ {a:"TEN",h:"NYG",l:"NYG -3",t:45.5},
+ {a:"CIN",h:"PIT",l:"CIN -1.5",t:47.5},
+ {a:"SEA",h:"WAS",l:"SEA -3.5",t:46.5},
+ {a:"ARI",h:"SF",l:"SF -11.5",t:46.5},
+ {a:"MIN",h:"TB",l:"TB -1.5",t:44.5},
+ {a:"LV",h:"NO",l:"NO -3",t:42.5},
+ {a:"BAL",h:"DAL",l:"BAL -2.5",t:52.5,neutral:"São Paulo"},
+ {a:"LAR",h:"DEN",l:"LAR -2.5",t:45.5},
+ {a:"PHI",h:"CHI",l:"PHI -1.5",t:46.5}
+],
+[ // Week 4
+ {a:"PIT",h:"CLE",l:"PIT -2.5",t:40.5},
+ {a:"IND",h:"WAS",l:"WAS -1.5",t:48.5},
+ {a:"TEN",h:"BAL",l:"BAL -8.5",t:47.5},
+ {a:"NE",h:"BUF",l:"BUF -3",t:49.5},
+ {a:"NYJ",h:"CHI",l:"CHI -8.5",t:45.5},
+ {a:"JAX",h:"CIN",l:"CIN -2.5",t:51.5},
+ {a:"DAL",h:"HOU",l:"HOU -2.5",t:47.5},
+ {a:"ARI",h:"NYG",l:"NYG -7",t:45.5},
+ {a:"LAR",h:"PHI",l:"LAR -1.5",t:47.5},
+ {a:"GB",h:"TB",l:"GB -1.5",t:47.5},
+ {a:"MIA",h:"MIN",l:"MIN -7.5",t:43.5},
+ {a:"KC",h:"LV",l:"KC -5.5",t:43.5},
+ {a:"LAC",h:"SEA",l:"SEA -3",t:45.5},
+ {a:"DEN",h:"SF",l:"SF -2.5",t:46.5},
+ {a:"DET",h:"CAR",l:"DET -3",t:47.5},
+ {a:"ATL",h:"NO",l:"NO -2.5",t:45.5}
+],
+[ // Week 5
+ {a:"TB",h:"DAL",l:"DAL -3.5",t:52.5},
+ {a:"PHI",h:"JAX",l:"PHI -2.5",t:44.5},
+ {a:"CIN",h:"MIA",l:"CIN -5.5",t:49.5},
+ {a:"LV",h:"NE",l:"NE -8.5",t:44.5},
+ {a:"MIN",h:"NO",l:"MIN -1.5",t:44.5},
+ {a:"CLE",h:"NYJ",l:"NYJ -1.5",t:39.5},
+ {a:"IND",h:"PIT",l:"PIT -2.5",t:47.5},
+ {a:"HOU",h:"TEN",l:"HOU -3.5",t:43.5},
+ {a:"NYG",h:"WAS",l:"WAS -2.5",t:48.5},
+ {a:"DEN",h:"LAC",l:"LAC -2.5",t:44.5},
+ {a:"DET",h:"ARI",l:"DET -8.5",t:49.5},
+ {a:"CHI",h:"GB",l:"GB -3",t:49.5},
+ {a:"SF",h:"SEA",l:"SEA -3.5",t:48.5},
+ {a:"BAL",h:"ATL",l:"BAL -4.5",t:48.5},
+ {a:"BUF",h:"LAR",l:"LAR -3",t:53.5}
+]
+];
+
+// Build team -> per-week game lookup
+const sched = {};
+KICKERS.forEach(([abbr]) => sched[abbr] = [null,null,null,null,null]);
+WEEKS.forEach((games, wi) => {
+  games.forEach(g => {
+    sched[g.a][wi] = {opp: g.h, at: true, g};
+    sched[g.h][wi] = {opp: g.a, at: false, g};
+  });
+});
+
+function implied(team, g){
+  const parts = g.l.split(" ");
+  const fav = parts[0];
+  const spread = Math.abs(parseFloat(parts[1]));
+  const mine = (team === fav) ? (g.t + spread)/2 : (g.t - spread)/2;
+  return {pts: mine, fav: team === fav, spread};
+}
+
+function venueOf(team, entry){
+  if (entry.g.neutral) return {label: entry.g.neutral + " (outdoor)", cls: "neu", score: 0};
+  const home = entry.at ? entry.opp : team;
+  if (DOME.has(home)) return {label: "Dome", cls: "grn", score: 1};
+  if (ALT.has(home)) return {label: "Altitude +5yd", cls: "grn", score: 1};
+  if (WINDY.has(home)) return {label: "Wind venue", cls: "red", score: -1};
+  return {label: "Outdoor", cls: "neu", score: 0};
+}
+
+const tbody = document.getElementById("tbody");
+KICKERS.forEach(([abbr, kname, note], i) => {
+  const tr = document.createElement("tr");
+  const games = sched[abbr];
+
+  // Precompute cells so K-SOS can go in the row header.
+  const cells = games.map(entry => {
+    if (!entry) return null;
+    const chips = [];
+    let score = 0;
+
+    const v = venueOf(abbr, entry);
+    chips.push(v); score += v.score;
+
+    const dr = DEFR[entry.opp];
+    if (dr <= 10)      { chips.push({label:`Opp D #${dr}`, cls:"red", score:-1}); score -= 1; }
+    else if (dr >= 22) { chips.push({label:`Opp D #${dr}`, cls:"grn", score:1});  score += 1; }
+    else               { chips.push({label:`Opp D #${dr}`, cls:"yel", score:0}); }
+
+    const im = implied(abbr, entry.g);
+    const ilab = `Impl ${im.pts.toFixed(1)}`;
+    if (im.pts >= 24)     { chips.push({label:ilab, cls:"grn", score:1});  score += 1; }
+    else if (im.pts < 21) { chips.push({label:ilab, cls:"red", score:-1}); score -= 1; }
+    else                  { chips.push({label:ilab, cls:"yel", score:0}); }
+
+    if (im.spread >= 7) {
+      if (im.fav) { chips.push({label:"Control script", cls:"grn", score:1}); score += 1; }
+      else        { chips.push({label:"TD-chase script", cls:"red", score:-1}); score -= 1; }
+    }
+
+    return {entry, chips, score, im};
+  });
+
+  const played = cells.filter(Boolean);
+  const ksos = (played.reduce((a,c)=>a+c.score,0) / played.length).toFixed(1);
+
+  const th = document.createElement("th");
+  th.className = "team";
+  th.setAttribute("scope","row");
+  th.innerHTML = `<span class="drank">K${i+1}</span>
+    <div class="tname">${kname} &#183; ${abbr}</div>
+    <div class="tnote">${note}</div>
+    <span class="sos">K-SOS Wk1&#8211;5: <b>${ksos >= 0 ? "+"+ksos : ksos}</b></span>`;
+  tr.appendChild(th);
+
+  cells.forEach(cell => {
+    const td = document.createElement("td");
+    if (!cell) {
+      td.className = "cell bye";
+      td.innerHTML = `<div class="cellpad"><span class="byelabel">BYE</span></div>`;
+    } else {
+      const {entry, chips, score, im} = cell;
+      const tint = score >= 2 ? "grn" : score <= -2 ? "red" : "yel";
+      td.className = "cell " + tint;
+      const verdict = score >= 3 ? "Smash spot." : score >= 2 ? "Strong week." :
+                      score <= -3 ? "Sit him." : score <= -2 ? "Bad spot." : "Playable, no edge.";
+      td.innerHTML = `<div class="cellpad">
+        <div class="opp-line">
+          <span class="opp">${entry.at ? "@" : "vs"} ${entry.opp}</span>
+          <span class="vegas">${entry.g.l} &#183; O/U ${entry.g.t}</span>
+        </div>
+        <div class="chips">${chips.map(c => `<span class="chip ${c.cls}">${c.label}</span>`).join("")}</div>
+        <div class="blurb">${verdict}</div>
+      </div>`;
+    }
+    tr.appendChild(td);
+  });
+  tbody.appendChild(tr);
+});
+</script>
