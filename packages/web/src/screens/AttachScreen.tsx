@@ -13,17 +13,16 @@
  *   error path clears, and the server echoes the input back with the classified failure so a retry
  *   never has to reconstruct it.
  */
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { AppStateSnapshot, PreDraftCheckData, SnapshotInfo, Team } from '@sidekick/shared';
 
 import {
-  fetchUserDrafts,
   postAttach,
   postDraftSlot,
   readStoredUsername,
   writeStoredUsername,
 } from '../state/api';
-import type { AttachFailure, DraftSummary } from '../state/api';
+import type { AttachFailure } from '../state/api';
 
 export interface AttachScreenProps {
   snapshot: AppStateSnapshot;
@@ -48,25 +47,6 @@ export function AttachScreen({ snapshot, onConfirm }: AttachScreenProps) {
 
   const [storedUsername, setStoredUsername] = useState(() => readStoredUsername());
   const [usernameDraft, setUsernameDraft] = useState(() => readStoredUsername());
-  const [drafts, setDrafts] = useState<DraftSummary[]>([]);
-  const [draftsError, setDraftsError] = useState<string | null>(null);
-
-
-  useEffect(() => {
-    if (storedUsername === '') return;
-    let cancelled = false;
-    setDraftsError(null);
-    void fetchUserDrafts(storedUsername)
-      .then((list) => {
-        if (!cancelled) setDrafts(list);
-      })
-      .catch((error: Error) => {
-        if (!cancelled) setDraftsError(error.message);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [storedUsername]);
 
   const runAttach = (value: string): void => {
     if (value.trim() === '' || pending) return;
@@ -164,8 +144,7 @@ export function AttachScreen({ snapshot, onConfirm }: AttachScreenProps) {
             </button>
           </div>
           <p className="text-xs text-slate-500">
-            Optional. Stored locally; used to find your seat in the draft order and to list your
-            drafts below.
+            Optional. Stored locally; used to find your seat in the draft order.
           </p>
         </div>
 
@@ -179,47 +158,6 @@ export function AttachScreen({ snapshot, onConfirm }: AttachScreenProps) {
           </p>
         )}
       </section>
-
-      {storedUsername !== '' && (
-        <section
-          aria-label="Your recent drafts"
-          className="rounded-lg border border-slate-800 bg-slate-900/60 p-5"
-        >
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
-            Your recent drafts
-          </h2>
-          {draftsError !== null && <p className="mt-2 text-sm text-amber-300">{draftsError}</p>}
-          {draftsError === null && drafts.length === 0 && (
-            <p className="mt-2 text-sm text-slate-500">No drafts found for {storedUsername}.</p>
-          )}
-          <ul className="mt-3 flex flex-col gap-2">
-            {drafts.map((draft) => (
-              <li
-                key={draft.draftId}
-                className="flex items-center justify-between gap-3 rounded-md border border-slate-800 px-3 py-2"
-              >
-                <span className="text-sm text-slate-200">
-                  {draft.name ?? `Draft ${draft.draftId}`}
-                </span>
-                <span className="text-xs text-slate-500">
-                  {draft.season} · {draft.type} · {draft.teamCount} teams ·{' '}
-                  {draft.isMock ? 'mock' : 'league'} · {draft.status}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setInput(draft.draftId);
-                    runAttach(draft.draftId);
-                  }}
-                  className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium hover:bg-slate-700"
-                >
-                  Use this draft
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
 
       {isAttached && (
         <>

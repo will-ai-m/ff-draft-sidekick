@@ -164,7 +164,10 @@ describe('a full mock draft, replayed through the real orchestrator', () => {
     expect(afterLast.candidateList.data.rows.length).toBeGreaterThan(0);
     for (const row of afterLast.candidateList.data.rows) expect(row.survival).toBeNull();
     expect(afterLast.candidateList.data.planComparison?.applicable).toBe(false);
-    expect(afterLast.candidateList.data.reasonKind).toBe('lookahead-not-applicable');
+    // 2026-08-28 amendment: with the starters full, the final pick's reason is the bench
+    // thinnest-position rule rather than the bare AC-59 sentence — the plan comparison above is
+    // still not applicable, which is the substance of AC-59.
+    expect(afterLast.candidateList.data.reasonKind).toBe('bench-depth');
   });
 
   it('keeps the user’s own roster panel in step with their fifteen picks', () => {

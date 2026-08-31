@@ -10,6 +10,8 @@ import { nflverseHandlers } from '../../test/msw/nflverseHandlers';
 import { snapshotHandlers } from '../../test/msw/snapshotHandlers';
 import { buildGameLogCache, writeGameLogCache } from './prep';
 import { GameLogStore } from './store';
+import { GAMELOG_CACHE_VERSION } from './types';
+import type { CachedGame, GameLogCache } from './types';
 
 const server = setupServer(...nflverseHandlers(), ...snapshotHandlers());
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
@@ -135,5 +137,69 @@ describe('GameLogStore without a built cache', () => {
     } finally {
       rmSync(empty, { recursive: true, force: true });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// FR-10's positional value curves (amended 2026-08-31) — hand-built cache, exact arithmetic.
+// ---------------------------------------------------------------------------------------------
+
+describe('positionalPointCurves (FR-10 value model input)', () => {
+  const rushGame = (yds: number, fumblesLost = 0): CachedGame => ({
+    week: 1,
+    opponent: 'DET',
+    rushing: { att: 20, yds, avg: yds / 20, td: 0 },
+    fumbles: fumblesLost,
+    fumblesLost,
+    twoPointConversions: { passing: 0, rushing: 0, receiving: 0 },
+  });
+
+  /** 0.1/rush yd, −2/fumble lost: every season total below is trivial arithmetic. */
+  const scoring = { rush_yd: 0.1, fum_lost: -2 };
+
+  const cache: GameLogCache = {
+    version: GAMELOG_CACHE_VERSION,
+    builtAt: '2026-08-31T00:00:00Z',
+    seasons: [2025, 2024],
+    players: {
+      rbA: { playerId: 'rbA', name: 'A', position: 'RB', team: null, seasons: { 2025: [rushGame(1700)], 2024: [rushGame(170)] } },
+      rbB: { playerId: 'rbB', name: 'B', position: 'RB', team: null, seasons: { 2025: [rushGame(850)], 2024: [rushGame(85)] } },
+      rbC: { playerId: 'rbC', name: 'C', position: 'RB', team: null, seasons: { 2025: [rushGame(600)] } },
+      rbD: { playerId: 'rbD', name: 'D', position: 'RB', team: null, seasons: { 2025: [rushGame(0, 5)] } },
+      wrA: { playerId: 'wrA', name: 'W', position: 'WR', team: null, seasons: { 2025: [rushGame(3400)] } },
+    },
+  };
+  const curveStore = GameLogStore.fromCache(cache);
+
+  it('ranks each season’s league-scored totals and averages rank-for-rank across seasons', () => {
+    const curves = curveStore.positionalPointCurves(scoring)!;
+    // 2025 RB totals desc: [170, 85, 60, −10] pts; 2024: [17, 8.5].
+    // Rank 1 = mean(170, 17)/17 = 5.5 pts/gm; rank 2 = mean(85, 8.5)/17 = 2.75.
+    expect(curves.RB[0]).toBeCloseTo(5.5, 10);
+    expect(curves.RB[1]).toBeCloseTo(2.75, 10);
+  });
+
+  it('clamps the curve monotone non-increasing when a thin season would put a bump in it', () => {
+    const curves = curveStore.positionalPointCurves(scoring)!;
+    // Rank 3 exists only in 2025 (60/17 ≈ 3.53 pts/gm) — above rank 2's cross-season 2.75, so
+    // it clamps down rather than pricing RB3 above RB2.
+    expect(curves.RB[2]).toBeCloseTo(2.75, 10);
+  });
+
+  it('floors a negative-total tail entry at zero', () => {
+    const curves = curveStore.positionalPointCurves(scoring)!;
+    expect(curves.RB[3]).toBe(0);
+  });
+
+  it('keeps every position’s curve to its own players', () => {
+    const curves = curveStore.positionalPointCurves(scoring)!;
+    expect(curves.RB).toHaveLength(4);
+    expect(curves.WR).toEqual([20]); // 3400 · 0.1 / 17
+    expect(curves.QB).toEqual([]);
+    expect(curves.TE).toEqual([]);
+  });
+
+  it('returns null with no cache, so the caller degrades visibly instead of pricing plans', () => {
+    expect(GameLogStore.fromCache(null, 'missing').positionalPointCurves(scoring)).toBeNull();
   });
 });

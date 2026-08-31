@@ -40,11 +40,20 @@ const candidate = (
   adp: number | null,
 ): SimulationCandidate => ({ sleeperPlayerId, position, ecrRank, adp });
 
+/**
+ * The fixture config pins `drawSharpness: 1` and `opponentNeedBlend: 1` — the un-tuned draw
+ * mechanics — so every hand-computed 1/rank and pure-bent expectation below stays exact
+ * arithmetic. The tuned production defaults (1.5 / 0.45, fitted 2026-08-31 against observed
+ * rehearsal drafts) are pinned by `parameters.test.ts`, and the blend's own behaviour has its
+ * dedicated describe block below.
+ */
 const config = (overrides: Partial<SurvivalConfig> = {}): SurvivalConfig => ({
   simUniverseSize: PARAMETER_DEFAULTS.simUniverseSize,
   monteCarloRunCount: PARAMETER_DEFAULTS.monteCarloRunCount,
   reachAdjustmentPerPick: PARAMETER_DEFAULTS.reachAdjustmentPerPick,
   kdstEarlyPickWindow: PARAMETER_DEFAULTS.kdstEarlyPickWindow,
+  drawSharpness: 1,
+  opponentNeedBlend: 1,
   survivalBandLikelyGoneMax: PARAMETER_DEFAULTS.survivalBandLikelyGoneMax,
   survivalBandLikelyAvailableMin: PARAMETER_DEFAULTS.survivalBandLikelyAvailableMin,
   ...overrides,
@@ -357,6 +366,34 @@ describe('the K/DST saturation rule (AC-47)', () => {
       expect(withWindow).toBeLessThanOrEqual(8);
     });
 
+    it('drawSharpness concentrates the draw on the top of the board (2026-08-28 lever)', () => {
+      // One neutral pick over eight RBs. At sharpness 1 the 1/rank draw spreads; at a high
+      // exponent nearly every run takes the top-ranked player — the top player's survival
+      // falls and the tail's rises toward certainty.
+      const players = Array.from({ length: 8 }, (_, i) =>
+        candidate(`rb${i + 1}`, 'RB', i + 1, i + 1),
+      );
+      const picks = [simPick({})];
+      const survivalOfTop = (drawSharpness: number): { top: number; tail: number } => {
+        const projection = project({
+          picks,
+          players,
+          config: { drawSharpness, monteCarloRunCount: 400 },
+          seed: 3,
+        });
+        return {
+          top: projection.survivalByPlayerId.get('rb1')!.probability,
+          tail: projection.survivalByPlayerId.get('rb8')!.probability,
+        };
+      };
+
+      const spread = survivalOfTop(1);
+      const sharp = survivalOfTop(6);
+      expect(sharp.top).toBeLessThan(spread.top);
+      expect(sharp.tail).toBeGreaterThanOrEqual(spread.tail);
+      expect(sharp.top).toBeLessThan(0.2); // nearly every sharp run spends the pick on rb1
+    });
+
     it('walks the counters per run — an early K/DST pick relieves the deadline behind it', () => {
       // Two picks by one team, remaining 3 with 2 K/DST slots open: chance 2/3 then, if K/DST
       // was taken, 1/2 — and if not, the second pick sits at the 2>=2 deadline and saturates.
@@ -494,6 +531,67 @@ describe('the position draw (AC-42)', () => {
     // K/DST carry no mass (🔶 AS-7), so the pick falls through to best available among the RBs.
     expect(survivalFor(projection, 'k1')).toBeNull();
     expect(percent(projection, 'rb1') + percent(projection, 'rb2') + percent(projection, 'rb3')).toBeCloseTo(2, 5);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// 🔶 opponentNeedBlend — the market/need position blend (amended 2026-08-31).
+// ---------------------------------------------------------------------------------------------
+
+describe('the market/need position blend (🔶 opponentNeedBlend)', () => {
+  // rb1, wr1, wr2 carry 1/rank weights 1, 1/2, 1/3: market shares are RB 6/11, WR 5/11. The
+  // pure need-proportional draw assumed draft-open rooms spend ~19% of early picks on TE and
+  // ~14% on QB; the observed rehearsal rooms spent 7% and 3%, which is what this blend fixes.
+  const PLAYERS = [
+    candidate('rb1', 'RB', 1, 1),
+    candidate('wr1', 'WR', 2, 2),
+    candidate('wr2', 'WR', 3, 3),
+  ];
+
+  it('at 0 draws the position from the market alone, whatever the need says', () => {
+    const projection = project({
+      picks: [simPick({ bentDistribution: dist({ RB: 1 }) })],
+      players: PLAYERS,
+      config: { monteCarloRunCount: CONVERGENCE_RUNS, opponentNeedBlend: 0 },
+      seed: SEED,
+    });
+
+    // Position: RB 6/11, WR 5/11; within WR, wr1 takes 2/3 of it and wr2 the rest.
+    expectConverged(projection, 'rb1', 5 / 11);
+    expectConverged(projection, 'wr1', 1 - (5 / 11) * (2 / 3));
+    expectConverged(projection, 'wr2', 1 - (5 / 11) * (1 / 3));
+  });
+
+  it('at 1 restores the pure need-proportional draw', () => {
+    const projection = project({
+      picks: [simPick({ bentDistribution: dist({ RB: 1 }) })],
+      players: PLAYERS,
+      config: { monteCarloRunCount: 500, opponentNeedBlend: 1 },
+      seed: SEED,
+    });
+
+    expect(percent(projection, 'rb1')).toBe(0);
+  });
+
+  it('mixes the two by the configured weight', () => {
+    // λ = 0.5 over an all-RB need: P(RB) = 0.5 · 6/11 + 0.5 · 1 = 17/22.
+    const projection = project({
+      picks: [simPick({ bentDistribution: dist({ RB: 1 }) })],
+      players: PLAYERS,
+      config: { monteCarloRunCount: CONVERGENCE_RUNS, opponentNeedBlend: 0.5 },
+      seed: SEED,
+    });
+
+    expectConverged(projection, 'rb1', 1 - 17 / 22);
+  });
+
+  it('redraws the stream when the blend knob changes (the seed hashes it)', () => {
+    const universe = buildSimulationUniverse({ players: PLAYERS, board: boardOf(), size: 40 });
+    const picks = [simPick({ bentDistribution: dist({ RB: 1 }) })];
+
+    expect(deriveSeed(universe, picks, config({ opponentNeedBlend: 0.5 }))).not.toBe(
+      deriveSeed(universe, picks, config()),
+    );
   });
 });
 
@@ -862,9 +960,10 @@ describe('simulation stability on an unchanged board (SC-2, §T7 done-when 2)', 
       board: boardOf(),
       size: config().simUniverseSize,
     });
-    // Re-pinned 2026-08-27: the stream moved because `kdstEarlyPickWindow` joined the seed —
-    // the early K/DST placement window changes what a draw samples, so it must (AC-47 amendment).
-    expect(deriveSeed(universe, picks, config())).toBe(2646130542);
+    // Re-pinned 2026-08-27 (`kdstEarlyPickWindow` joined the seed), 2026-08-28 (`drawSharpness`
+    // joined) and 2026-08-31 (`opponentNeedBlend` joined — the market/need position blend
+    // changes what a draw samples, so it must move the stream).
+    expect(deriveSeed(universe, picks, config())).toBe(1768107254);
   });
 
   it('keeps two independent samples inside a band’s width at the default run count', () => {

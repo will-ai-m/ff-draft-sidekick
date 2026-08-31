@@ -300,15 +300,6 @@ describe('REST endpoints', () => {
     expect(metrics.samples.length).toBeGreaterThan(0);
   });
 
-  it('GET /api/drafts lists the stored username’s season drafts (AC-3)', async () => {
-    const { origin } = await start({ attach: false });
-
-    const response = await fetch(`${origin}/api/drafts?username=willy`);
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as { drafts: { draftId: string }[] };
-    expect(body.drafts.map((draft) => draft.draftId)).toContain(DRAFT_ID);
-  });
-
   it('GET /api/player/:id/gamelog answers the no-data card for a prototype-shaped id', async () => {
     const { origin } = await start();
 

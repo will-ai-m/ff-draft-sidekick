@@ -12,7 +12,14 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import type { GameLogEntry, GameLogSeason, PlayerCard, ScoringSettings } from '@sidekick/shared';
+import { SKILL_POSITIONS } from '@sidekick/shared';
+import type {
+  GameLogEntry,
+  GameLogSeason,
+  PlayerCard,
+  ScoringSettings,
+  SkillPosition,
+} from '@sidekick/shared';
 
 import { DEFAULT_CROSSWALK_CACHE_DIR } from '../snapshots/crosswalk';
 import { scoreGame, unsupportedScoringKeys } from './scoring';
@@ -96,6 +103,64 @@ export class GameLogStore {
 
   get builtAt(): string | null {
     return this.cache?.builtAt ?? null;
+  }
+
+  /**
+   * Historical positional value curves for FR-10's value model (amended 2026-08-31): what the
+   * rank-N player at each position was actually worth, in the attached league's own scoring.
+   *
+   * Per cached season, every player's games are scored under `scoring` and summed to a season
+   * total (totals, not per-game averages, so missed games discount a curve entry the way they
+   * discount a season); each position's totals are ranked descending, and the curve entry at
+   * rank N is the mean of the rank-N totals across seasons, divided by 17 to read as points per
+   * game. A rank only some seasons reach averages over the seasons that reach it, and the final
+   * curve is clamped monotone non-increasing and non-negative, so a thin tail season cannot put
+   * a bump in it.
+   *
+   * This is the standard value-based-drafting simplification — "the RB5 you draft is priced as
+   * what RB5 seasons have been worth" — chosen over projections Sidekick doesn't have. It is a
+   * *relative* scale: plans only ever compare sums built from the same unfilled slots, so a
+   * cross-position bias shared by all plans cancels.
+   *
+   * Returns null when no cache is loaded — the caller degrades exactly as it does for a missing
+   * player card, visibly and without prediction.
+   */
+  positionalPointCurves(scoring: ScoringSettings): Record<SkillPosition, number[]> | null {
+    if (this.cache === null) return null;
+
+    const perSeason = new Map<number, Record<SkillPosition, number[]>>();
+    for (const season of this.cache.seasons) {
+      perSeason.set(season, { QB: [], RB: [], WR: [], TE: [] });
+    }
+
+    for (const player of Object.values(this.cache.players)) {
+      if (!SKILL_POSITIONS.includes(player.position)) continue;
+      for (const [seasonKey, games] of Object.entries(player.seasons)) {
+        const season = perSeason.get(Number(seasonKey));
+        if (season === undefined || games.length === 0) continue;
+        let total = 0;
+        for (const game of games) total += scoreGame(game, scoring, player.position);
+        season[player.position].push(total);
+      }
+    }
+
+    const curves: Record<SkillPosition, number[]> = { QB: [], RB: [], WR: [], TE: [] };
+    for (const position of SKILL_POSITIONS) {
+      const ranked = [...perSeason.values()]
+        .map((totals) => totals[position].sort((a, b) => b - a))
+        .filter((totals) => totals.length > 0);
+      const length = Math.max(0, ...ranked.map((totals) => totals.length));
+
+      const curve: number[] = [];
+      for (let rank = 0; rank < length; rank += 1) {
+        const values = ranked.filter((totals) => rank < totals.length);
+        const mean = values.reduce((sum, totals) => sum + totals[rank]!, 0) / values.length;
+        const perGame = Math.max(0, mean / 17);
+        curve.push(rank > 0 ? Math.min(curve[rank - 1]!, perGame) : perGame);
+      }
+      curves[position] = curve;
+    }
+    return curves;
   }
 
   /**

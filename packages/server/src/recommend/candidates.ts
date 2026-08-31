@@ -10,10 +10,11 @@
  *
  * The composed order, top to bottom:
  *
- *  1. **FR-10 places the highlight.** `comparePlans` scores the plans; the highlight is the
- *     highest-ECR available player at the winning plan's now-position (AC-56). When the top two
- *     totals are too close to separate, the highlight falls back to the higher-ECR of the two now-
- *     positions instead (AC-58) — the comparison the user is *shown* still reports the real winner.
+ *  1. **FR-10 places the highlight.** `comparePlans` scores the plans (in shaded-curve
+ *     projected points since 2026-08-31); the highlight is the best-ECR available player at the
+ *     winning plan's now-position (AC-56). When the top two totals are too close to separate, the
+ *     highlight falls back to the better-ECR of the two plans' current picks instead (AC-58) —
+ *     the comparison the user is *shown* still reports the real winner.
  *  2. **The reason line names the single decisive factor**, by AC-51's precedence: plan/survival,
  *     then need, then value, else best available.
  *  3. **The cross-position within-noise test runs last**, on whatever highlight step 1 resolved. It
@@ -52,7 +53,8 @@ import type {
 } from '@sidekick/shared';
 
 import type { SurvivalProjection } from '../simulation/montecarlo';
-import { bestAvailableByPosition, comparePlans, planPositions } from './lookahead';
+import { bestAvailableByPosition, comparePlans, planPositions, tierFact } from './lookahead';
+import type { PlayerValueModel } from './value';
 
 export type CandidateListConfig = Pick<
   ParameterValues,
@@ -60,7 +62,7 @@ export type CandidateListConfig = Pick<
   | 'valueThresholdAdpPicksEarlier'
   | 'nearTieSurvivalPct'
   | 'nearTieEcrRanks'
-  | 'planTotalTooCloseEcrRanks'
+  | 'planTotalTooClosePoints'
   | 'lookaheadMaxPicks'
   | 'benchPositionHeadroom'
   | 'flexEligiblePositions'
@@ -116,6 +118,8 @@ export interface CandidatePlayer {
    */
   ecrRank: number | null;
   positionalRank: number | null;
+  /** FantasyPros overall-board tier (FR-4); null on an untiered or ADP-only row. */
+  tier: number | null;
   adp: number | null;
 }
 
@@ -198,6 +202,7 @@ const toRow = (
   team: player.team,
   ecrRank: player.ecrRank,
   positionalRank: player.positionalRank,
+  tier: player.tier,
   adp: player.adp,
   survival: survivalOf(projection, player),
   addedForHighlight,
@@ -263,6 +268,11 @@ export interface ComputeCandidateListInput {
   needVector: NeedVector | NoNeedSignal;
   /** FR-8's projection, built over a universe that included {@link candidateSimulationIds}. */
   survival: SurvivalProjection | null;
+  /**
+   * FR-10's value model (amended 2026-08-31), built once per attach. Null when the game-log
+   * cache was never built — plans are then not scored and the best-available regime stands.
+   */
+  valueModel: PlayerValueModel | null;
   /** Picks the user still owns in the draft, counting the one on the clock (AC-59). */
   userRemainingPicks: number;
   config: CandidateListConfig;
@@ -273,6 +283,14 @@ export interface ComputeCandidateListInput {
    * is the no-need sentinel; absent, the pre-amendment raw best-available regime applies.
    */
   benchPhase?: BenchPhaseInput | null;
+  /**
+   * The user's unfilled dedicated starting slots per skill position, for AC-55's fill-value term
+   * and starter cap (amended 2026-08-28/31). Absent, plans score by `nowValue + nextValue`
+   * alone — which is what the bench phase wants, so callers omit it once starters are full.
+   */
+  unfilledDedicatedSlots?: Partial<Record<SkillPosition, number>>;
+  /** The user's unfilled FLEX slots, for the plan-pick starter cap (amended 2026-08-31). */
+  unfilledFlexSlots?: number;
 }
 
 const DISABLED_REASON =
@@ -318,9 +336,16 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
     board,
     needVector: input.needVector,
     projection: survival,
+    valueModel: input.valueModel,
     userRemainingPicks: input.userRemainingPicks,
     config,
     ...(benchPositions === null ? {} : { benchPositions }),
+    ...(input.unfilledDedicatedSlots === undefined
+      ? {}
+      : { unfilledDedicatedSlots: input.unfilledDedicatedSlots }),
+    ...(input.unfilledFlexSlots === undefined
+      ? {}
+      : { unfilledFlexSlots: input.unfilledFlexSlots }),
   });
 
   const rawTop = available[0] ?? null;
@@ -340,13 +365,46 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
   // ---- 1. FR-10 places the highlight (AC-56, AC-58) -----------------------------------------
   const best = bestAvailableByPosition(input.players, board);
   let highlight: RankedCandidate = topEcr;
-  if (comparison.winner !== null) {
-    // AC-58: totals this close cannot separate the plans, so the present-tense ECR fact does it
-    // instead — "the higher-ECR current pick", i.e. the lower term1 of the two.
+  /** Bench phase only: the thinnest-position rule moved the highlight; what the reason needs. */
+  let benchThinnest: { depth: number; passedOver: RankedCandidate } | null = null;
+
+  if (allowed !== null && input.benchPhase != null) {
+    // Bench phase (amended 2026-08-28): the roster's thinnest position wins the highlight, ECR
+    // picks the player within it. Rehearsal #3 showed why ECR cannot pick the *position* here —
+    // it bought WR7 and WR8 for a two-RB roster, because WR ECR ranks beat RB ECR ranks at
+    // every bench turn. Depth = bodies behind the dedicated starters; FLEX is shared, so it is
+    // deliberately no position's credit.
+    const counts = input.benchPhase.rosterCounts;
+    const slots = input.benchPhase.slots;
+    const thinnestFirst = (benchPositions ?? [])
+      .filter((position) => best.has(position))
+      .map((position) => ({
+        position,
+        depth: Math.max(0, (counts[position] ?? 0) - slots[position]),
+        player: best.get(position)!,
+      }))
+      .sort((a, b) => a.depth - b.depth || a.player.ecrRank - b.player.ecrRank);
+    const thinnest = thinnestFirst[0];
+    if (thinnest !== undefined) {
+      highlight = thinnest.player;
+      if (thinnest.player.sleeperPlayerId !== topEcr.sleeperPlayerId) {
+        benchThinnest = { depth: thinnest.depth, passedOver: topEcr };
+      }
+    }
+  } else if (comparison.winner !== null) {
+    // AC-58 (amended 2026-08-31): totals this close cannot separate the plans, so the
+    // present-tense consensus fact does it instead — of the two plans' current picks, take the
+    // better-ECR player. The 08-31 rehearsal is why the direction is stated player-first: the
+    // old rank-delta reading let two QB-now plans occupy both slots and sent Josh Allen out as
+    // a pick-1 recommendation. The comparison the user is *shown* still reports the real winner.
+    const winnerNow = best.get(comparison.winner.nowPosition);
+    const runnerUpNow =
+      comparison.runnerUp === null ? undefined : best.get(comparison.runnerUp.nowPosition);
     const chosen =
       comparison.tooClose &&
       comparison.runnerUp !== null &&
-      comparison.runnerUp.term1 < comparison.winner.term1
+      runnerUpNow !== undefined &&
+      (winnerNow === undefined || runnerUpNow.ecrRank < winnerNow.ecrRank)
         ? comparison.runnerUp
         : comparison.winner;
     highlight = best.get(chosen.nowPosition) ?? topEcr;
@@ -380,6 +438,16 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
       `already carry ${count} ${rawTop.position}${count === 1 ? '' : 's'} for ` +
       `${starts} starting slot${starts === 1 ? '' : 's'} — ` +
       `${highlight.playerName} (${highlight.position}) is the best pick that still adds depth.`;
+  } else if (benchThinnest !== null) {
+    const depthNote =
+      benchThinnest.depth === 0
+        ? 'no backup behind your starters'
+        : `${benchThinnest.depth} backup${benchThinnest.depth === 1 ? '' : 's'}`;
+    reasonKind = 'bench-depth';
+    baseClause =
+      `Bench balance: ${highlight.position} is your thinnest position (${depthNote}) — ` +
+      `${highlight.playerName} (ECR ${highlight.ecrRank}) over ` +
+      `${benchThinnest.passedOver.playerName} (${benchThinnest.passedOver.position}).`;
   } else if (!comparison.applicable) {
     // AC-59: no plan comparison to make, so the ECR-ordered highlight stands and says so.
     const picks = input.userRemainingPicks;
@@ -388,16 +456,24 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
       `Lookahead does not apply with ${picks} pick${picks === 1 ? '' : 's'} left — ` +
       `best available: ${highlight.playerName} (ECR ${highlight.ecrRank}).`;
   } else if (moved && isSkillPosition(topEcr.position) && planned.has(topEcr.position)) {
-    // The top-ECR candidate's position was in the plan set and the comparison still went elsewhere.
+    // The top-ECR candidate's position was in the plan set and the comparison still went
+    // elsewhere — name the tier forcing the timing, in the same per-run terms as AC-57.
     const winner = comparison.winner;
     const totals =
       winner !== null && comparison.runnerUp !== null
-        ? ` scores best (${formatNumber(winner.score)} vs ${formatNumber(comparison.runnerUp.score)})`
+        ? ` scores best (${formatNumber(winner.score)} vs ${formatNumber(comparison.runnerUp.score)} proj pts)`
+        : '';
+    const urgency =
+      input.valueModel !== null &&
+      survival !== null &&
+      !survival.suppressed &&
+      isSkillPosition(highlight.position)
+        ? `: ${tierFact(survival, board, input.valueModel, highlight.position)}`
         : '';
     reasonKind = 'plan-survival';
     baseClause =
-      `Plan ${winner?.nowPosition ?? highlight.position} now / ${winner?.nextPosition ?? highlight.position} next${totals} — ` +
-      `${highlight.playerName} over higher-ECR ${topEcr.playerName}.`;
+      `Plan ${winner?.nowPosition ?? highlight.position} now / ${winner?.nextPosition ?? highlight.position} next${totals}${urgency} — ` +
+      `${highlight.playerName} over higher-ECR ${topEcr.playerName} (${topEcr.position}).`;
   } else if (moved) {
     // The top-ECR candidate's position has no unfilled starting slot, so no plan could reach it.
     reasonKind = 'need';
@@ -415,12 +491,13 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
   }
 
   // ---- 3. The within-noise test, last, on the resolved highlight (AC-52) ---------------------
-  // Skipped entirely on a bench redirect: the cap is the story, and the "other candidate" a tie
-  // line would name must itself come from the positions the bench phase still allows.
+  // Skipped entirely on a bench redirect: the balance rule is the story, and the "other
+  // candidate" a tie line would name must itself come from positions the bench phase allows.
   const tieClauses: string[] = [];
-  const other = redirected
-    ? null
-    : (pool.find((player) => player.position !== highlight.position) ?? null);
+  const other =
+    redirected || benchThinnest !== null
+      ? null
+      : (pool.find((player) => player.position !== highlight.position) ?? null);
   const highlightSurvival = survivalOf(survival, highlight);
   const otherSurvival = other === null ? null : survivalOf(survival, other);
 
@@ -441,9 +518,9 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
 
   if (comparison.tooClose && comparison.winner !== null && comparison.runnerUp !== null) {
     tieClauses.push(
-      `Plan totals within ${config.planTotalTooCloseEcrRanks} ECR ranks ` +
+      `Plan totals within ${config.planTotalTooClosePoints} proj pts ` +
         `(${formatNumber(comparison.winner.score)} vs ${formatNumber(comparison.runnerUp.score)}) — ` +
-        `too close to separate, taking the higher-ECR player now: ${highlight.playerName} (ECR ${highlight.ecrRank}).`,
+        `too close to separate, taking the better-consensus player now: ${highlight.playerName} (ECR ${highlight.ecrRank}).`,
     );
   }
 

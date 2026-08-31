@@ -5,47 +5,64 @@ import { describe, expect, it } from 'vitest';
 import { survivalBand } from '../simulation/montecarlo';
 import type { SurvivalProjection } from '../simulation/montecarlo';
 import {
-  DEFAULT_SHELF_SIZE,
   bestAvailableByPosition,
   comparePlans,
   enumeratePlans,
-  expectedBestSurvivingRank,
+  expectedKthBestSurvivingValue,
+  outOfUniverseFloors,
   planPositions,
-  worstOverallEcrRank,
+  tierHoldProbability,
 } from './lookahead';
 import type { LookaheadConfig, PlanPlayer } from './lookahead';
+import { buildPlayerValueModel } from './value';
 
 // ---------------------------------------------------------------------------------------------
 // Fixture. Small enough that every term below is computed by eye: the whole point of AC-55 is an
 // exact arithmetic claim, so nothing here is asserted against a number the code produced.
+//
+// The model is built with rank shading 0, so every player prices at exactly the curve entry
+// for their own positional rank and the arithmetic stays round:
+//   RB curve [20, 18, 12, 10]  rb1 20, rb2 18, rb3 12, rb4 10  (tiers {rb1,rb2}=T1, {rb3}=T2, {rb4}=T3)
+//   WR curve [18, 16, 14, 12]  wr1 18, wr2 16, wr3 14, wr4 12  (tiers {wr1}=T1, {wr2,wr3}=T2, {wr4}=T3)
+//   TE curve [12, 6]           te1 12, te2 6                    (tiers {te1}=T2, {te2}=T4)
+//   QB curve [22, 21]          qb1 22, qb2 21                   (flat — the 1-QB shape)
 // ---------------------------------------------------------------------------------------------
+
+type FixturePlayer = PlanPlayer & { tier: number | null };
 
 const player = (
   sleeperPlayerId: string,
   playerName: string,
   position: Position,
   ecrRank: number,
-): PlanPlayer => ({ sleeperPlayerId, playerName, position, ecrRank });
+  tier: number | null = null,
+): FixturePlayer => ({ sleeperPlayerId, playerName, position, ecrRank, tier });
 
-const SNAPSHOT: PlanPlayer[] = [
-  player('rb1', 'Bijan Robinson', 'RB', 1),
-  player('wr1', "Ja'Marr Chase", 'WR', 2),
-  player('rb2', 'Jahmyr Gibbs', 'RB', 3),
-  player('wr2', 'Justin Jefferson', 'WR', 4),
-  player('te1', 'Brock Bowers', 'TE', 5),
-  player('qb1', 'Josh Allen', 'QB', 6),
-  player('rb3', 'Saquon Barkley', 'RB', 7),
-  player('wr3', 'CeeDee Lamb', 'WR', 8),
-  player('te2', 'Trey McBride', 'TE', 9),
-  player('qb2', 'Lamar Jackson', 'QB', 10),
-  player('rb4', 'Derrick Henry', 'RB', 11),
-  player('wr4', 'Amon-Ra St. Brown', 'WR', 12),
+const SNAPSHOT: FixturePlayer[] = [
+  player('rb1', 'Bijan Robinson', 'RB', 1, 1),
+  player('wr1', "Ja'Marr Chase", 'WR', 2, 1),
+  player('rb2', 'Jahmyr Gibbs', 'RB', 3, 1),
+  player('wr2', 'Justin Jefferson', 'WR', 4, 2),
+  player('te1', 'Brock Bowers', 'TE', 5, 2),
+  player('qb1', 'Josh Allen', 'QB', 6, 3),
+  player('rb3', 'Saquon Barkley', 'RB', 7, 2),
+  player('wr3', 'CeeDee Lamb', 'WR', 8, 2),
+  player('te2', 'Trey McBride', 'TE', 9, 4),
+  player('qb2', 'Lamar Jackson', 'QB', 10, 4),
+  player('rb4', 'Derrick Henry', 'RB', 11, 3),
+  player('wr4', 'Amon-Ra St. Brown', 'WR', 12, 3),
   player('k1', 'Brandon Aubrey', 'K', 150),
   player('dst1', 'Houston Texans', 'DST', 155),
 ];
 
-/** The snapshot's last-ranked overall ECR rank + 1 — AC-55's no-survivor penalty. */
-const NO_SURVIVOR_RANK = 156;
+const CURVES: Record<SkillPosition, number[]> = {
+  QB: [22, 21],
+  RB: [20, 18, 12, 10],
+  WR: [18, 16, 14, 12],
+  TE: [12, 6],
+};
+
+const MODEL = buildPlayerValueModel(SNAPSHOT, CURVES, { rankShadingRanks: 0 });
 
 const UNIVERSE = SNAPSHOT.filter((p) => p.position !== 'K' && p.position !== 'DST').map((p) => ({
   id: p.sleeperPlayerId,
@@ -68,8 +85,9 @@ const need = (weights: Partial<Record<Position, number>>): NeedVector => ({
 });
 
 const config = (overrides: Partial<LookaheadConfig> = {}): LookaheadConfig => ({
-  planTotalTooCloseEcrRanks: PARAMETER_DEFAULTS.planTotalTooCloseEcrRanks,
+  planTotalTooClosePoints: PARAMETER_DEFAULTS.planTotalTooClosePoints,
   lookaheadMaxPicks: PARAMETER_DEFAULTS.lookaheadMaxPicks,
+  flexEligiblePositions: PARAMETER_DEFAULTS.flexEligiblePositions,
   ...overrides,
 });
 
@@ -126,8 +144,8 @@ const projectionOf = (
   };
 };
 
-/** RB is deep and safe; WR is thinning. The board that makes waiting on RB correct. */
-const RB_DEEP_WR_THIN = projectionOf([
+/** The elite RB tier survives (rb1); WR Tier 1 is gone by the next turn. Waiting on RB is free. */
+const RB_HOLDS_WR_BREAKS = projectionOf([
   ['rb1', 'rb4', 'wr3', 'wr4', 'te1', 'te2', 'qb1', 'qb2'],
   ['rb1', 'rb4', 'wr3', 'wr4', 'te1', 'te2', 'qb1', 'qb2'],
 ]);
@@ -157,7 +175,7 @@ describe('the plan set (AC-54)', () => {
   });
 });
 
-describe('term1 — the best available player at a position, present tense (AC-55)', () => {
+describe('the best available player at a position, present tense (AC-55)', () => {
   it('is the numerically lowest overall ECR rank still on the board', () => {
     const best = bestAvailableByPosition(SNAPSHOT, boardOf());
     expect(best.get('RB')?.sleeperPlayerId).toBe('rb1');
@@ -175,39 +193,79 @@ describe('term1 — the best available player at a position, present tense (AC-5
   });
 });
 
-describe('term2 — the expected best surviving rank at the user’s next turn (AC-55)', () => {
-  it('averages the per-run best surviving rank, never marginal percentages combined', () => {
-    // Run 1's best surviving RB is rb1 (rank 1); run 2's is rb3 (rank 7). Mean = 4.
+describe('nextValue — the expected best surviving tier value at the user’s next turn (AC-55)', () => {
+  it('averages the per-run best surviving value, never marginal percentages combined', () => {
+    // Run 1's best surviving RB is rb1 (20); run 2's is rb3 (12). Mean = 16.
     const projection = projectionOf([['rb1', 'rb3'], ['rb3']]);
-    expect(expectedBestSurvivingRank(projection, 'RB', NO_SURVIVOR_RANK)).toBe(4);
+    expect(expectedKthBestSurvivingValue(projection, MODEL, 'RB', 1, 0)).toBe(16);
   });
 
-  it('scores a run with no survivor at that position at the snapshot’s last rank + 1', () => {
-    // Run 1: best WR is wr2 (4). Run 2: no WR survives -> 156. Mean = (4 + 156) / 2 = 80.
+  it('scores a run with no survivor at that position at the caller’s floor value', () => {
+    // Run 1: best WR is wr2 (16). Run 2: no WR survives -> floor 4. Mean = (16 + 4) / 2 = 10.
     const projection = projectionOf([['wr2', 'rb1'], ['rb1']]);
-    expect(expectedBestSurvivingRank(projection, 'WR', NO_SURVIVOR_RANK)).toBe(80);
+    expect(expectedKthBestSurvivingValue(projection, MODEL, 'WR', 1, 4)).toBe(10);
   });
 
   it('excludes the player the plan already takes now, so a same-position plan cannot count him twice', () => {
-    // rb1 survives both runs, but an RB-now/RB-next plan spends him now: rb4 (11) is what is left.
+    // rb1 survives both runs, but an RB-now/RB-next plan spends him now: rb4 (10) is what is left.
     const projection = projectionOf([
       ['rb1', 'rb4'],
       ['rb1', 'rb4'],
     ]);
-    expect(expectedBestSurvivingRank(projection, 'RB', NO_SURVIVOR_RANK)).toBe(1);
-    expect(expectedBestSurvivingRank(projection, 'RB', NO_SURVIVOR_RANK, 'rb1')).toBe(11);
+    expect(expectedKthBestSurvivingValue(projection, MODEL, 'RB', 1, 0)).toBe(20);
+    expect(expectedKthBestSurvivingValue(projection, MODEL, 'RB', 1, 0, 'rb1')).toBe(10);
   });
 
-  it('penalises a run whose only surviving player at the position is the one taken now', () => {
-    const projection = projectionOf([['rb1'], ['rb1', 'rb2']]);
-    // Run 1 has nobody left after rb1 -> 156; run 2 leaves rb2 (3). Mean = (156 + 3) / 2 = 79.5.
-    expect(expectedBestSurvivingRank(projection, 'RB', NO_SURVIVOR_RANK, 'rb1')).toBe(79.5);
+  it('walks to the k-th survivor and floors past the last one', () => {
+    const projection = projectionOf([
+      ['rb1', 'rb3'],
+      ['rb1', 'rb3'],
+    ]);
+    expect(expectedKthBestSurvivingValue(projection, MODEL, 'RB', 1, 0)).toBe(20);
+    expect(expectedKthBestSurvivingValue(projection, MODEL, 'RB', 2, 0)).toBe(12);
+    expect(expectedKthBestSurvivingValue(projection, MODEL, 'RB', 3, 0.5)).toBe(0.5);
+    // Exclusion composes: with rb1 spent by the plan, the 1st survivor IS rb3.
+    expect(expectedKthBestSurvivingValue(projection, MODEL, 'RB', 1, 0, 'rb1')).toBe(12);
   });
 });
 
-describe('the snapshot’s last-ranked overall ECR rank (AC-55)', () => {
-  it('reads the whole snapshot, drafted players included — it is a property of the rankings', () => {
-    expect(worstOverallEcrRank(SNAPSHOT)).toBe(155);
+describe('the out-of-universe floor (AC-55, amended 2026-08-31)', () => {
+  it('prices a dried-up position at the best available player outside the simulation universe', () => {
+    const universe = UNIVERSE.filter((entry) => entry.id !== 'rb4' && entry.id !== 'wr4');
+    const projection = projectionOf([['rb1']], universe);
+    const floors = outOfUniverseFloors(SNAPSHOT, boardOf(), projection, MODEL);
+    expect(floors.RB).toBe(10); // rb4, tier value 10, survives every run by construction
+    expect(floors.WR).toBe(12); // wr4
+    expect(floors.TE).toBe(0); // whole position inside the universe
+    expect(floors.QB).toBe(0);
+  });
+
+  it('never counts a drafted player as a floor', () => {
+    const universe = UNIVERSE.filter((entry) => entry.id !== 'rb4');
+    const projection = projectionOf([['rb1']], universe);
+    const floors = outOfUniverseFloors(SNAPSHOT, boardOf(['rb4']), projection, MODEL);
+    expect(floors.RB).toBe(0);
+  });
+});
+
+describe('tier hold probability (AC-57, amended 2026-08-31)', () => {
+  it('is the fraction of runs in which any available member of the current tier survived', () => {
+    // RB Tier 1 = {rb1, rb2}: run 1 keeps rb1, run 2 keeps neither.
+    const projection = projectionOf([['rb1'], ['wr3']]);
+    expect(tierHoldProbability(projection, boardOf(), MODEL, 'RB')).toBe(0.5);
+  });
+
+  it('reads 1 when a tier member sits outside the simulation universe', () => {
+    const universe = UNIVERSE.filter((entry) => entry.id !== 'rb2');
+    const projection = projectionOf([['wr3']], universe);
+    expect(tierHoldProbability(projection, boardOf(), MODEL, 'RB')).toBe(1);
+  });
+
+  it('is null when the position has nobody left in the model', () => {
+    const projection = projectionOf([[]]);
+    expect(
+      tierHoldProbability(projection, boardOf(['rb1', 'rb2', 'rb3', 'rb4']), MODEL, 'RB'),
+    ).toBeNull();
   });
 });
 
@@ -217,31 +275,80 @@ describe('plan scoring and comparison (AC-55, AC-57, AC-58, AC-59)', () => {
       players: SNAPSHOT,
       board: boardOf(),
       needVector: need({ RB: 1, WR: 1 }),
-      projection: RB_DEEP_WR_THIN,
+      projection: RB_HOLDS_WR_BREAKS,
+      valueModel: MODEL,
       userRemainingPicks: 4,
       config: config(),
       ...overrides,
     });
 
-  it('scores every plan as term1 + term2 and lets the lower total win', () => {
+  it('scores every plan as nowValue + nextValue and lets the higher total win', () => {
     const comparison = compare();
-    // term1: RB 1, WR 2. term2: RB 1 (rb1 survives), RB-less-rb1 11 (rb4), WR 8 (wr3), WR-less-wr1 8.
-    // (RB,RB) 12 | (RB,WR) 9 | (WR,RB) 3 | (WR,WR) 10.
+    // nowValue: RB 20 (rb1), WR 18 (wr1). nextValue: RB 20 (rb1 survives), RB-less-rb1 10 (rb4),
+    // WR 14 (wr3). (RB,RB) 30 | (RB,WR) 34 | (WR,RB) 38 | (WR,WR) 32.
     expect(comparison.winner).toEqual({
       nowPosition: 'WR',
       nextPosition: 'RB',
-      term1: 2,
-      term2: 1,
-      score: 3,
+      nowValue: 18,
+      nextValue: 20,
+      fillValue: 0, // no slot picture supplied — nowValue + nextValue alone
+      score: 38,
     });
-    expect(comparison.runnerUp?.score).toBe(9);
+    expect(comparison.runnerUp?.score).toBe(34);
     expect(comparison.tooClose).toBe(false);
     expect(comparison.applicable).toBe(true);
   });
 
-  it('names the survival fact separating the winner from the alternative (AC-57)', () => {
+  it('prices the other unfilled slots — a double need at a thin position flips the winner (AC-55 amendment)', () => {
+    // The #28 regression from both 08-27/08-28 rehearsals, in miniature. Two WR starting slots
+    // open, one RB slot; the WR shelf is one player deep by the next turn (wr2 survives, no
+    // second WR does), while the elite RB tier holds (rb2 survives).
+    const projection = projectionOf([
+      ['wr2', 'rb2', 'rb3'],
+      ['wr2', 'rb2', 'rb3'],
+    ]);
+    const slots = { unfilledDedicatedSlots: { WR: 2, RB: 1 }, unfilledFlexSlots: 0 };
+
+    // With no slot picture the second WR slot's collapse is priced at nothing, and doubling up
+    // on the deep RB shelf wins: (RB,RB) = 20 + 18 (rb2) = 38.
+    const before = compare({ projection, needVector: need({ WR: 2, RB: 1 }) });
+    expect(before.winner?.nowPosition).toBe('RB');
+    expect(before.winner?.score).toBe(38);
+
+    // With it, the starter cap zeroes the slotless second RB and the deferred WR slots carry
+    // their true price: WR-now wins despite the lower nowValue.
+    const after = compare({ projection, needVector: need({ WR: 2, RB: 1 }), ...slots });
+    expect(after.winner?.nowPosition).toBe('WR');
+    expect(after.winner!.fillValue).toBeGreaterThan(0);
+    expect(after.winner!.score).toBe(
+      after.winner!.nowValue + after.winner!.nextValue + after.winner!.fillValue,
+    );
+  });
+
+  it('lets an open FLEX slot lift the starter cap for an eligible position', () => {
+    // One dedicated RB slot, so the RB-double's second pick starts only when a FLEX is open —
+    // capped it prices at 0, lifted it prices at rb2's full 18. Its overflow also consumes the
+    // FLEX, so the fill term prices no flex slot on top (no double counting).
+    const projection = projectionOf([
+      ['wr2', 'rb2', 'rb3'],
+      ['wr2', 'rb2', 'rb3'],
+    ]);
+    const rbDoubleWith = (unfilledFlexSlots: number) =>
+      compare({
+        projection,
+        needVector: need({ RB: 1 }),
+        unfilledDedicatedSlots: { RB: 1 },
+        unfilledFlexSlots,
+      }).winner;
+    expect(rbDoubleWith(0)?.nextValue).toBe(0);
+    expect(rbDoubleWith(1)?.nextValue).toBe(18);
+    expect(rbDoubleWith(1)?.fillValue).toBe(0);
+  });
+
+  it('names the tier facts separating the winner from the alternative (AC-57)', () => {
     expect(compare().separatingFact).toBe(
-      'WR shelf: 2 of 4 likely gone by your next pick (best back at ECR 8); RB: 2 of 4 (ECR 1).',
+      'WR Tier 1: 1 of 1 left, 0% chance one lasts to your next pick (next tier −3.0 pts/gm). ' +
+        'RB Tier 1: 2 of 2 left, 100% chance one lasts to your next pick (next tier −7.0 pts/gm).',
     );
   });
 
@@ -252,15 +359,15 @@ describe('plan scoring and comparison (AC-55, AC-57, AC-58, AC-59)', () => {
     expect(comparison.separatingFact).toBeNull();
   });
 
-  it('flags plan totals within `planTotalTooCloseEcrRanks` of each other (AC-58)', () => {
-    // rb2/rb3 back on the board: (RB,RB) is 1 + 3 = 4 against (WR,RB) 3.
+  it('flags plan totals within `planTotalTooClosePoints` of each other (AC-58)', () => {
+    // Both tier-1 anchors survive: (WR,RB) = 18 + 20 = 38 ties (RB,WR) = 20 + 18 = 38.
     const projection = projectionOf([
-      ['rb1', 'rb2', 'rb3', 'rb4', 'wr3', 'wr4'],
-      ['rb1', 'rb2', 'rb3', 'rb4', 'wr3', 'wr4'],
+      ['rb1', 'wr1', 'rb4', 'wr4'],
+      ['rb1', 'wr1', 'rb4', 'wr4'],
     ]);
     const comparison = compare({ projection });
-    expect(comparison.winner?.score).toBe(3);
-    expect(comparison.runnerUp?.score).toBe(4);
+    expect(comparison.winner?.score).toBe(38);
+    expect(comparison.runnerUp?.score).toBe(38);
     expect(comparison.tooClose).toBe(true);
   });
 
@@ -280,6 +387,12 @@ describe('plan scoring and comparison (AC-55, AC-57, AC-58, AC-59)', () => {
     ).toBe(true);
   });
 
+  it('scores no plan without a value model, leaving the best-available regime standing', () => {
+    const comparison = compare({ valueModel: null });
+    expect(comparison.applicable).toBe(true);
+    expect(comparison.winner).toBeNull();
+  });
+
   it('produces no winner — but stays applicable — for a roster with no unfilled starting slot', () => {
     const comparison = compare({ needVector: NO_NEED_SIGNAL });
     expect(comparison.applicable).toBe(true);
@@ -296,7 +409,7 @@ describe('plan scoring and comparison (AC-55, AC-57, AC-58, AC-59)', () => {
 
   it('cannot score a plan without survival data, so it reports lookahead as inapplicable', () => {
     expect(compare({ projection: null }).applicable).toBe(false);
-    expect(compare({ projection: { ...RB_DEEP_WR_THIN, suppressed: true } }).applicable).toBe(
+    expect(compare({ projection: { ...RB_HOLDS_WR_BREAKS, suppressed: true } }).applicable).toBe(
       false,
     );
   });
@@ -306,15 +419,12 @@ describe('plan scoring and comparison (AC-55, AC-57, AC-58, AC-59)', () => {
       ['rb1', 'wr1', 'rb4', 'wr4'],
       ['rb1', 'wr1', 'rb4', 'wr4'],
     ]);
-    // (RB,WR) = 1 + 2 = 3 and (WR,RB) = 2 + 1 = 3 tie; QB/RB/WR/TE order breaks it toward RB-now.
+    // (RB,WR) = 20 + 18 = 38 and (WR,RB) = 18 + 20 = 38 tie; QB/RB/WR/TE order breaks it toward
+    // RB-now.
     const first = compare({ projection });
     const second = compare({ projection });
     expect(first.winner?.nowPosition).toBe('RB');
     expect(second.winner).toEqual(first.winner);
     expect(second.runnerUp).toEqual(first.runnerUp);
-  });
-
-  it('exposes the shelf size as a named constant rather than an inline number', () => {
-    expect(DEFAULT_SHELF_SIZE).toBe(5);
   });
 });

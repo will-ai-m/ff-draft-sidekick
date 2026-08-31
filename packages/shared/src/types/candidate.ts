@@ -28,6 +28,12 @@ export interface CandidateRow {
   ecrRank: number | null;
   /** FantasyPros positional rank, e.g. the numeric part of "RB1". */
   positionalRank: number | null;
+  /**
+   * FantasyPros' overall-board tier (FR-4; surfaced 2026-08-31). Restricted to one position this
+   * is the tier structure FR-10's dropoff model reads — e.g. the 2026 TE board's Bowers/McBride/
+   * Loveland run followed by a gap to Warren. Null on an ADP-only row or an untiered entry.
+   */
+  tier: number | null;
   /** FFC ADP for the league's team-count pool; null when the player has no ADP entry (AC-26). */
   adp: number | null;
   /** Present only while the user has a subsequent pick (AC-44, AC-45). */
@@ -70,22 +76,35 @@ export interface Recommendation {
 /**
  * A two-pick lookahead **plan** (FR-10): an ordered (now, next) position pair drawn only from
  * positions with an unfilled starting slot (AC-54). `nowPosition === nextPosition` is valid.
+ *
+ * Scored in **projected points per game** (AC-55 as amended 2026-08-31), not ECR ranks: each
+ * term is a shaded positional value from FR-10's value model, so a plan total is "the
+ * starter points this route through the draft expects to bank". Rank sums were the 08-31
+ * rehearsal's root failure — rank arithmetic priced Josh Allen (ECR 27) at pick 1 level with
+ * Gibbs (ECR 1), because a rank gap carries no points.
  */
 export interface Plan {
   nowPosition: SkillPosition;
   nextPosition: SkillPosition;
-  /** Overall ECR rank of the best available player at `nowPosition`, present tense (AC-55). */
-  term1: number;
-  /** Mean across runs of the best surviving overall ECR rank at `nextPosition` (AC-55). */
-  term2: number;
-  /** `term1 + term2`; lower wins (AC-55). */
+  /** Shaded value (proj pts/gm) of the best available player at `nowPosition`, present tense. */
+  nowValue: number;
+  /** Mean across runs of the best surviving shaded value at `nextPosition` at the next turn. */
+  nextValue: number;
+  /**
+   * Expected shaded value summed over every *other* starting slot still unfilled after this
+   * plan's two picks — dedicated slots at the expected j-th-best survivor of their position,
+   * then each open FLEX slot at the best remaining flex-eligible survivor (priced for every
+   * plan symmetrically). 0 when the caller supplies no slot picture.
+   */
+  fillValue: number;
+  /** `nowValue + nextValue + fillValue`; **higher** wins (AC-55, amended 2026-08-31). */
   score: number;
 }
 
 /** The plan comparison surfaced to the user: winner, closest alternative, separating fact. */
 export interface PlanComparison {
   /**
-   * The lowest-scoring plan, or **null when no plan was scored** — either because lookahead does
+   * The highest-scoring plan, or **null when no plan was scored** — either because lookahead does
    * not apply (`applicable: false`, AC-59) or because the user has no unfilled starting slot with
    * an available player to fill it, which is the best-available regime rather than a plan.
    */
@@ -93,7 +112,7 @@ export interface PlanComparison {
   runnerUp: Plan | null;
   /** The specific survival fact separating the two, drawn from the same per-run data (AC-57). */
   separatingFact: string | null;
-  /** True when the top two totals are within `planTotalTooCloseEcrRanks` (AC-58). */
+  /** True when the top two totals are within `planTotalTooClosePoints` (AC-58). */
   tooClose: boolean;
   /** False when the user has fewer than two picks remaining (AC-59). */
   applicable: boolean;

@@ -21,9 +21,14 @@
  *     real rooms drafting K/DST with five and six picks still in hand, which the deadline-only
  *     rule modelled as skill-player demand and so overstated top-board scarcity. Either way it
  *     is never a draw from a K/DST pool — there is no K/DST simulation universe (🔶 AS-7).
- *  2. **The position.** Drawn from the team's FR-7 tendency-bent distribution. A team with **no
- *     bent distribution** is the `NO_NEED_SIGNAL` team (FR-6 publishes none for it): per Terms it
- *     skips the position draw entirely and samples straight from ADP order across QB/RB/WR/TE.
+ *  2. **The position.** Drawn from `(1-🔶opponentNeedBlend) * marketShare + 🔶opponentNeedBlend *
+ *     bent`, where marketShare is each position's share of the cross-position ADP draw weight
+ *     over what is still available in this run, and bent is the team's FR-7 tendency-bent need
+ *     distribution (amended 2026-08-31: pure need-proportional draws assumed draft-open rooms
+ *     spend 19%/14% of picks on TE/QB where observed rooms spent 7%/3% — the market anchor is
+ *     what the fitted blend restores). A team with **no bent distribution** is the
+ *     `NO_NEED_SIGNAL` team (FR-6 publishes none for it): per Terms it skips the position draw
+ *     entirely and samples straight from ADP order across QB/RB/WR/TE.
  *  3. **The player.** Drawn from ADP order within that position, weighted `1 / effectiveAdpRank`
  *     and normalised over the players still available *in this run*.
  *
@@ -77,6 +82,8 @@ export type SurvivalConfig = Pick<
   | 'monteCarloRunCount'
   | 'reachAdjustmentPerPick'
   | 'kdstEarlyPickWindow'
+  | 'drawSharpness'
+  | 'opponentNeedBlend'
   | 'survivalBandLikelyGoneMax'
   | 'survivalBandLikelyAvailableMin'
 >;
@@ -325,12 +332,18 @@ export function deriveSeed(
   picks: readonly SimulatedPick[],
   config: Pick<
     SurvivalConfig,
-    'monteCarloRunCount' | 'reachAdjustmentPerPick' | 'kdstEarlyPickWindow'
+    | 'monteCarloRunCount'
+    | 'reachAdjustmentPerPick'
+    | 'kdstEarlyPickWindow'
+    | 'drawSharpness'
+    | 'opponentNeedBlend'
   >,
 ): number {
   let hash = hashNumber(FNV_OFFSET_BASIS, config.monteCarloRunCount);
   hash = hashNumber(hash, config.reachAdjustmentPerPick);
   hash = hashNumber(hash, config.kdstEarlyPickWindow);
+  hash = hashNumber(hash, config.drawSharpness);
+  hash = hashNumber(hash, config.opponentNeedBlend);
 
   for (const player of universe) {
     hash = hashText(hash, `${player.sleeperPlayerId}\0${player.position}\0`);
@@ -490,6 +503,51 @@ function drawPosition(
 }
 
 /**
+ * Blends the market's implied position shares with the team's bent need distribution
+ * (🔶 `opponentNeedBlend`, amended 2026-08-31). Market share is each position's share of the
+ * total cross-position draw weight over the players still available in this run — exactly the
+ * position mix the pure best-available draw samples — so a blend of 0 reproduces that draw's
+ * position behaviour and 1 the old need-proportional one. Both components are normalised over
+ * the positions that still have players before mixing, so neither can outvote the other by
+ * scale alone.
+ */
+function blendedPositionWeights(
+  bent: Record<Position, number>,
+  pool: Int32Array,
+  positionByIndex: readonly SkillPosition[],
+  available: Uint8Array,
+  availableByPosition: Record<SkillPosition, number>,
+  reach: number,
+  sharpness: number,
+  needBlend: number,
+): Record<Position, number> {
+  const market: Record<SkillPosition, number> = { QB: 0, RB: 0, WR: 0, TE: 0 };
+  let total = 0;
+  let rank = 0;
+  for (let i = 0; i < pool.length; i += 1) {
+    const index = pool[i]!;
+    if (available[index] !== 1) continue;
+    rank += 1;
+    const weight = 1 / Math.max(1, rank - reach) ** sharpness;
+    market[positionByIndex[index]!] += weight;
+    total += weight;
+  }
+
+  let bentTotal = 0;
+  for (const position of SKILL_POSITIONS) {
+    if (availableByPosition[position] > 0) bentTotal += Math.max(0, bent[position]);
+  }
+
+  const weights: Record<Position, number> = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, DST: 0 };
+  for (const position of SKILL_POSITIONS) {
+    const marketShare = total > 0 ? market[position] / total : 0;
+    const bentShare = bentTotal > 0 ? Math.max(0, bent[position]) / bentTotal : marketShare;
+    weights[position] = (1 - needBlend) * marketShare + needBlend * bentShare;
+  }
+  return weights;
+}
+
+/**
  * Draws one player from a pool, weighted `1 / max(1, rank - reach)` over the players still
  * available in this run (AC-42). Returns the universe index, or -1 when the pool is empty.
  *
@@ -503,15 +561,22 @@ function drawPlayer(
   pool: Int32Array,
   available: Uint8Array,
   reach: number,
+  sharpness: number,
   random: () => number,
 ): number {
+  // 🔶 `drawSharpness` exponentiates the base 1/rank weight (1 = the original AC-42 draw).
+  // Added 2026-08-28: three rehearsals measured real rooms tracking consensus within ~10 picks
+  // MAE — tighter than 1/rank spreads — leaving "likely available" over-promised at ~0.90
+  // predicted vs ~0.70 observed. This is the calibration lever `trace:calibrate` tunes.
+  const weight = (rank: number): number => 1 / Math.max(1, rank - reach) ** sharpness;
+
   let total = 0;
   let rank = 0;
   for (let i = 0; i < pool.length; i += 1) {
     const index = pool[i]!;
     if (available[index] !== 1) continue;
     rank += 1;
-    total += 1 / Math.max(1, rank - reach);
+    total += weight(rank);
   }
   if (!(total > 0)) return -1;
 
@@ -523,7 +588,7 @@ function drawPlayer(
     if (available[index] !== 1) continue;
     rank += 1;
     last = index;
-    target -= 1 / Math.max(1, rank - reach);
+    target -= weight(rank);
     if (target <= 0) return index;
   }
   return last;
@@ -632,13 +697,31 @@ export function simulateSurvival(input: SimulateSurvivalInput): SurvivalProjecti
 
       let chosen = -1;
       if (pick.bentDistribution !== undefined) {
-        const position = drawPosition(pick.bentDistribution, availableByPosition, random);
+        const weights = blendedPositionWeights(
+          pick.bentDistribution,
+          allPool,
+          positionByIndex,
+          availableInRun,
+          availableByPosition,
+          reach,
+          config.drawSharpness,
+          config.opponentNeedBlend,
+        );
+        const position = drawPosition(weights, availableByPosition, random);
         if (position !== null) {
-          chosen = drawPlayer(positionPools[position], availableInRun, reach, random);
+          chosen = drawPlayer(
+            positionPools[position],
+            availableInRun,
+            reach,
+            config.drawSharpness,
+            random,
+          );
         }
       }
       // Both the no-need-signal regime (Terms) and a need the board can no longer fill land here.
-      if (chosen < 0) chosen = drawPlayer(allPool, availableInRun, reach, random);
+      if (chosen < 0) {
+        chosen = drawPlayer(allPool, availableInRun, reach, config.drawSharpness, random);
+      }
       if (chosen < 0) break;
 
       availableInRun[chosen] = 0;

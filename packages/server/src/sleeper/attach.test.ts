@@ -203,26 +203,4 @@ describe('AttachManager (FR-1)', () => {
     if (result.ok) return;
     expect(result.failure.kind).toBe('malformed-response');
   });
-
-  it('offers a stored username’s season drafts as a convenience list (AC-3)', async () => {
-    const drafts = await manager.listUserDrafts('willy');
-
-    expect(drafts).toEqual([
-      expect.objectContaining({
-        draftId: REAL_DRAFT_ID,
-        name: 'Willy Half-PPR Home League',
-        isMock: false,
-        teamCount: 10,
-        status: 'drafting',
-        season: '2026',
-      }),
-      expect.objectContaining({ draftId: MOCK_DRAFT_ID, isMock: true }),
-    ]);
-    // Season comes from Sleeper's own state, not the calendar year.
-    expect(scenario.requests).toContain('state');
-  });
-
-  it('reports an unknown username rather than returning an empty list', async () => {
-    await expect(manager.listUserDrafts('nobody')).rejects.toMatchObject({ kind: 'not-found' });
-  });
 });

@@ -42,6 +42,8 @@ import {
   computeCandidateList,
   filterCandidateRows,
 } from './recommend/candidates';
+import { buildPlayerValueModel } from './recommend/value';
+import type { PlayerValueModel } from './recommend/value';
 import { resolveLeagueSettings } from './roster/leagueSettings';
 import type { LeagueSettings } from './roster/leagueSettings';
 import { RosterPanelTracker } from './roster/needvectors';
@@ -51,7 +53,6 @@ import type {
   AttachFailure,
   AttachRequest,
   DraftSession,
-  UserDraftSummary,
 } from './sleeper/attach';
 import type { SleeperClient } from './sleeper/client';
 import { PollIntervalController } from './sleeper/instanceHeartbeat';
@@ -110,6 +111,13 @@ interface ActiveSession {
    * immutable for this draft's lifetime (AC-29).
    */
   kdstAdpFallback: readonly AdpOnlyPlayer[];
+  /**
+   * FR-10's value model (amended 2026-08-31): the snapshot's tier structure priced in the
+   * league's own scoring via the game-log curves. Built once per attach (AC-29 — snapshot and
+   * scoring are immutable per draft); null when the game-log cache was never built, in which
+   * case plans are not scored and the pre-draft check says why.
+   */
+  valueModel: PlayerValueModel | null;
   sleeperPlayers: Record<string, SleeperPlayerRecord>;
   roster: RosterPanelTracker;
   tendencies: TendencyProfileTracker;
@@ -488,6 +496,10 @@ export class Orchestrator {
 
     const preDraftCheck = this.buildPreDraftCheck(bundle, league);
 
+    // FR-10's value model: league-scored historical curves flattened over the snapshot's tiers.
+    const curves = this.gameLogStore.positionalPointCurves(league.scoring.settings);
+    const valueModel = curves === null ? null : buildPlayerValueModel(players, curves);
+
     // AC-50: when the cheat sheet ships without kickers or defenses (AC-23's warning case), the
     // K/DST filter falls back to ADP order. Skill positions never do — the list proper is
     // ECR-ordered, so an unranked skill player has no row to fall back into.
@@ -503,6 +515,7 @@ export class Orchestrator {
       bundle,
       players,
       kdstAdpFallback,
+      valueModel,
       sleeperPlayers,
       roster,
       tendencies,
@@ -554,7 +567,8 @@ export class Orchestrator {
           code: 'gamelog-cache-missing',
           message:
             `${this.gameLogStore.reason ?? 'The local nflverse game-log cache is missing.'} ` +
-            'Player cards will report no NFL game data until it is built.',
+            'Player cards will report no NFL game data, and the recommendation cannot score ' +
+            'two-pick plans (tier/value lookahead) until it is built.',
         },
       ];
     }
@@ -754,10 +768,26 @@ export class Orchestrator {
             window: panel.window,
             needVector: userRoster?.needVector ?? NO_NEED_SIGNAL,
             survival,
+            valueModel: active.valueModel,
             userRemainingPicks,
             unfilledK: userRoster?.unfilledStartingSlots.dedicated.K ?? 0,
             unfilledDst: userRoster?.unfilledStartingSlots.dedicated.DST ?? 0,
             benchPhase: { rosterCounts: userRosterCounts, slots: state.meta.slots },
+            // The slot picture rides only while starters are open: bench picks fill no starting
+            // slot, so the bench phase compares raw shaded values instead of a zeroed cap.
+            ...(userRoster === undefined ||
+            userRoster === null ||
+            userRoster.needVector === NO_NEED_SIGNAL
+              ? {}
+              : {
+                  unfilledDedicatedSlots: {
+                    QB: userRoster.unfilledStartingSlots.dedicated.QB,
+                    RB: userRoster.unfilledStartingSlots.dedicated.RB,
+                    WR: userRoster.unfilledStartingSlots.dedicated.WR,
+                    TE: userRoster.unfilledStartingSlots.dedicated.TE,
+                  },
+                  unfilledFlexSlots: userRoster.unfilledStartingSlots.flex,
+                }),
           });
 
     this.insights = {
@@ -854,10 +884,13 @@ export class Orchestrator {
     window: Parameters<typeof computeCandidateList>[0]['window'];
     needVector: Parameters<typeof computeCandidateList>[0]['needVector'];
     survival: Parameters<typeof computeCandidateList>[0]['survival'];
+    valueModel: Parameters<typeof computeCandidateList>[0]['valueModel'];
     userRemainingPicks: number;
     unfilledK: number;
     unfilledDst: number;
     benchPhase: Parameters<typeof computeCandidateList>[0]['benchPhase'];
+    unfilledDedicatedSlots?: Parameters<typeof computeCandidateList>[0]['unfilledDedicatedSlots'];
+    unfilledFlexSlots?: Parameters<typeof computeCandidateList>[0]['unfilledFlexSlots'];
   }): CandidateListData {
     const list = computeCandidateList({ ...input, config: this.config });
     if (list.disabledReason !== null) return list;
@@ -893,6 +926,7 @@ export class Orchestrator {
       window: EMPTY_WINDOW.window,
       needVector: NO_NEED_SIGNAL,
       survival,
+      valueModel: null,
       userRemainingPicks: 0,
       config: this.config,
     });
@@ -1007,11 +1041,6 @@ export class Orchestrator {
         team: matched?.team ?? sleeper?.team ?? null,
       },
     });
-  }
-
-  /** AC-3's convenience list of a stored username's discoverable season drafts. */
-  listUserDrafts(username: string, season?: string): Promise<UserDraftSummary[]> {
-    return this.attachManager.listUserDrafts(username, season);
   }
 
   /** AC-66/AC-67's samples, for `/api/debug/metrics` and for a rehearsal's own eyeballing. */

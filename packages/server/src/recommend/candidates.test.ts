@@ -18,10 +18,19 @@ import {
   filterCandidateRows,
 } from './candidates';
 import type { CandidateListConfig, CandidatePlayer } from './candidates';
+import { buildPlayerValueModel } from './value';
 
 // ---------------------------------------------------------------------------------------------
-// Fixture. Fourteen players with hand-chosen ECR ranks and ADPs; every expected number and every
-// expected reason string below is derived by eye from AC-55's arithmetic, never from a run.
+// Fixture. Fourteen players with hand-chosen ECR ranks, tiers and ADPs; every expected number
+// and every expected reason string below is derived by eye from AC-55's arithmetic (amended
+// 2026-08-31: shaded-curve projected points), never from a run.
+//
+// The value model is built with rank shading 0, so each player prices at exactly the curve
+// entry for their own positional rank:
+//   RB curve [20, 18, 12, 10]  rb1 20, rb2 18, rb3 12, rb4 10  (tiers {rb1,rb2}=T1, {rb3}=T2, {rb4}=T3)
+//   WR curve [18, 16, 14, 12]  wr1 18, wr2 16, wr3 14, wr4 12  (tiers {wr1}=T1, {wr2,wr3}=T2, {wr4}=T3)
+//   TE curve [12, 6]           te1 12, te2 6                    (tiers {te1}=T2, {te2}=T4)
+//   QB curve [22, 21]          qb1 22, qb2 21                   (flat — the 1-QB shape)
 // ---------------------------------------------------------------------------------------------
 
 const player = (
@@ -31,6 +40,7 @@ const player = (
   ecrRank: number | null,
   positionalRank: number | null,
   adp: number | null,
+  tier: number | null = null,
 ): CandidatePlayer => ({
   sleeperPlayerId,
   playerName,
@@ -38,25 +48,35 @@ const player = (
   team: 'FA',
   ecrRank,
   positionalRank,
+  tier,
   adp,
 });
 
 const SNAPSHOT: CandidatePlayer[] = [
-  player('rb1', 'Bijan Robinson', 'RB', 1, 1, 1.5),
-  player('wr1', "Ja'Marr Chase", 'WR', 2, 1, 2.4),
-  player('rb2', 'Jahmyr Gibbs', 'RB', 3, 2, 3.8),
-  player('wr2', 'Justin Jefferson', 'WR', 4, 2, 4.2),
-  player('te1', 'Brock Bowers', 'TE', 5, 1, 12),
-  player('qb1', 'Josh Allen', 'QB', 6, 1, 30),
-  player('rb3', 'Saquon Barkley', 'RB', 7, 3, 8),
-  player('wr3', 'CeeDee Lamb', 'WR', 8, 3, 6),
-  player('te2', 'Trey McBride', 'TE', 9, 2, 38),
-  player('qb2', 'Lamar Jackson', 'QB', 10, 2, 45),
-  player('rb4', 'Derrick Henry', 'RB', 11, 4, 14),
-  player('wr4', 'Amon-Ra St. Brown', 'WR', 12, 4, 9),
+  player('rb1', 'Bijan Robinson', 'RB', 1, 1, 1.5, 1),
+  player('wr1', "Ja'Marr Chase", 'WR', 2, 1, 2.4, 1),
+  player('rb2', 'Jahmyr Gibbs', 'RB', 3, 2, 3.8, 1),
+  player('wr2', 'Justin Jefferson', 'WR', 4, 2, 4.2, 2),
+  player('te1', 'Brock Bowers', 'TE', 5, 1, 12, 2),
+  player('qb1', 'Josh Allen', 'QB', 6, 1, 30, 3),
+  player('rb3', 'Saquon Barkley', 'RB', 7, 3, 8, 2),
+  player('wr3', 'CeeDee Lamb', 'WR', 8, 3, 6, 2),
+  player('te2', 'Trey McBride', 'TE', 9, 2, 38, 4),
+  player('qb2', 'Lamar Jackson', 'QB', 10, 2, 45, 4),
+  player('rb4', 'Derrick Henry', 'RB', 11, 4, 14, 3),
+  player('wr4', 'Amon-Ra St. Brown', 'WR', 12, 4, 9, 3),
   player('k1', 'Brandon Aubrey', 'K', 150, 1, 140),
   player('dst1', 'Houston Texans', 'DST', 155, 1, 145),
 ];
+
+const CURVES: Record<SkillPosition, number[]> = {
+  QB: [22, 21],
+  RB: [20, 18, 12, 10],
+  WR: [18, 16, 14, 12],
+  TE: [12, 6],
+};
+
+const MODEL = buildPlayerValueModel(SNAPSHOT, CURVES, { rankShadingRanks: 0 });
 
 const UNIVERSE = SNAPSHOT.filter((p) => p.position !== 'K' && p.position !== 'DST').map((p) => ({
   id: p.sleeperPlayerId,
@@ -83,7 +103,7 @@ const config = (overrides: Partial<CandidateListConfig> = {}): CandidateListConf
   valueThresholdAdpPicksEarlier: PARAMETER_DEFAULTS.valueThresholdAdpPicksEarlier,
   nearTieSurvivalPct: PARAMETER_DEFAULTS.nearTieSurvivalPct,
   nearTieEcrRanks: PARAMETER_DEFAULTS.nearTieEcrRanks,
-  planTotalTooCloseEcrRanks: PARAMETER_DEFAULTS.planTotalTooCloseEcrRanks,
+  planTotalTooClosePoints: PARAMETER_DEFAULTS.planTotalTooClosePoints,
   lookaheadMaxPicks: PARAMETER_DEFAULTS.lookaheadMaxPicks,
   benchPositionHeadroom: PARAMETER_DEFAULTS.benchPositionHeadroom,
   flexEligiblePositions: PARAMETER_DEFAULTS.flexEligiblePositions,
@@ -151,7 +171,7 @@ const projectionOf = (
 const twice = (survivorIds: readonly string[]): SurvivalProjection =>
   projectionOf([survivorIds, survivorIds]);
 
-/** RB deep and safe, WR thinning: rb1 and rb4 hold, wr1 and wr2 are gone. */
+/** The elite RB shelf holds (rb1 survives), WR Tier 1 is gone: waiting on RB is free. */
 const RB_DEEP_WR_THIN = twice(['rb1', 'rb4', 'wr3', 'wr4', 'te1', 'te2', 'qb1', 'qb2']);
 /** The mirror image: every RB is gone, wr1 survives. */
 const RB_GONE_WR_SAFE = twice(['wr1', 'wr3', 'wr4', 'te1', 'te2', 'qb1', 'qb2']);
@@ -165,6 +185,7 @@ const listOf = (overrides: Partial<Parameters<typeof computeCandidateList>[0]> =
     window: windowAt(12, 20),
     needVector: need({ RB: 1, WR: 1 }),
     survival: RB_DEEP_WR_THIN,
+    valueModel: MODEL,
     userRemainingPicks: 4,
     config: config(),
     ...overrides,
@@ -177,13 +198,15 @@ const listOf = (overrides: Partial<Parameters<typeof computeCandidateList>[0]> =
 
 describe('the highlight and its one-line reason (AC-51, AC-52, AC-56, AC-58, AC-59)', () => {
   it('a plan/survival-driven pick: the winning plan moves the highlight off the top-ECR candidate', () => {
-    // term1: RB 1, WR 2. term2: RB 1, RB-less-rb1 11, WR 8, WR-less-wr1 8.
-    // (RB,RB) 12 | (RB,WR) 9 | (WR,RB) 3 | (WR,WR) 10 -> WR now, RB next.
+    // nowValue: RB 20, WR 18. nextValue: RB 20 (rb1 survives), RB-less-rb1 10, WR 14 (wr3).
+    // (RB,RB) 30 | (RB,WR) 34 | (WR,RB) 38 | (WR,WR) 32 -> WR now, RB next.
     const list = listOf();
     expect(list.highlightPlayerId).toBe('wr1');
     expect(list.reasonKind).toBe('plan-survival');
     expect(list.reason).toBe(
-      "Plan WR now / RB next scores best (3 vs 9) — Ja'Marr Chase over higher-ECR Bijan Robinson.",
+      'Plan WR now / RB next scores best (38 vs 34 proj pts): ' +
+        'WR Tier 1: 1 of 1 left, 0% chance one lasts to your next pick (next tier −3.0 pts/gm) — ' +
+        "Ja'Marr Chase over higher-ECR Bijan Robinson (RB).",
     );
   });
 
@@ -197,7 +220,7 @@ describe('the highlight and its one-line reason (AC-51, AC-52, AC-56, AC-58, AC-
   });
 
   it('a value-driven pick: the top-ECR candidate whose ADP is ≥10 picks earlier than this pick', () => {
-    // Every RB is gone by the next turn, so (RB,WR) at 1 + 2 = 3 wins and rb1 stays highlighted.
+    // Every RB is gone by the next turn, so (RB,WR) at 20 + 18 = 38 wins and rb1 stays highlighted.
     const list = listOf({ survival: RB_GONE_WR_SAFE, window: windowAt(12, 20) });
     expect(list.highlightPlayerId).toBe('rb1');
     expect(list.reasonKind).toBe('value');
@@ -215,6 +238,16 @@ describe('the highlight and its one-line reason (AC-51, AC-52, AC-56, AC-58, AC-
 
   it('a roster with every starting slot filled has no plan to compare, so best available stands', () => {
     const list = listOf({ needVector: NO_NEED_SIGNAL, window: windowAt(5, 13) });
+    expect(list.highlightPlayerId).toBe('rb1');
+    expect(list.reasonKind).toBe('best-available');
+    expect(list.planComparison?.applicable).toBe(true);
+    expect(list.planComparison?.winner).toBeNull();
+  });
+
+  it('a missing value model scores no plans and leaves best available standing, stated plainly', () => {
+    // The game-log cache was never built: no currency to score plans in (the pre-draft check
+    // carries the warning). The list itself keeps working.
+    const list = listOf({ valueModel: null, window: windowAt(5, 13), survival: RB_GONE_WR_SAFE });
     expect(list.highlightPlayerId).toBe('rb1');
     expect(list.reasonKind).toBe('best-available');
     expect(list.planComparison?.applicable).toBe(true);
@@ -245,26 +278,59 @@ describe('the highlight and its one-line reason (AC-51, AC-52, AC-56, AC-58, AC-
     expect(list.planComparison?.winner).toBeNull();
   });
 
-  it('a plan-totals-within-3 pick: it falls back to the higher-ECR current pick and says so (AC-58)', () => {
-    // Every RB survives: (RB,RB) 1 + 3 = 4 sits one rank off (WR,RB) 2 + 1 = 3.
+  it('a plan-totals-too-close pick: it falls back to the better-consensus current pick and says so (AC-58)', () => {
+    // Every RB survives: (RB,RB) 20 + 18 = 38 ties (WR,RB) 18 + 20 = 38. The winner is RB-now by
+    // enumeration order, and its rb1 is also the better consensus pick, so the highlight stays.
     const list = listOf({ survival: twice(['rb1', 'rb2', 'rb3', 'rb4', 'wr3', 'wr4']) });
     expect(list.highlightPlayerId).toBe('rb1');
     expect(list.reasonKind).toBe('too-close-to-call');
     expect(list.reason).toBe(
-      'Plan totals within 3 ECR ranks (3 vs 4) — too close to separate, taking the higher-ECR player now: Bijan Robinson (ECR 1).',
+      'Plan totals within 0.75 proj pts (38 vs 38) — too close to separate, taking the better-consensus player now: Bijan Robinson (ECR 1).',
     );
+  });
+
+  it('the AC-58 fallback moves toward better consensus, never worse (the 08-31 Josh Allen bug)', () => {
+    // rb1 drafted: RB's best is rb2 (ECR 3) against WR's wr1 (ECR 2). Both anchors survive, so
+    // (RB,WR) = 18 + 18 ties (WR,RB) = 18 + 18; RB-now wins the enumeration order, but the
+    // near-tie fallback must hand the highlight to the better-ECR current pick — wr1. The 08-31
+    // rehearsal shipped the inverse: a rank-delta reading that let the worse-consensus pick
+    // (Josh Allen, ECR 27, at pick 1) keep the highlight.
+    const list = listOf({
+      board: boardOf(['rb1']),
+      survival: twice(['rb2', 'wr1', 'rb4', 'wr4', 'te1', 'te2', 'qb1', 'qb2']),
+    });
+    expect(list.planComparison?.winner?.nowPosition).toBe('RB');
+    expect(list.highlightPlayerId).toBe('wr1');
+    expect(list.reason).toContain("better-consensus player now: Ja'Marr Chase (ECR 2)");
+  });
+
+  it('never spends an early pick on the flat QB curve while an elite-tier cliff is collapsing', () => {
+    // The 08-31 rehearsal's opening failure, in fixture form: QB carries the highest absolute
+    // value on the board (qb1 22) but the QB curve is flat (qb2 21), while the elite RB/WR tiers
+    // are gone by the next turn. With the roster's slot picture riding along (one QB slot, no
+    // FLEX for a second), points arithmetic sends the cliff position out first: (RB,QB) banks
+    // 20 + 22 + the deferred WR slot, while every QB-now plan forfeits the RB cliff for a
+    // position whose deferral costs nothing — and the QB/QB double is capped at one starter.
+    const list = listOf({
+      needVector: need({ QB: 1, RB: 1, WR: 1 }),
+      survival: twice(['qb1', 'qb2', 'te1', 'te2', 'rb4', 'wr4']),
+      unfilledDedicatedSlots: { QB: 1, RB: 1, WR: 1 },
+      unfilledFlexSlots: 0,
+    });
+    expect(list.planComparison?.winner?.nowPosition).toBe('RB');
+    expect(list.highlightPlayerId).toBe('rb1');
   });
 });
 
 describe('merging the two tie statements (AC-52, AC-58)', () => {
   it('renders one line carrying both, never two statements', () => {
-    // (RB,WR) and (WR,RB) both score 3, and rb1/wr1 are one ECR rank and zero survival points apart.
+    // (RB,WR) and (WR,RB) both score 38, and rb1/wr1 are one ECR rank and zero survival points apart.
     const list = listOf({ survival: BOTH_HOLD });
     expect(list.highlightPlayerId).toBe('rb1');
     expect(list.reasonKind).toBe('too-close-to-call');
     expect(list.reason).toBe(
       "Too close to call: Bijan Robinson (ECR 1, 100% survival) and Ja'Marr Chase (WR, ECR 2, 100% survival) — staying with Bijan Robinson. " +
-        'Plan totals within 3 ECR ranks (3 vs 3) — too close to separate, taking the higher-ECR player now: Bijan Robinson (ECR 1).',
+        'Plan totals within 0.75 proj pts (38 vs 38) — too close to separate, taking the better-consensus player now: Bijan Robinson (ECR 1).',
     );
     expect(list.reason?.split('Too close to call').length).toBe(2);
   });
@@ -304,7 +370,7 @@ describe('candidate rows (AC-49, AC-53, AC-45)', () => {
     ]);
   });
 
-  it('carries overall ECR rank, positional rank, ADP and survival on every row', () => {
+  it('carries overall ECR rank, positional rank, tier, ADP and survival on every row', () => {
     const row = listOf().rows[1]!;
     expect(row).toMatchObject({
       playerId: 'wr1',
@@ -312,6 +378,7 @@ describe('candidate rows (AC-49, AC-53, AC-45)', () => {
       position: 'WR',
       ecrRank: 2,
       positionalRank: 1,
+      tier: 1,
       adp: 2.4,
       addedForHighlight: false,
     });
@@ -329,6 +396,8 @@ describe('candidate rows (AC-49, AC-53, AC-45)', () => {
   });
 
   it('drops drafted players before ranking, and never highlights one (AC-53)', () => {
+    // RB now rb2 (18), WR now wr2 (16); nextValue RB 18 (rb2 holds), WR 14 (wr3; wr2 is gone).
+    // (WR,RB) = 16 + 18 = 34 wins over (RB,WR) = 18 + 14 = 32.
     const list = listOf({
       board: boardOf(['rb1', 'wr1']),
       survival: twice(['rb2', 'rb4', 'wr3', 'wr4', 'te1', 'te2', 'qb1', 'qb2']),
@@ -455,6 +524,8 @@ describe('composed against T7’s own simulation output', () => {
       monteCarloRunCount: 200,
       reachAdjustmentPerPick: PARAMETER_DEFAULTS.reachAdjustmentPerPick,
       kdstEarlyPickWindow: PARAMETER_DEFAULTS.kdstEarlyPickWindow,
+      drawSharpness: PARAMETER_DEFAULTS.drawSharpness,
+      opponentNeedBlend: PARAMETER_DEFAULTS.opponentNeedBlend,
       survivalBandLikelyGoneMax: PARAMETER_DEFAULTS.survivalBandLikelyGoneMax,
       survivalBandLikelyAvailableMin: PARAMETER_DEFAULTS.survivalBandLikelyAvailableMin,
     };
@@ -497,6 +568,7 @@ describe('composed against T7’s own simulation output', () => {
       window: windowAt(12, 15),
       needVector: need({ RB: 1, WR: 1 }),
       survival: projection,
+      valueModel: MODEL,
       userRemainingPicks: 4,
       config: config(),
     });

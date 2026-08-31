@@ -5,7 +5,7 @@ state: awaiting_approval
 blocked_reason: null
 # 2026-08-23: user requested the retro ("document what can be improved? retro?") — cap raised 30→40 in constitution; breaker cleared.
 branch: village/001-draft-sidekick-v1
-subagent_calls: 32
+subagent_calls: 33
 repair_passes: {spec_review: 1, code_review: 1}
 approvals:
   # Improvement gate decisions (2026-08-24): M1 approve, M2 approve (framework derivation-check

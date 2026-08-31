@@ -100,6 +100,26 @@ export interface ParameterValues {
    * rehearsal showed real rooms drafting K/DST several rounds before they are forced to).
    */
   kdstEarlyPickWindow: number;
+  /**
+   * Exponent on the player draw's `1 / effectiveRank` weight: `1 / effectiveRank^this`. 1 was
+   * the original AC-42 draw and left "likely available" candidates surviving ~69% vs ~0.91
+   * predicted across the 2026-08 rehearsals. Default 1.5 since 2026-08-31: the joint MLE with
+   * 🔶 `opponentNeedBlend` over observed opponent skill picks from the 10-team rehearsal
+   * drafts (real rooms take the top-3 available at a position ~73% of the time). Re-fit
+   * against `npm run trace:calibrate` after each rehearsal.
+   */
+  drawSharpness: number;
+  /**
+   * How much a simulated opponent's position choice leans on roster need versus the market.
+   * The position is drawn from `(1-this) * marketShare + this * needDist`, where marketShare
+   * is each position's share of the cross-position ADP draw weight over what is still
+   * available, and needDist is FR-7's tendency-bent need distribution. 0 is pure market, 1 is
+   * the pre-2026-08-31 need-proportional draw — which assumed draft-open rooms spend 19% of
+   * picks on TE and 14% on QB while the observed rooms spent 7% and 3% (first 30 picks ran
+   * 50% RB / 40% WR), making TEs look scarce and RBs look safe. Default 0.45: the joint MLE
+   * with 🔶 `drawSharpness` (log-likelihood −750 vs −1319 for need-only on the same picks).
+   */
+  opponentNeedBlend: number;
   /** Survival at or below this is "likely gone". PRD AS-5 / AC-44. */
   survivalBandLikelyGoneMax: number;
   /** Survival at or above this is "likely available". PRD AS-5 / AC-44. */
@@ -114,16 +134,21 @@ export interface ParameterValues {
   nearTieSurvivalPct: number;
   /** ECR-rank gap inside which two candidates are "within noise". PRD AS-5 / AC-52. */
   nearTieEcrRanks: number;
-  /** ECR-rank gap inside which two plan totals are too close to separate. PRD AS-5 / AC-55, AC-58. */
-  planTotalTooCloseEcrRanks: number;
+  /**
+   * Projected-points gap (pts/gm) inside which two plan totals are too close to separate.
+   * PRD AS-5 / AC-55, AC-58 — replaces `planTotalTooCloseEcrRanks` (amended 2026-08-31: plans
+   * score in shaded-curve projected points, not ECR-rank sums).
+   */
+  planTotalTooClosePoints: number;
   /** How many of the user's own picks the lookahead ever reaches ahead. PRD AS-2 / AC-60. */
   lookaheadMaxPicks: number;
   /**
    * FR-9's endgame guard: when the user's remaining picks are at or below their unfilled K/DST
    * starting slots plus this buffer, the highlight moves to the top available K/DST so a
-   * follow-the-highlight user cannot finish with those slots empty. The buffer is the slack for
-   * one ignored recommendation. PRD AS-5 / FR-9 (amended 2026-08-27: AS-7's falsifier fired —
-   * a fully-followed mock rehearsal produced a 6-QB, no-K, no-DST roster).
+   * follow-the-highlight user cannot finish with those slots empty. The buffer is slack for
+   * ignored recommendations; 0 (the default since 2026-08-28) fills K/DST with exactly the last
+   * picks — rehearsal #3 showed the 1-pick buffer costing a bench RB a fully-compliant user
+   * never needed insurance for. PRD AS-5 / FR-9 (amended 2026-08-27).
    */
   endgameKdstBufferPicks: number;
   /**
@@ -180,6 +205,8 @@ export const PARAMETER_DEFAULTS: Readonly<ParameterValues> = Object.freeze({
   monteCarloRunCount: 2000,
   reachAdjustmentPerPick: 1,
   kdstEarlyPickWindow: 4,
+  drawSharpness: 1.5,
+  opponentNeedBlend: 0.45,
   survivalBandLikelyGoneMax: 0.25,
   survivalBandLikelyAvailableMin: 0.75,
 
@@ -187,9 +214,9 @@ export const PARAMETER_DEFAULTS: Readonly<ParameterValues> = Object.freeze({
   valueThresholdAdpPicksEarlier: 10,
   nearTieSurvivalPct: 5,
   nearTieEcrRanks: 3,
-  planTotalTooCloseEcrRanks: 3,
+  planTotalTooClosePoints: 0.75,
   lookaheadMaxPicks: 2,
-  endgameKdstBufferPicks: 1,
+  endgameKdstBufferPicks: 0,
   benchPositionHeadroom: 1,
 
   secondInstanceBackoffFactor: 0.5,

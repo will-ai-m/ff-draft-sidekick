@@ -30,41 +30,23 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('AttachScreen — paste and convenience list (FR-1)', () => {
-  it('shows the paste field and no convenience list when no username is stored (AC-3)', () => {
-    stubFetch(() => jsonResponse({ drafts: [] }));
+describe('AttachScreen — paste (FR-1)', () => {
+  it('shows the paste field as the one attach path (AC-3)', () => {
+    stubFetch(() => jsonResponse({}));
     render(<AttachScreen snapshot={makeUnattachedSnapshot()} onConfirm={vi.fn()} />);
 
     expect(screen.getByLabelText(/sleeper draft url or id/i)).toBeTruthy();
-    expect(screen.queryByRole('region', { name: /your recent drafts/i })).toBeNull();
   });
 
-  it('offers the stored username’s drafts as a convenience list, paste still primary (AC-3)', async () => {
+  it('renders no recent-drafts list even with a stored username (removed 2026-08-31)', () => {
     window.localStorage.setItem(STORED_USERNAME_KEY, 'willyu');
-    const fetchMock = stubFetch(() =>
-      jsonResponse({
-        drafts: [
-          {
-            draftId: '1234567890',
-            name: 'Sunday Mock',
-            status: 'drafting',
-            season: '2026',
-            type: 'snake',
-            teamCount: 10,
-            isMock: true,
-            startTime: null,
-          },
-        ],
-      }),
-    );
+    const fetchMock = stubFetch(() => jsonResponse({}));
 
     render(<AttachScreen snapshot={makeUnattachedSnapshot()} onConfirm={vi.fn()} />);
 
-    const list = await screen.findByRole('region', { name: /your recent drafts/i });
-    expect(within(list).getByText(/sunday mock/i)).toBeTruthy();
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/drafts?username=willyu');
-    // "paste remains the primary path regardless" — the field is never gated behind the list.
-    expect(screen.getByLabelText(/sleeper draft url or id/i)).toBeTruthy();
+    expect(screen.queryByRole('region', { name: /your recent drafts/i })).toBeNull();
+    // The username is kept for seat detection only — nothing is fetched on render.
+    expect(fetchMock.mock.calls.length).toBe(0);
   });
 
   it('attaches by posting the pasted input together with the stored username', async () => {

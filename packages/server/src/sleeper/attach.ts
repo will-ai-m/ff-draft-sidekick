@@ -82,18 +82,6 @@ export interface AttachRequest {
   sleeperUsername?: string | null;
 }
 
-/** One row of AC-3's convenience list of the stored username's discoverable season drafts. */
-export interface UserDraftSummary {
-  draftId: string;
-  name: string | null;
-  status: string;
-  season: string;
-  type: string;
-  teamCount: number;
-  isMock: boolean;
-  startTime: number | null;
-}
-
 export type AttachConfig = Pick<
   ParameterValues,
   'pollIntervalMs' | 'pickReflectionLatencyMs' | 'resyncTimeoutMs' | 'initialIngestTimeoutMs'
@@ -259,34 +247,6 @@ export class AttachManager {
     this.current?.sync.stop();
     this.current = null;
     this.state = { status: 'not-attached' };
-  }
-
-  /**
-   * AC-3's convenience list. Paste stays the primary path; this is only offered when a username is
-   * already stored. The season comes from Sleeper's own state rather than the calendar year, which
-   * diverge for months either side of the league rollover.
-   */
-  async listUserDrafts(username: string, season?: string): Promise<UserDraftSummary[]> {
-    const { client } = this.options;
-    const user = await client.getUser(username);
-    const resolvedSeason = season ?? (await this.currentSeason());
-    const drafts = await client.getUserDrafts(user.user_id, resolvedSeason);
-
-    return drafts.map((draft) => ({
-      draftId: draft.draft_id,
-      name: draft.metadata?.name ?? null,
-      status: draft.status,
-      season: draft.season,
-      type: draft.type,
-      teamCount: draft.settings.teams,
-      isMock: (draft.league_id ?? null) === null,
-      startTime: draft.start_time ?? null,
-    }));
-  }
-
-  private async currentSeason(): Promise<string> {
-    const state = await this.options.client.getNflState();
-    return state.league_season ?? state.season;
   }
 
   private stateFor(session: DraftSession): AttachState {

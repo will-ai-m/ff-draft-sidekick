@@ -25,7 +25,8 @@ describe('PARAMETER_DEFAULTS', () => {
       valueThresholdAdpPicksEarlier: 10,
       nearTieSurvivalPct: 5,
       nearTieEcrRanks: 3,
-      planTotalTooCloseEcrRanks: 3,
+      // Amended 2026-08-31: plans score in shaded-curve projected points, not ECR-rank sums.
+      planTotalTooClosePoints: 0.75,
       lookaheadMaxPicks: 2,
       adpPoolTeamSizes: [8, 10, 12, 14],
       flexEligiblePositions: ['RB', 'WR', 'TE'],
@@ -39,6 +40,9 @@ describe('PARAMETER_DEFAULTS', () => {
       secondInstanceBackoffFactor: 0.5,
       gamelogSeasonsToCache: 3,
       reachAdjustmentPerPick: 1,
+      // Both fitted 2026-08-31 by joint MLE on observed rehearsal-draft opponent picks.
+      drawSharpness: 1.5,
+      opponentNeedBlend: 0.45,
       burstDebounceMs: 400,
       rateLimitBackoffMaxMs: 10_000,
       tendencyPositionalNudgeClamp: 0.5,

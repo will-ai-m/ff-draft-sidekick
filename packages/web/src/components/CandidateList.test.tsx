@@ -27,6 +27,7 @@ const row = (
   team: null,
   ecrRank: null,
   positionalRank: null,
+  tier: null,
   adp: null,
   survival: null,
   addedForHighlight: false,
@@ -317,15 +318,16 @@ describe('the highlighted recommendation and its reason line', () => {
 
   it('displays the winning plan, the closest alternative and the fact separating them (AC-57)', () => {
     const separatingFact =
-      'WR shelf: 2 of 4 likely gone by your next pick (best back at ECR 8); RB: 2 of 4 (ECR 1).';
+      'WR Tier 1: 1 of 1 left, 0% chance one lasts to your next pick (next tier −3.0 pts/gm). ' +
+      'RB Tier 1: 2 of 2 left, 100% chance one lasts to your next pick (next tier −7.0 pts/gm).';
     renderList(
       data({
         highlightPlayerId: 'wr1',
         reasonKind: 'plan-survival',
-        reason: 'Plan WR now / RB next scores best (3 vs 9).',
+        reason: 'Plan WR now / RB next scores best (38 vs 34 proj pts).',
         planComparison: {
-          winner: { nowPosition: 'WR', nextPosition: 'RB', term1: 2, term2: 1, score: 3 },
-          runnerUp: { nowPosition: 'RB', nextPosition: 'WR', term1: 1, term2: 8, score: 9 },
+          winner: { nowPosition: 'WR', nextPosition: 'RB', nowValue: 18, nextValue: 20, fillValue: 0, score: 38 },
+          runnerUp: { nowPosition: 'RB', nextPosition: 'WR', nowValue: 20, nextValue: 14, fillValue: 0, score: 34 },
           separatingFact,
           tooClose: false,
           applicable: true,
@@ -333,8 +335,8 @@ describe('the highlighted recommendation and its reason line', () => {
       }),
     );
 
-    expect(within(recommendation()).getByText('WR now / RB next · 3')).toBeTruthy();
-    expect(within(recommendation()).getByText('RB now / WR next · 9')).toBeTruthy();
+    expect(within(recommendation()).getByText('WR now / RB next · 38')).toBeTruthy();
+    expect(within(recommendation()).getByText('RB now / WR next · 34')).toBeTruthy();
     expect(screen.getByText(separatingFact)).toBeTruthy();
   });
 
@@ -342,7 +344,7 @@ describe('the highlighted recommendation and its reason line', () => {
     renderList(
       data({
         planComparison: {
-          winner: { nowPosition: 'RB', nextPosition: 'WR', term1: 1, term2: 2, score: 3 },
+          winner: { nowPosition: 'RB', nextPosition: 'WR', nowValue: 20, nextValue: 14, fillValue: 0, score: 34 },
           runnerUp: null,
           separatingFact: null,
           tooClose: false,
@@ -351,7 +353,7 @@ describe('the highlighted recommendation and its reason line', () => {
       }),
     );
 
-    expect(within(recommendation()).getByText('RB now / WR next · 3')).toBeTruthy();
+    expect(within(recommendation()).getByText('RB now / WR next · 34')).toBeTruthy();
     expect(recommendation().textContent).not.toContain('Closest alternative');
   });
 });

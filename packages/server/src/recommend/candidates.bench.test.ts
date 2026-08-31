@@ -20,7 +20,7 @@ const cfg = (overrides: Partial<CandidateListConfig> = {}): CandidateListConfig 
   valueThresholdAdpPicksEarlier: PARAMETER_DEFAULTS.valueThresholdAdpPicksEarlier,
   nearTieSurvivalPct: PARAMETER_DEFAULTS.nearTieSurvivalPct,
   nearTieEcrRanks: PARAMETER_DEFAULTS.nearTieEcrRanks,
-  planTotalTooCloseEcrRanks: PARAMETER_DEFAULTS.planTotalTooCloseEcrRanks,
+  planTotalTooClosePoints: PARAMETER_DEFAULTS.planTotalTooClosePoints,
   lookaheadMaxPicks: PARAMETER_DEFAULTS.lookaheadMaxPicks,
   benchPositionHeadroom: PARAMETER_DEFAULTS.benchPositionHeadroom,
   flexEligiblePositions: PARAMETER_DEFAULTS.flexEligiblePositions,
@@ -43,6 +43,7 @@ const player = (
   team: null,
   ecrRank,
   positionalRank: null,
+  tier: null,
   adp,
 });
 
@@ -75,6 +76,7 @@ const compute = (benchPhase: BenchPhaseInput | null, players = BOARD_AT_108) =>
     },
     needVector: NO_NEED_SIGNAL,
     survival: null,
+    valueModel: null,
     userRemainingPicks: 5,
     config: cfg(),
     benchPhase,
@@ -109,14 +111,30 @@ describe('benchPlanPositions', () => {
 describe('the bench phase (FR-9/FR-10 amendment)', () => {
   it('redirects off a capped-position board leader and says why — the rehearsal regression', () => {
     // Pick #108 of the 08-27 mock: two QBs already rostered, Purdy leading the board. The old
-    // regime highlighted him (QB3); the bench phase must not.
+    // regime highlighted him (QB3); the bench phase must not — and among the eligible
+    // positions, RB (no backup behind two starters) outranks WR (two backups) by thinness.
     const list = compute(bench({ QB: 2, RB: 2, WR: 4, TE: 1 }));
 
-    expect(list.highlightPlayerId).toBe('wr1');
+    expect(list.highlightPlayerId).toBe('rb1');
     expect(list.reasonKind).toBe('bench-depth');
     expect(list.reason).toMatch(/Brock Purdy \(QB\) leads the board/);
     expect(list.reason).toMatch(/already carry 2 QBs for 1 starting slot/);
-    expect(list.reason).toMatch(/Josh Downs \(WR\) is the best pick that still adds depth/);
+    expect(list.reason).toMatch(/Kenny Gainwell \(RB\) is the best pick that still adds depth/);
+  });
+
+  it('prefers the thinnest position even when the board leader is bench-eligible', () => {
+    // No capped player on top: Josh Downs (WR) leads, but the roster holds two WR backups and
+    // zero RB backups — the thinnest-position rule (2026-08-28, rehearsal #3's 8-WR/2-RB
+    // regression) takes the RB and says exactly why.
+    const noQbBoard = BOARD_AT_108.filter((p) => p.position !== 'QB');
+    const list = compute(bench({ QB: 2, RB: 2, WR: 4, TE: 1 }), noQbBoard);
+
+    expect(list.highlightPlayerId).toBe('rb1');
+    expect(list.reasonKind).toBe('bench-depth');
+    expect(list.reason).toMatch(
+      /Bench balance: RB is your thinnest position \(no backup behind your starters\)/,
+    );
+    expect(list.reason).toMatch(/Kenny Gainwell \(ECR 106\) over Josh Downs \(WR\)/);
   });
 
   it('still allows a backup QB while the roster is under the cap', () => {

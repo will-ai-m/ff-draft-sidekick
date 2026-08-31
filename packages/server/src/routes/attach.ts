@@ -1,5 +1,5 @@
 /**
- * `POST /api/attach` (FR-1), `POST /api/detach`, and `GET /api/drafts` (AC-3).
+ * `POST /api/attach` (FR-1) and `POST /api/detach`.
  *
  * One route carries both halves of attaching, as design.md §T10 specifies: a body with `input` is
  * the paste, a body with `draftSlot` is AC-5's manual-slot follow-up on the draft just attached.
@@ -94,28 +94,6 @@ export function createAttachRouter(orchestrator: Orchestrator): Router {
   router.post('/api/detach', (_req, res) => {
     orchestrator.detach();
     res.json(orchestrator.snapshot());
-  });
-
-  /**
-   * AC-3's convenience list. Offered only when the browser already holds a stored username —
-   * pasting stays the primary path, so nothing here is required to attach.
-   */
-  router.get('/api/drafts', (req, res, next) => {
-    void (async () => {
-      const username = asString(req.query['username']);
-      if (username === null || username.trim() === '') {
-        res.status(400).json({ error: 'A username is required to list drafts.' });
-        return;
-      }
-
-      try {
-        const season = asString(req.query['season']);
-        const drafts = await orchestrator.listUserDrafts(username, season ?? undefined);
-        res.json({ drafts });
-      } catch (error) {
-        res.status(502).json({ error: (error as Error).message });
-      }
-    })().catch(next);
   });
 
   return router;

@@ -23,18 +23,6 @@ export interface AttachFailure {
 export type AttachResult =
   { ok: true; snapshot: AppStateSnapshot } | { ok: false; failure: AttachFailure };
 
-/** One row of AC-3's convenience list; mirrors the server's own `UserDraftSummary`. */
-export interface DraftSummary {
-  draftId: string;
-  name: string | null;
-  status: string;
-  season: string;
-  type: string;
-  teamCount: number;
-  isMock: boolean;
-  startTime: number | null;
-}
-
 export interface ResyncResult {
   ok: boolean;
   durationMs: number | null;
@@ -161,15 +149,6 @@ export async function postResync(): Promise<ResyncResult> {
 /** AC-41's explicit trigger — the draft-ended half is the server's own. */
 export async function postDetach(): Promise<void> {
   await postJson('/api/detach', {});
-}
-
-export async function fetchUserDrafts(username: string): Promise<DraftSummary[]> {
-  const response = await fetch(`/api/drafts?username=${encodeURIComponent(username)}`);
-  const payload = (await readJson(response)) as { drafts?: DraftSummary[]; error?: string } | null;
-  if (!response.ok) {
-    throw new Error(payload?.error ?? `Could not list drafts (HTTP ${response.status}).`);
-  }
-  return payload?.drafts ?? [];
 }
 
 export const readStoredUsername = (): string => {

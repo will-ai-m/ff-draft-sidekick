@@ -23,6 +23,7 @@ const row = (
   team: null,
   ecrRank: null,
   positionalRank: null,
+  tier: null,
   adp: null,
   survival: null,
   addedForHighlight: false,
@@ -61,11 +62,19 @@ describe('the endgame K/DST guard (FR-9 amendment)', () => {
       config,
     };
 
-    // 2 unfilled + buffer 1 = 3: four picks left is still a free pick.
-    expect(applyEndgameKdstOverride({ ...base, userRemainingPicks: 4 })).toBe(base.list);
+    // Default buffer 0 (since 2026-08-28 — rehearsal #3 showed the 1-pick buffer costing a
+    // bench RB): 2 unfilled fires with exactly 2 picks left, and 3 left is still a free pick.
+    expect(applyEndgameKdstOverride({ ...base, userRemainingPicks: 3 })).toBe(base.list);
+    expect(applyEndgameKdstOverride({ ...base, userRemainingPicks: 2 }).reasonKind).toBe(
+      'endgame-kdst',
+    );
 
-    const fired = applyEndgameKdstOverride({ ...base, userRemainingPicks: 3 });
-    expect(fired.reasonKind).toBe('endgame-kdst');
+    // A configured buffer of 1 moves the trigger one pick earlier.
+    const buffered = { ...base, config: { endgameKdstBufferPicks: 1 } };
+    expect(applyEndgameKdstOverride({ ...buffered, userRemainingPicks: 4 })).toBe(base.list);
+    expect(applyEndgameKdstOverride({ ...buffered, userRemainingPicks: 3 }).reasonKind).toBe(
+      'endgame-kdst',
+    );
   });
 
   it('highlights the better of the two open positions by ADP, and suppresses the plan', () => {
