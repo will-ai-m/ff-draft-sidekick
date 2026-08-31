@@ -33,7 +33,7 @@ afterEach(() => {
 describe('AttachScreen — paste (FR-1)', () => {
   it('shows the paste field as the one attach path (AC-3)', () => {
     stubFetch(() => jsonResponse({}));
-    render(<AttachScreen snapshot={makeUnattachedSnapshot()} onConfirm={vi.fn()} />);
+    render(<AttachScreen snapshot={makeUnattachedSnapshot()} onConfirm={vi.fn()} onDetach={vi.fn()} />);
 
     expect(screen.getByLabelText(/sleeper draft url or id/i)).toBeTruthy();
   });
@@ -42,7 +42,7 @@ describe('AttachScreen — paste (FR-1)', () => {
     window.localStorage.setItem(STORED_USERNAME_KEY, 'willyu');
     const fetchMock = stubFetch(() => jsonResponse({}));
 
-    render(<AttachScreen snapshot={makeUnattachedSnapshot()} onConfirm={vi.fn()} />);
+    render(<AttachScreen snapshot={makeUnattachedSnapshot()} onConfirm={vi.fn()} onDetach={vi.fn()} />);
 
     expect(screen.queryByRole('region', { name: /your recent drafts/i })).toBeNull();
     // The username is kept for seat detection only — nothing is fetched on render.
@@ -55,7 +55,7 @@ describe('AttachScreen — paste (FR-1)', () => {
       url.startsWith('/api/drafts') ? jsonResponse({ drafts: [] }) : jsonResponse(makeSnapshot()),
     );
 
-    render(<AttachScreen snapshot={makeUnattachedSnapshot()} onConfirm={vi.fn()} />);
+    render(<AttachScreen snapshot={makeUnattachedSnapshot()} onConfirm={vi.fn()} onDetach={vi.fn()} />);
     fireEvent.change(screen.getByLabelText(/sleeper draft url or id/i), {
       target: { value: 'https://sleeper.com/draft/nfl/1234567890' },
     });
@@ -85,7 +85,7 @@ describe('AttachScreen — paste (FR-1)', () => {
       ),
     );
 
-    render(<AttachScreen snapshot={makeUnattachedSnapshot()} onConfirm={vi.fn()} />);
+    render(<AttachScreen snapshot={makeUnattachedSnapshot()} onConfirm={vi.fn()} onDetach={vi.fn()} />);
     const field = screen.getByLabelText(/sleeper draft url or id/i) as HTMLInputElement;
     fireEvent.change(field, { target: { value: '999' } });
     fireEvent.click(screen.getByRole('button', { name: /^attach$/i }));
@@ -99,7 +99,7 @@ describe('AttachScreen — paste (FR-1)', () => {
 describe('AttachScreen — confirmation surface (UJ-1)', () => {
   it('displays every seat, bot and empty ones by slot number (AC-2)', () => {
     stubFetch(() => jsonResponse({ drafts: [] }));
-    render(<AttachScreen snapshot={makeSnapshot()} onConfirm={vi.fn()} />);
+    render(<AttachScreen snapshot={makeSnapshot()} onConfirm={vi.fn()} onDetach={vi.fn()} />);
 
     const teams = screen.getByRole('region', { name: /teams and owners/i });
     expect(within(teams).getByText(/gridiron gurus/i)).toBeTruthy();
@@ -114,7 +114,7 @@ describe('AttachScreen — confirmation surface (UJ-1)', () => {
 
   it('surfaces the pre-draft check content the user confirms against (AC-22..AC-27)', () => {
     stubFetch(() => jsonResponse({ drafts: [] }));
-    render(<AttachScreen snapshot={makeSnapshot()} onConfirm={vi.fn()} />);
+    render(<AttachScreen snapshot={makeSnapshot()} onConfirm={vi.fn()} onDetach={vi.fn()} />);
 
     const check = screen.getByRole('region', { name: /pre-draft check/i });
     expect(check.textContent).toMatch(/fantasypros\.com/i);
@@ -154,6 +154,7 @@ describe('AttachScreen — confirmation surface (UJ-1)', () => {
           },
         })}
         onConfirm={vi.fn()}
+        onDetach={vi.fn()}
       />,
     );
 
@@ -165,7 +166,7 @@ describe('AttachScreen — confirmation surface (UJ-1)', () => {
   it('confirms the draft and hands off to the draft screen (UJ-1)', () => {
     stubFetch(() => jsonResponse({ drafts: [] }));
     const onConfirm = vi.fn();
-    render(<AttachScreen snapshot={makeSnapshot()} onConfirm={onConfirm} />);
+    render(<AttachScreen snapshot={makeSnapshot()} onConfirm={onConfirm} onDetach={vi.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: /start drafting/i }));
     expect(onConfirm).toHaveBeenCalledTimes(1);
@@ -180,17 +181,17 @@ describe('AttachScreen — manual slot picker (AC-5)', () => {
 
   it('shows the picker only while the seat is unresolved', () => {
     stubFetch(() => jsonResponse({ drafts: [] }));
-    const { unmount } = render(<AttachScreen snapshot={unresolved()} onConfirm={vi.fn()} />);
+    const { unmount } = render(<AttachScreen snapshot={unresolved()} onConfirm={vi.fn()} onDetach={vi.fn()} />);
     expect(screen.getByRole('region', { name: /your draft slot/i })).toBeTruthy();
 
     unmount();
-    render(<AttachScreen snapshot={makeSnapshot()} onConfirm={vi.fn()} />);
+    render(<AttachScreen snapshot={makeSnapshot()} onConfirm={vi.fn()} onDetach={vi.fn()} />);
     expect(screen.queryByRole('region', { name: /your draft slot/i })).toBeNull();
   });
 
   it('blocks confirmation until a seat is chosen, naming what stays blocked', () => {
     stubFetch(() => jsonResponse({ drafts: [] }));
-    render(<AttachScreen snapshot={unresolved()} onConfirm={vi.fn()} />);
+    render(<AttachScreen snapshot={unresolved()} onConfirm={vi.fn()} onDetach={vi.fn()} />);
 
     const confirm = screen.getByRole('button', { name: /start drafting/i });
     expect((confirm as HTMLButtonElement).disabled).toBe(true);
@@ -203,7 +204,7 @@ describe('AttachScreen — manual slot picker (AC-5)', () => {
     const fetchMock = stubFetch((url) =>
       url.startsWith('/api/drafts') ? jsonResponse({ drafts: [] }) : jsonResponse(makeSnapshot()),
     );
-    render(<AttachScreen snapshot={unresolved()} onConfirm={vi.fn()} />);
+    render(<AttachScreen snapshot={unresolved()} onConfirm={vi.fn()} onDetach={vi.fn()} />);
 
     // The teams list itself is the picker (user request, 2026-08-26): no combobox anywhere,
     // one "This is me" button beside every seat row.
@@ -222,7 +223,28 @@ describe('AttachScreen — manual slot picker (AC-5)', () => {
 
   it('offers no seat buttons once the seat is resolved', () => {
     stubFetch(() => jsonResponse({ drafts: [] }));
-    render(<AttachScreen snapshot={makeSnapshot()} onConfirm={vi.fn()} />);
+    render(<AttachScreen snapshot={makeSnapshot()} onConfirm={vi.fn()} onDetach={vi.fn()} />);
     expect(screen.queryByRole('button', { name: /this is me/i })).toBeNull();
+  });
+});
+
+describe('AttachScreen — detach (AC-41)', () => {
+  it('offers Detach next to Attach once a draft is attached, and wires the handler', () => {
+    stubFetch(() => jsonResponse({}));
+    const onDetach = vi.fn();
+    render(<AttachScreen snapshot={makeSnapshot()} onConfirm={vi.fn()} onDetach={onDetach} />);
+
+    const detach = screen.getByRole('button', { name: /^detach$/i });
+    fireEvent.click(detach);
+    expect(onDetach).toHaveBeenCalledTimes(1);
+    // Attach stays alongside — pasting a different draft remains the switch path.
+    expect(screen.getByRole('button', { name: /^attach$/i })).toBeTruthy();
+  });
+
+  it('shows no Detach button while nothing is attached', () => {
+    stubFetch(() => jsonResponse({}));
+    render(<AttachScreen snapshot={makeUnattachedSnapshot()} onConfirm={vi.fn()} onDetach={vi.fn()} />);
+
+    expect(screen.queryByRole('button', { name: /^detach$/i })).toBeNull();
   });
 });

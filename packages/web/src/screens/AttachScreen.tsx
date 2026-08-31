@@ -28,6 +28,8 @@ export interface AttachScreenProps {
   snapshot: AppStateSnapshot;
   /** UJ-1's explicit "yes, this is the right draft" — the only way onto the draft screen. */
   onConfirm: () => void;
+  /** Drops the attached draft (AC-41) so a different one can be pasted in its place. */
+  onDetach: () => void;
 }
 
 const seatLabel = (team: Team): string =>
@@ -36,7 +38,7 @@ const seatLabel = (team: Team): string =>
 const ageLabel = (info: SnapshotInfo): string =>
   info.ageHours === null ? 'age unknown' : `${Math.round(info.ageHours)} h old`;
 
-export function AttachScreen({ snapshot, onConfirm }: AttachScreenProps) {
+export function AttachScreen({ snapshot, onConfirm, onDetach }: AttachScreenProps) {
   const { attach, preDraftCheck } = snapshot;
   const isAttached = attach.status === 'attached' || attach.status === 'needs-manual-slot';
   const needsSlot = attach.status === 'needs-manual-slot';
@@ -114,6 +116,16 @@ export function AttachScreen({ snapshot, onConfirm }: AttachScreenProps) {
             >
               Attach
             </button>
+            {isAttached && (
+              <button
+                type="button"
+                onClick={onDetach}
+                disabled={pending}
+                className="rounded-md border border-rose-500/40 px-4 py-2 text-sm font-medium text-rose-200 hover:bg-rose-500/10 disabled:opacity-50"
+              >
+                Detach
+              </button>
+            )}
           </div>
         </form>
 

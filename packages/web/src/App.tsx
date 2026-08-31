@@ -57,6 +57,9 @@ export function App({ store }: AppProps) {
           onConfirm={() => {
             setConfirmed(true);
           }}
+          onDetach={() => {
+            void postDetach();
+          }}
         />
       )}
     </div>
