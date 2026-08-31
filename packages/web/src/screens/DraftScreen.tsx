@@ -57,7 +57,10 @@ export function DraftScreen({ snapshot, onDetach }: DraftScreenProps) {
           />
           <PickFeed pickFeed={snapshot.pickFeed} teams={snapshot.board.teams} />
         </div>
-        <CandidateList candidateList={snapshot.candidateList} />
+        <CandidateList
+          candidateList={snapshot.candidateList}
+          nextUserPickNo={snapshot.opponentPanel.data.window.nextUserPickNo}
+        />
         <OpponentPanel
           opponentPanel={snapshot.opponentPanel}
           teams={snapshot.board.teams}

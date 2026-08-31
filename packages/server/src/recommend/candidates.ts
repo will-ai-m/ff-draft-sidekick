@@ -291,6 +291,11 @@ export interface ComputeCandidateListInput {
   unfilledDedicatedSlots?: Partial<Record<SkillPosition, number>>;
   /** The user's unfilled FLEX slots, for the plan-pick starter cap (amended 2026-08-31). */
   unfilledFlexSlots?: number;
+  /**
+   * The user's own upcoming pick numbers, next turn first, for the fill term's horizon pricing
+   * (amended 2026-08-31) — see `ComparePlansInput.futureUserPickNos`.
+   */
+  futureUserPickNos?: readonly number[];
 }
 
 const DISABLED_REASON =
@@ -346,6 +351,9 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
     ...(input.unfilledFlexSlots === undefined
       ? {}
       : { unfilledFlexSlots: input.unfilledFlexSlots }),
+    ...(input.futureUserPickNos === undefined
+      ? {}
+      : { futureUserPickNos: input.futureUserPickNos }),
   });
 
   const rawTop = available[0] ?? null;
@@ -367,6 +375,8 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
   let highlight: RankedCandidate = topEcr;
   /** Bench phase only: the thinnest-position rule moved the highlight; what the reason needs. */
   let benchThinnest: { depth: number; passedOver: RankedCandidate } | null = null;
+  /** AC-58 only: the near-tie was separated by an unfilled dedicated slot, not by consensus. */
+  let tieBrokenByNeed = false;
 
   if (allowed !== null && input.benchPhase != null) {
     // Bench phase (amended 2026-08-28): the roster's thinnest position wins the highlight, ECR
@@ -392,21 +402,35 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
       }
     }
   } else if (comparison.winner !== null) {
-    // AC-58 (amended 2026-08-31): totals this close cannot separate the plans, so the
-    // present-tense consensus fact does it instead — of the two plans' current picks, take the
-    // better-ECR player. The 08-31 rehearsal is why the direction is stated player-first: the
-    // old rank-delta reading let two QB-now plans occupy both slots and sent Josh Allen out as
-    // a pick-1 recommendation. The comparison the user is *shown* still reports the real winner.
-    const winnerNow = best.get(comparison.winner.nowPosition);
-    const runnerUpNow =
-      comparison.runnerUp === null ? undefined : best.get(comparison.runnerUp.nowPosition);
-    const chosen =
-      comparison.tooClose &&
-      comparison.runnerUp !== null &&
-      runnerUpNow !== undefined &&
-      (winnerNow === undefined || runnerUpNow.ecrRank < winnerNow.ecrRank)
-        ? comparison.runnerUp
-        : comparison.winner;
+    // AC-58 (amended 2026-08-31): totals this close cannot separate the plans, so present-tense
+    // facts do it instead, over **every plan inside the band** — a now-pick that fills an
+    // unfilled dedicated starting slot beats one that only flexes ("optimize what's out there
+    // against what I need", the round-6 directive), then the better-ECR player ("take the
+    // consensus"). The band matters: rehearsal #6's mid-rounds tied two flex-RB plans at the
+    // top with the WR-need plan 0.1 behind them, and a top-two-only tiebreak never saw it. The
+    // 08-31 rehearsal is why the consensus rule is stated player-first: the old rank-delta
+    // reading sent Josh Allen out at pick 1. The shown comparison still reports the real winner.
+    let chosen = comparison.winner;
+    if (comparison.tooClose && (comparison.contenders?.length ?? 0) > 1) {
+      const fillsDedicated = (position: SkillPosition): boolean =>
+        (input.unfilledDedicatedSlots?.[position] ?? 0) > 0;
+      const ranked = [...(comparison.contenders ?? [])]
+        .map((plan) => ({ plan, now: best.get(plan.nowPosition) }))
+        .filter((entry) => entry.now !== undefined)
+        .sort(
+          (a, b) =>
+            Number(fillsDedicated(b.plan.nowPosition)) -
+              Number(fillsDedicated(a.plan.nowPosition)) ||
+            a.now!.ecrRank - b.now!.ecrRank,
+        );
+      const top = ranked[0];
+      if (top !== undefined) {
+        chosen = top.plan;
+        tieBrokenByNeed =
+          fillsDedicated(top.plan.nowPosition) &&
+          ranked.some((entry) => !fillsDedicated(entry.plan.nowPosition));
+      }
+    }
     highlight = best.get(chosen.nowPosition) ?? topEcr;
   }
 
@@ -517,10 +541,13 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
   }
 
   if (comparison.tooClose && comparison.winner !== null && comparison.runnerUp !== null) {
+    const separator = tieBrokenByNeed
+      ? `taking the pick that still fills a starting slot: ${highlight.playerName} (${highlight.position}, ECR ${highlight.ecrRank})`
+      : `taking the better-consensus player now: ${highlight.playerName} (ECR ${highlight.ecrRank})`;
     tieClauses.push(
       `Plan totals within ${config.planTotalTooClosePoints} proj pts ` +
         `(${formatNumber(comparison.winner.score)} vs ${formatNumber(comparison.runnerUp.score)}) — ` +
-        `too close to separate, taking the better-consensus player now: ${highlight.playerName} (ECR ${highlight.ecrRank}).`,
+        `too close to separate, ${separator}.`,
     );
   }
 

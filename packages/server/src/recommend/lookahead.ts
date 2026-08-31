@@ -90,6 +90,12 @@ export interface PlanPlayer {
   position: Position;
   /** Overall ECR rank; null only on an ADP-only row (AC-50's K/DST fallback), never on a plan. */
   ecrRank: number | null;
+  /**
+   * FFC ADP, for the fill term's market-depletion pricing (amended 2026-08-31): a player is
+   * treated as gone by a future user pick once that pick number passes their ADP (falling back
+   * to overall ECR rank when they carry none — AC-26's proxy rule).
+   */
+  adp: number | null;
 }
 
 /** A player who is on the board and carries an ECR rank — the only kind a plan can be built on. */
@@ -325,6 +331,14 @@ export interface ComparePlansInput {
    * surplus pick rides the bench and must price at 0). Default 0.
    */
   unfilledFlexSlots?: number;
+  /**
+   * The user's own upcoming pick numbers, in order, starting with the **next** turn (the same
+   * pick FR-6's window closes at). The fill term assigns each slot left after the plan's two
+   * picks to one of these turns — `[1]` onward — and prices it at that turn's market-depleted
+   * board (amended 2026-08-31). Without it, deferred slots price at 0: the safe failure
+   * direction is over-urgency, never the round-6-with-no-WR deferral blindness this replaced.
+   */
+  futureUserPickNos?: readonly number[];
 }
 
 const noComparison = (applicable: boolean): PlanComparison => ({
@@ -334,6 +348,14 @@ const noComparison = (applicable: boolean): PlanComparison => ({
   tooClose: false,
   applicable,
 });
+
+/** One player in the fill term's market replay: shaded value plus the pick that takes them. */
+interface MarketEntry {
+  id: string;
+  /** ADP, or overall ECR rank for an ADP-less player (AC-26's proxy). */
+  proxy: number;
+  value: number;
+}
 
 /**
  * Score every plan and report the winner, the closest alternative and what separates them
@@ -391,21 +413,45 @@ export function comparePlans(input: ComparePlansInput): PlanComparison {
     return value;
   };
 
+  // The market pools the fill term replays: each position's available ranked players, best
+  // shaded value first (perishable — earlier proxy — first among equals, so a same-value player
+  // the market takes sooner is spent before one who lasts).
+  const marketPools: Record<SkillPosition, MarketEntry[]> = { QB: [], RB: [], WR: [], TE: [] };
+  for (const player of input.players) {
+    if (!isSkillPosition(player.position) || player.ecrRank === null) continue;
+    if (input.board.players[player.sleeperPlayerId]?.drafted === true) continue;
+    marketPools[player.position].push({
+      id: player.sleeperPlayerId,
+      proxy: player.adp ?? player.ecrRank,
+      value: valueOf(valueModel, player.sleeperPlayerId),
+    });
+  }
+  for (const position of SKILL_POSITIONS) {
+    marketPools[position].sort((a, b) => b.value - a.value || a.proxy - b.proxy);
+  }
+
   /**
-   * The fill-value term (AC-55 as amended 2026-08-28, revalued 2026-08-31): the expected value
-   * this plan can still bank for every *other* starting slot unfilled after its two picks —
-   * dedicated slots priced at the expected j-th-best survivor of their position at the next
-   * turn, then each open FLEX slot at the best remaining flex-eligible survivor. This is what
-   * makes two open RB slots against a collapsing RB shelf outweigh a higher-value WR pair.
+   * The fill-value term (AC-55 as amended 2026-08-28, revalued and horizon-priced 2026-08-31):
+   * the expected value this plan can still bank for every *other* starting slot unfilled after
+   * its two picks — dedicated and FLEX alike, priced for every plan symmetrically.
    *
-   * FLEX **must** be priced for every plan symmetrically. The first cut priced only dedicated
-   * slots ("FLEX fills itself from surplus"), and the 08-31 follow-up mock showed the hole: a
-   * same-position double whose second pick overflowed into FLEX banked those points while every
-   * other plan's open FLEX counted for nothing — a free ~10-point subsidy that made TE-now/
-   * TE-next the standing pick-6 recommendation over the whole RB/WR board.
+   * Each slot is assigned to one of the user's **actual later turns** and priced by a market
+   * replay of that turn's board: the best still-available player at the slot's position whose
+   * ADP the turn's pick number has not yet passed (ECR rank standing in where a player carries
+   * no ADP — AC-26's proxy), consumed so no player fills two slots. Turns fill greedily,
+   * best-value slot first; slots beyond the user's remaining picks price at 0.
    *
-   * Remaining deliberate approximations, documented in the PRD: next-turn expectations bound
-   * slots further out, and K/DST never enter (🔶 AS-7 — the endgame guard owns them).
+   * Horizon pricing exists because next-turn pricing failed observably. The previous cut priced
+   * every deferred slot at next-turn survivor values, so deferring a position was near-free at
+   * every single decision — the reasoning re-ran identically one round later, and rehearsal #6
+   * reached round 6 with one WR on the roster, two WR-ish slots open, and a fourth RB
+   * recommended, every recompute of the draft flagged "too close to call". Deferring a slot two
+   * rounds must cost what the market will have eaten by then.
+   *
+   * FLEX must be priced for every plan symmetrically for the same evidentiary reason: the cut
+   * before priced only dedicated slots, and a same-position double whose second pick overflowed
+   * into FLEX banked a free ~10-point subsidy (the standing Bowers TE-now/TE-next pick-6
+   * recommendation). K/DST never enter (🔶 AS-7 — the endgame guard owns them).
    */
   const fillValue = (
     plan: { nowPosition: SkillPosition; nextPosition: SkillPosition },
@@ -413,48 +459,60 @@ export function comparePlans(input: ComparePlansInput): PlanComparison {
   ): number => {
     const unfilled = input.unfilledDedicatedSlots;
     if (unfilled === undefined) return 0;
-    let value = 0;
 
-    // Survivors already consumed at the next turn, per position: the plan's next pick, then
-    // each priced dedicated slot. The flex pricing below continues the same counters, so no
-    // survivor is ever counted for two slots.
-    const consumed: Record<SkillPosition, number> = { QB: 0, RB: 0, WR: 0, TE: 0 };
-    consumed[plan.nextPosition] += 1;
-
+    // Slots still open after the plan's two picks, and how many of those picks overflowed a
+    // position's dedicated slots into FLEX.
+    const slotsLeft: Record<SkillPosition, number> = { QB: 0, RB: 0, WR: 0, TE: 0 };
     let planOverflow = 0;
     for (const position of SKILL_POSITIONS) {
       const dedicated = unfilled[position] ?? 0;
       let planPicks = 0;
       if (plan.nowPosition === position) planPicks += 1;
       if (plan.nextPosition === position) planPicks += 1;
+      slotsLeft[position] = Math.max(0, dedicated - planPicks);
       planOverflow += Math.max(0, planPicks - dedicated);
-
-      const slots = dedicated - planPicks;
-      if (slots <= 0) continue;
-      const exclude = plan.nowPosition === position ? nowPlayerId : undefined;
-      for (let j = 1; j <= slots; j += 1) {
-        consumed[position] += 1;
-        value += expectation(position, consumed[position], exclude);
-      }
     }
+    let flexLeft = Math.max(0, (input.unfilledFlexSlots ?? 0) - planOverflow);
+    let slotsRemaining = SKILL_POSITIONS.reduce((sum, p) => sum + slotsLeft[p], 0) + flexLeft;
+    if (slotsRemaining === 0) return 0;
 
-    // Open FLEX slots the plan's own overflow has not claimed, each greedily priced at the best
-    // remaining flex-eligible survivor.
-    const flexOpen = Math.max(0, (input.unfilledFlexSlots ?? 0) - planOverflow);
-    for (let slot = 0; slot < flexOpen; slot += 1) {
-      let bestValue = 0;
-      let bestPosition: SkillPosition | null = null;
-      for (const position of config.flexEligiblePositions) {
-        const exclude = plan.nowPosition === position ? nowPlayerId : undefined;
-        const candidate = expectation(position, consumed[position] + 1, exclude);
-        if (candidate > bestValue) {
-          bestValue = candidate;
-          bestPosition = position;
+    // The market replay's consumption state, per plan: the now-pick's player is spent, and the
+    // plan's next pick takes the best remaining player at its position.
+    const consumed = new Set<string>([nowPlayerId]);
+    const first = marketPools[plan.nextPosition].find((entry) => !consumed.has(entry.id));
+    if (first !== undefined) consumed.add(first.id);
+
+    const laterPicks = (input.futureUserPickNos ?? []).slice(1);
+    const takeable = (position: SkillPosition, pickNo: number) =>
+      marketPools[position].find((entry) => !consumed.has(entry.id) && entry.proxy >= pickNo);
+
+    let value = 0;
+    let pickIndex = 0;
+    while (slotsRemaining > 0) {
+      const pickNo = laterPicks[pickIndex];
+      if (pickNo === undefined) break; // no turn left to fill this slot — it prices at 0
+
+      const open: SkillPosition[] = SKILL_POSITIONS.filter(
+        (position) =>
+          slotsLeft[position] > 0 ||
+          (flexLeft > 0 && config.flexEligiblePositions.includes(position)),
+      );
+      let best: { position: SkillPosition; entry: MarketEntry } | null = null;
+      for (const position of open) {
+        const entry = takeable(position, pickNo);
+        if (entry !== undefined && (best === null || entry.value > best.entry.value)) {
+          best = { position, entry };
         }
       }
-      if (bestPosition === null) break;
-      consumed[bestPosition] += 1;
-      value += bestValue;
+      // Nobody at any open slot's position outlasts this turn; later turns are only worse.
+      if (best === null) break;
+
+      consumed.add(best.entry.id);
+      value += best.entry.value;
+      if (slotsLeft[best.position] > 0) slotsLeft[best.position] -= 1;
+      else flexLeft -= 1;
+      slotsRemaining -= 1;
+      pickIndex += 1;
     }
     return value;
   };
@@ -505,8 +563,10 @@ export function comparePlans(input: ComparePlansInput): PlanComparison {
   if (winner === undefined) return noComparison(true);
   const runnerUp = scored[1] ?? null;
 
-  const tooClose =
-    runnerUp !== null && winner.score - runnerUp.score <= config.planTotalTooClosePoints;
+  const contenders = scored.filter(
+    (plan) => winner.score - plan.score <= config.planTotalTooClosePoints,
+  );
+  const tooClose = contenders.length > 1;
 
   // AC-57. What separates the two plans is which position each defers; when they defer the same
   // one, nowValue alone separates them and there is no survival fact to name.
@@ -518,5 +578,5 @@ export function comparePlans(input: ComparePlansInput): PlanComparison {
       `${tierFact(projection, input.board, valueModel, winner.nextPosition)}.`;
   }
 
-  return { winner, runnerUp, separatingFact, tooClose, applicable: true };
+  return { winner, runnerUp, separatingFact, tooClose, contenders, applicable: true };
 }

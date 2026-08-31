@@ -129,9 +129,16 @@ interface RowsTableProps {
   highlightPlayerId: string | null;
   showSurvival: boolean;
   recomputing: boolean;
+  nextUserPickNo: number | null;
 }
 
-function RowsTable({ rows, highlightPlayerId, showSurvival, recomputing }: RowsTableProps) {
+function RowsTable({
+  rows,
+  highlightPlayerId,
+  showSurvival,
+  recomputing,
+  nextUserPickNo,
+}: RowsTableProps) {
   return (
     <table
       aria-label="Candidate rows"
@@ -154,7 +161,9 @@ function RowsTable({ rows, highlightPlayerId, showSurvival, recomputing }: RowsT
           </th>
           {showSurvival && (
             <th scope="col" className="py-1 font-medium">
-              Survival
+              {/* Survival is always "to the user's next turn" — naming the pick number is what
+                  stops a 27% from reading as this-pick availability. */}
+              {nextUserPickNo === null ? 'Survival' : `Lasts to #${nextUserPickNo}`}
             </th>
           )}
         </tr>
@@ -267,9 +276,11 @@ function Recommendation({ data }: { data: CandidateListData }) {
 
 export interface CandidateListProps {
   candidateList: Insight<CandidateListData>;
+  /** FR-6's next user pick — names the survival column's horizon ("Lasts to #36"). */
+  nextUserPickNo?: number | null;
 }
 
-export function CandidateList({ candidateList }: CandidateListProps) {
+export function CandidateList({ candidateList, nextUserPickNo = null }: CandidateListProps) {
   const { data, recomputing, degraded } = candidateList;
   const [filter, setFilter] = useState<Position | null>(null);
 
@@ -329,6 +340,7 @@ export function CandidateList({ candidateList }: CandidateListProps) {
               highlightPlayerId={disabled ? null : data.highlightPlayerId}
               showSurvival={showSurvival}
               recomputing={recomputing}
+              nextUserPickNo={nextUserPickNo}
             />
             {note !== null && <p className="text-xs text-slate-500">{note}</p>}
           </div>

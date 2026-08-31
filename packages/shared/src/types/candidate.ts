@@ -114,6 +114,13 @@ export interface PlanComparison {
   separatingFact: string | null;
   /** True when the top two totals are within `planTotalTooClosePoints` (AC-58). */
   tooClose: boolean;
+  /**
+   * Every plan scoring within `planTotalTooClosePoints` of the winner, winner first (AC-58 as
+   * amended 2026-08-31): the set the near-tie fallback chooses over — need first, consensus
+   * second — so a plan sitting third by 0.1 points is not invisible to the tiebreak. Absent on
+   * payloads built before the amendment; the UI reads only `winner`/`runnerUp`.
+   */
+  contenders?: Plan[];
   /** False when the user has fewer than two picks remaining (AC-59). */
   applicable: boolean;
 }

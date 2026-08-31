@@ -36,21 +36,24 @@ const player = (
   position: Position,
   ecrRank: number,
   tier: number | null = null,
-): FixturePlayer => ({ sleeperPlayerId, playerName, position, ecrRank, tier });
+  adp: number | null = null,
+): FixturePlayer => ({ sleeperPlayerId, playerName, position, ecrRank, tier, adp });
 
+// ADPs track ECR near the top; the tails (rb4/wr4/te2/qb2) deliberately last into the 20s–70s so
+// the fill term's market replay has depth to price deferred slots against.
 const SNAPSHOT: FixturePlayer[] = [
-  player('rb1', 'Bijan Robinson', 'RB', 1, 1),
-  player('wr1', "Ja'Marr Chase", 'WR', 2, 1),
-  player('rb2', 'Jahmyr Gibbs', 'RB', 3, 1),
-  player('wr2', 'Justin Jefferson', 'WR', 4, 2),
-  player('te1', 'Brock Bowers', 'TE', 5, 2),
-  player('qb1', 'Josh Allen', 'QB', 6, 3),
-  player('rb3', 'Saquon Barkley', 'RB', 7, 2),
-  player('wr3', 'CeeDee Lamb', 'WR', 8, 2),
-  player('te2', 'Trey McBride', 'TE', 9, 4),
-  player('qb2', 'Lamar Jackson', 'QB', 10, 4),
-  player('rb4', 'Derrick Henry', 'RB', 11, 3),
-  player('wr4', 'Amon-Ra St. Brown', 'WR', 12, 3),
+  player('rb1', 'Bijan Robinson', 'RB', 1, 1, 1.5),
+  player('wr1', "Ja'Marr Chase", 'WR', 2, 1, 2.5),
+  player('rb2', 'Jahmyr Gibbs', 'RB', 3, 1, 3.5),
+  player('wr2', 'Justin Jefferson', 'WR', 4, 2, 4.5),
+  player('te1', 'Brock Bowers', 'TE', 5, 2, 5.5),
+  player('qb1', 'Josh Allen', 'QB', 6, 3, 6.5),
+  player('rb3', 'Saquon Barkley', 'RB', 7, 2, 7.5),
+  player('wr3', 'CeeDee Lamb', 'WR', 8, 2, 8.5),
+  player('te2', 'Trey McBride', 'TE', 9, 4, 70),
+  player('qb2', 'Lamar Jackson', 'QB', 10, 4, 45),
+  player('rb4', 'Derrick Henry', 'RB', 11, 3, 24),
+  player('wr4', 'Amon-Ra St. Brown', 'WR', 12, 3, 25),
   player('k1', 'Brandon Aubrey', 'K', 150),
   player('dst1', 'Houston Texans', 'DST', 155),
 ];
@@ -299,15 +302,18 @@ describe('plan scoring and comparison (AC-55, AC-57, AC-58, AC-59)', () => {
     expect(comparison.applicable).toBe(true);
   });
 
-  it('prices the other unfilled slots — a double need at a thin position flips the winner (AC-55 amendment)', () => {
-    // The #28 regression from both 08-27/08-28 rehearsals, in miniature. Two WR starting slots
-    // open, one RB slot; the WR shelf is one player deep by the next turn (wr2 survives, no
-    // second WR does), while the elite RB tier holds (rb2 survives).
+  it('prices the other unfilled slots at their own later turns — a double no longer wins on unpriced deferral (AC-55 amendment)', () => {
+    // The #28 regression from the 08-27/08-28 rehearsals, in miniature. Two WR starting slots
+    // open, one RB slot; wr2 and the deep RBs survive to the next turn.
     const projection = projectionOf([
       ['wr2', 'rb2', 'rb3'],
       ['wr2', 'rb2', 'rb3'],
     ]);
-    const slots = { unfilledDedicatedSlots: { WR: 2, RB: 1 }, unfilledFlexSlots: 0 };
+    const slots = {
+      unfilledDedicatedSlots: { WR: 2, RB: 1 },
+      unfilledFlexSlots: 0,
+      futureUserPickNos: [10, 20],
+    };
 
     // With no slot picture the second WR slot's collapse is priced at nothing, and doubling up
     // on the deep RB shelf wins: (RB,RB) = 20 + 18 (rb2) = 38.
@@ -315,14 +321,38 @@ describe('plan scoring and comparison (AC-55, AC-57, AC-58, AC-59)', () => {
     expect(before.winner?.nowPosition).toBe('RB');
     expect(before.winner?.score).toBe(38);
 
-    // With it, the starter cap zeroes the slotless second RB and the deferred WR slots carry
-    // their true price: WR-now wins despite the lower nowValue.
+    // With it, the starter cap zeroes the slotless second RB — (RB,RB) collapses to 20 + the
+    // WR slot the market still allows at pick 20 (wr4, 12) — and the winner banks a WR before
+    // the shelf dies: (RB,WR) = 20 + 16 (wr2) + 12 (wr4 at pick 20) = 48.
     const after = compare({ projection, needVector: need({ WR: 2, RB: 1 }), ...slots });
-    expect(after.winner?.nowPosition).toBe('WR');
-    expect(after.winner!.fillValue).toBeGreaterThan(0);
+    expect(after.winner).toMatchObject({ nowPosition: 'RB', nextPosition: 'WR', score: 48 });
+    expect(after.winner!.fillValue).toBe(12);
     expect(after.winner!.score).toBe(
       after.winner!.nowValue + after.winner!.nextValue + after.winner!.fillValue,
     );
+  });
+
+  it('never defers a position the market will have eaten by the turn its slot would fill (the round-6 no-WR regression)', () => {
+    // Rehearsal #6's failure in miniature: every WR survives to the NEXT turn (so one-turn
+    // deferral looks free, as it always did), but no WR's ADP outlasts pick 66 — while te2
+    // lasts to ADP 70. Next-turn pricing called this "too close" at every pick and let a
+    // roster reach round 6 with one WR; horizon pricing takes both WRs while they exist.
+    const projection = projectionOf([
+      ['wr1', 'wr2', 'wr3', 'wr4', 'te1', 'te2'],
+      ['wr1', 'wr2', 'wr3', 'wr4', 'te1', 'te2'],
+    ]);
+    const comparison = compare({
+      projection,
+      needVector: need({ WR: 2, TE: 1 }),
+      unfilledDedicatedSlots: { WR: 2, TE: 1 },
+      unfilledFlexSlots: 0,
+      futureUserPickNos: [50, 66, 75],
+    });
+
+    // (WR,WR) = 18 + 16 + te2-at-66 (6) = 40 beats deferring a WR slot to a turn with no WRs
+    // left: (TE,WR) = 12 + 18 + 0 = 30.
+    expect(comparison.winner).toMatchObject({ nowPosition: 'WR', nextPosition: 'WR', score: 40 });
+    expect(comparison.winner!.fillValue).toBe(6);
   });
 
   it('lets an open FLEX slot lift the starter cap for an eligible position', () => {

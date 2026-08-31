@@ -304,6 +304,25 @@ describe('the highlight and its one-line reason (AC-51, AC-52, AC-56, AC-58, AC-
     expect(list.reason).toContain("better-consensus player now: Ja'Marr Chase (ECR 2)");
   });
 
+  it('breaks a near-tie toward the now-pick that fills a dedicated starting slot (AC-58, round-6 directive)', () => {
+    // Both anchors survive and the plans tie at 38: (RB,WR) wins the enumeration order, but its
+    // RB is a FLEX-only pick (no dedicated RB slot open) while the runner-up's WR fills the
+    // real WR2 hole. Need separates a tie before consensus does — the round-6 rehearsal sat on
+    // one WR while ties kept resolving to whichever position had the better-ECR faller.
+    const list = listOf({
+      needVector: need({ RB: 1 / 3, WR: 1 + 1 / 3 }),
+      survival: BOTH_HOLD,
+      unfilledDedicatedSlots: { WR: 1, RB: 0 },
+      unfilledFlexSlots: 1,
+      futureUserPickNos: [20, 30],
+    });
+    expect(list.planComparison?.winner?.nowPosition).toBe('RB');
+    expect(list.highlightPlayerId).toBe('wr1');
+    expect(list.reason).toContain(
+      "taking the pick that still fills a starting slot: Ja'Marr Chase (WR, ECR 2)",
+    );
+  });
+
   it('never spends an early pick on the flat QB curve while an elite-tier cliff is collapsing', () => {
     // The 08-31 rehearsal's opening failure, in fixture form: QB carries the highest absolute
     // value on the board (qb1 22) but the QB curve is flat (qb2 21), while the elite RB/WR tiers
@@ -316,6 +335,7 @@ describe('the highlight and its one-line reason (AC-51, AC-52, AC-56, AC-58, AC-
       survival: twice(['qb1', 'qb2', 'te1', 'te2', 'rb4', 'wr4']),
       unfilledDedicatedSlots: { QB: 1, RB: 1, WR: 1 },
       unfilledFlexSlots: 0,
+      futureUserPickNos: [20, 30],
     });
     expect(list.planComparison?.winner?.nowPosition).toBe('RB');
     expect(list.highlightPlayerId).toBe('rb1');

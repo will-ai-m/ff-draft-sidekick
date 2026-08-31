@@ -738,16 +738,20 @@ export class Orchestrator {
 
     // FR-9/FR-10 — the user's own need vector, never an opponent's.
     const userRoster = roster.userPanel();
+    const sequence = buildPickSequence(
+      { teamCount: state.meta.teamCount, rounds: state.meta.rounds },
+      sync.pickOwnerResolver,
+    );
     const userRemainingPicks =
-      userTeamId === null
-        ? 0
-        : (countRemainingPicks(
-            buildPickSequence(
-              { teamCount: state.meta.teamCount, rounds: state.meta.rounds },
-              sync.pickOwnerResolver,
-            ),
-            picksMade,
-          ).get(userTeamId) ?? 0);
+      userTeamId === null ? 0 : (countRemainingPicks(sequence, picksMade).get(userTeamId) ?? 0);
+    // The user's own later turns, next first — the fill term's horizon (amended 2026-08-31).
+    const nextUserPickNo = panel.window.nextUserPickNo;
+    const futureUserPickNos =
+      userTeamId === null || nextUserPickNo === null
+        ? []
+        : sequence
+            .filter((pick) => pick.teamId === userTeamId && pick.pickNo >= nextUserPickNo)
+            .map((pick) => pick.pickNo);
 
     // The bench phase's roster totals (FR-9/FR-10 amendment): every pick the user's seat has
     // made, by position — starters and bench together, which is what the caps count against.
@@ -770,6 +774,7 @@ export class Orchestrator {
             survival,
             valueModel: active.valueModel,
             userRemainingPicks,
+            futureUserPickNos,
             unfilledK: userRoster?.unfilledStartingSlots.dedicated.K ?? 0,
             unfilledDst: userRoster?.unfilledStartingSlots.dedicated.DST ?? 0,
             benchPhase: { rosterCounts: userRosterCounts, slots: state.meta.slots },
@@ -891,6 +896,7 @@ export class Orchestrator {
     benchPhase: Parameters<typeof computeCandidateList>[0]['benchPhase'];
     unfilledDedicatedSlots?: Parameters<typeof computeCandidateList>[0]['unfilledDedicatedSlots'];
     unfilledFlexSlots?: Parameters<typeof computeCandidateList>[0]['unfilledFlexSlots'];
+    futureUserPickNos?: Parameters<typeof computeCandidateList>[0]['futureUserPickNos'];
   }): CandidateListData {
     const list = computeCandidateList({ ...input, config: this.config });
     if (list.disabledReason !== null) return list;
