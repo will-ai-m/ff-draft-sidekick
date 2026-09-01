@@ -237,6 +237,35 @@ describe('candidate rows', () => {
 // ---------------------------------------------------------------------------------------------
 
 describe('the highlighted recommendation and its reason line', () => {
+  it('explains the active recommendation rule on demand', () => {
+    renderList();
+
+    const explanation = screen.getByText(/why did sidekick choose this/i);
+    expect(explanation).toBeTruthy();
+    expect(recommendation().textContent).toContain(
+      'No plan, open-starter, roster-balance or value rule produced a stronger override',
+    );
+    expect(recommendation().textContent).toContain('Apply phase and roster-eligibility gates');
+  });
+
+  it('explains the backup-QB gate when the recommendation is a quarterback', () => {
+    renderList(
+      data({
+        rows: [QB1, RB1, WR1],
+        highlightPlayerId: 'qb1',
+        reasonKind: 'best-available',
+        reason: 'Best available: Josh Allen (ECR 4).',
+      }),
+    );
+
+    expect(recommendation().textContent).toContain(
+      'QB2 is blocked until RB, WR and TE each have at least one backup',
+    );
+    expect(recommendation().textContent).toContain(
+      'QB3 and beyond are blocked by the roster cap',
+    );
+  });
+
   it('a need-driven pick', () => {
     const reason = "Bijan Robinson (RB) fills no unfilled starting slot — Ja'Marr Chase (WR) does.";
     renderList(data({ highlightPlayerId: 'wr1', reasonKind: 'need', reason }));

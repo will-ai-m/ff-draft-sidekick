@@ -25,6 +25,7 @@ import { POSITIONS } from '@sidekick/shared';
 import type {
   CandidateListData,
   CandidateRow,
+  HighlightReasonKind,
   Insight,
   Plan,
   Position,
@@ -58,6 +59,28 @@ const positionalLabel = (row: Pick<CandidateRow, 'position' | 'positionalRank'>)
   row.positionalRank === null ? row.position : `${row.position}${row.positionalRank}`;
 
 const planLabel = (plan: Plan): string => `${plan.nowPosition} now / ${plan.nextPosition} next`;
+
+const REASON_EXPLANATIONS: Readonly<Record<HighlightReasonKind, string>> = {
+  'plan-survival':
+    'Two-pick plans were compared in projected points. This position is more valuable now because the alternative is more likely to survive to your next turn, or because waiting crosses a tier drop.',
+  need:
+    'The higher-ranked player was passed over because their position fills no open starting slot, while this pick fills one.',
+  value:
+    'No stronger roster or plan override applied. This player leads the available board and is going materially later than their market ADP.',
+  'best-available':
+    'No plan, open-starter, roster-balance or value rule produced a stronger override, so the recommendation stays with the best available player by raw overall ECR.',
+  'too-close-to-call':
+    'The leading choices are inside the configured noise band. Sidekick breaks that tie with FLEX eligibility, an open dedicated starting slot, then better consensus rank.',
+  'lookahead-not-applicable':
+    'There are fewer than two of your picks left, so Sidekick cannot compare a pick-now / pick-next plan and falls back to the current board.',
+  'endgame-kdst':
+    'Your remaining picks have caught up with your unfilled kicker or defense slots, so the endgame guard reserves this pick before the draft ends.',
+  'bench-depth':
+    'Your starting skill slots are filled, so the engine favors the thinnest eligible bench position instead of blindly following the top ECR row.',
+};
+
+const QB_POLICY =
+  'In a 1-QB league, QB2 is blocked until RB, WR and TE each have at least one backup. It may then become eligible as bench insurance, but QB3 and beyond are blocked by the roster cap. The cap scales with leagues that start multiple QBs.';
 
 const emptyMessage = (filter: Position | null): string =>
   filter === null
@@ -225,7 +248,7 @@ function RowsTable({
  * two plans the sentence is about without the sentence having to carry both totals.
  */
 function Recommendation({ data }: { data: CandidateListData }) {
-  const { highlightPlayerId, reason, planComparison } = data;
+  const { highlightPlayerId, reason, reasonKind, planComparison } = data;
   if (highlightPlayerId === null && reason === null) return null;
 
   const player = data.rows.find((row) => row.playerId === highlightPlayerId) ?? null;
@@ -269,6 +292,32 @@ function Recommendation({ data }: { data: CandidateListData }) {
 
       {winner !== null && separatingFact !== null && (
         <p className="mt-1 text-xs text-slate-400">{separatingFact}</p>
+      )}
+
+      {reasonKind !== null && (
+        <details className="mt-2 border-t border-emerald-500/20 pt-2 text-xs">
+          <summary className="cursor-pointer font-medium text-emerald-200">
+            Why did Sidekick choose this?
+          </summary>
+          <div className="mt-2 space-y-2 text-slate-300">
+            <p>
+              <span className="font-medium text-slate-200">Active rule: </span>
+              {REASON_EXPLANATIONS[reasonKind]}
+            </p>
+            {player?.position === 'QB' && (
+              <p>
+                <span className="font-medium text-slate-200">Why another QB can appear: </span>
+                {QB_POLICY}
+              </p>
+            )}
+            <ol className="list-decimal space-y-1 pl-4 text-slate-400">
+              <li>Apply phase and roster-eligibility gates.</li>
+              <li>Compare pick-now / pick-next plans when at least two picks remain.</li>
+              <li>Choose the decisive need, value, survival or ECR rule.</li>
+              <li>Apply near-tie rules, then the final K/DST guard.</li>
+            </ol>
+          </div>
+        </details>
       )}
     </section>
   );
