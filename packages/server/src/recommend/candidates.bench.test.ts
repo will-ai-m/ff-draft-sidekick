@@ -119,21 +119,98 @@ describe('benchPlanPositions', () => {
       benchPlanPositions({ rosterCounts: { QB: 2, RB: 3, WR: 3, TE: 2 }, slots: twoQb }, cfg()),
     ).toContain('QB');
   });
+
+  it('holds ordinary QB2 and TE2 behind meaningful RB/WR resilience', () => {
+    const standardRanks = { QB: 11, RB: 31, WR: 31, TE: 11 };
+
+    // Exact LaPorta/Caleb regression: one RB and WR backup is not enough to spend scarce bench
+    // space behind already-startable Bowers and Daniels.
+    expect(benchPlanPositions(bench({ QB: 1, RB: 3, WR: 3, TE: 1 }), cfg(), standardRanks)).toEqual(
+      ['RB', 'WR'],
+    );
+    // Once both core positions carry two backups, one insurance QB or TE becomes eligible.
+    expect(benchPlanPositions(bench({ QB: 1, RB: 4, WR: 4, TE: 1 }), cfg(), standardRanks)).toEqual(
+      ['QB', 'RB', 'WR', 'TE'],
+    );
+  });
+
+  it('treats TE as core depth when TE-premium scoring earns FLEX demand', () => {
+    const premiumRanks = { QB: 11, RB: 21, WR: 21, TE: 31 };
+
+    expect(benchPlanPositions(bench({ QB: 1, RB: 3, WR: 3, TE: 1 }), cfg(), premiumRanks)).toEqual([
+      'RB',
+      'WR',
+      'TE',
+    ]);
+  });
 });
 
 describe('bench replacement ranks', () => {
-  it('uses league size, dedicated starters and an even share of FLEX demand', () => {
-    expect(benchReplacementRanks(bench({}), cfg())).toEqual({
+  const curves = (valueAt: PlayerValueModel['valueAt']): Pick<PlayerValueModel, 'valueAt'> => ({
+    valueAt,
+  });
+
+  it('uses league scoring to send ordinary 10-team FLEX demand to RB/WR, not TE', () => {
+    const standard = curves((position, rank) => {
+      if (position === 'RB' || position === 'WR') return 100 - rank;
+      if (position === 'TE') return 40 - rank;
+      return 80 - rank;
+    });
+
+    expect(benchReplacementRanks(bench({}), cfg(), standard)).toEqual({
       QB: 11,
-      RB: 28,
-      WR: 28,
-      TE: 18,
+      RB: 31,
+      WR: 31,
+      TE: 11,
+    });
+  });
+
+  it('moves the streaming line with league size in an ordinary 12-team format', () => {
+    const twelveTeam: BenchPhaseInput = {
+      rosterCounts: {},
+      slots: { ...SLOTS, FLEX: 1 },
+      teamCount: 12,
+    };
+    const standard = curves((position, rank) => {
+      if (position === 'RB' || position === 'WR') return 100 - rank;
+      if (position === 'TE') return 40 - rank;
+      return 80 - rank;
+    });
+
+    expect(benchReplacementRanks(twelveTeam, cfg(), standard)).toEqual({
+      QB: 13,
+      RB: 31,
+      WR: 31,
+      TE: 13,
+    });
+  });
+
+  it('lets TE-premium scoring earn FLEX demand instead of imposing an RB/WR rule', () => {
+    const tePremium = curves((position, rank) => (position === 'TE' ? 200 - rank : 100 - rank));
+
+    expect(benchReplacementRanks(bench({}), cfg(), tePremium)).toEqual({
+      QB: 11,
+      RB: 21,
+      WR: 21,
+      TE: 31,
+    });
+  });
+
+  it('lets a QB-eligible FLEX format allocate its extra starters to quarterback', () => {
+    const superflex = curves((position, rank) => (position === 'QB' ? 200 - rank : 100 - rank));
+    const superflexConfig = cfg({ flexEligiblePositions: ['QB', 'RB', 'WR', 'TE'] });
+
+    expect(benchReplacementRanks(bench({}), superflexConfig, superflex)).toEqual({
+      QB: 31,
+      RB: 21,
+      WR: 21,
+      TE: 11,
     });
   });
 });
 
 describe('the bench phase (FR-9/FR-10 amendment)', () => {
-  it('uses league-scored value above replacement instead of recommending QB2 as the thinnest bench hole', () => {
+  it('uses scoring-aware resilience instead of recommending QB2 over shallow RB/WR depth', () => {
     const players = [
       player('qb2', 'Trevor Lawrence', 'QB', 74, 85),
       player('rb4', 'Jonathon Brooks', 'RB', 75, 92),
@@ -201,8 +278,72 @@ describe('the bench phase (FR-9/FR-10 amendment)', () => {
       nextPosition: 'QB',
     });
     expect(list.highlightPlayerId).toBe('rb4');
-    expect(list.reason).toMatch(/points above replacement/);
-    expect(list.reason).toMatch(/RB28 league replacement line/);
+    expect(list.reasonKind).not.toBeNull();
+  });
+
+  it('uses the thinner core position when replacement-adjusted bench plans are flat', () => {
+    const players = [
+      player('wr4', 'Quentin Johnston', 'WR', 85, 86.9),
+      player('rb8', 'Chris Rodriguez Jr.', 'RB', 122, 151.4),
+    ];
+    const valueModel: PlayerValueModel = {
+      pointsByPlayerId: new Map([
+        ['wr4', 5],
+        ['rb8', 5],
+      ]),
+      tierGroupByPlayerId: new Map(),
+      tierGroupsByPosition: { QB: [], RB: [], WR: [], TE: [] },
+      valueAt: () => 6,
+    };
+    const universe = players.map((p, index) => ({
+      sleeperPlayerId: p.sleeperPlayerId,
+      position: p.position as 'RB' | 'WR',
+      ecrRank: p.ecrRank!,
+      adp: p.adp,
+      index,
+      samplingRank: index + 1,
+      addedForDisplay: false,
+    }));
+    const survival: SurvivalProjection = {
+      suppressed: false,
+      degraded: false,
+      runCount: 1,
+      universe,
+      survivors: new Uint8Array(universe.length).fill(1),
+      survivalByPlayerId: new Map(
+        players.map((p) => [
+          p.sleeperPlayerId,
+          { probability: 1, band: 'likely-available' as const },
+        ]),
+      ),
+      indexByPlayerId: new Map(players.map((p, index) => [p.sleeperPlayerId, index])),
+    };
+
+    const list = computeCandidateList({
+      players,
+      board: { players: {} },
+      window: {
+        picks: [],
+        userOnTheClock: true,
+        inProgressPickNo: 122,
+        currentUserPickNo: 122,
+        nextUserPickNo: 139,
+      },
+      needVector: NO_NEED_SIGNAL,
+      survival,
+      valueModel,
+      userRemainingPicks: 3,
+      config: cfg(),
+      // Screenshot regression: seven RBs versus three WRs in a 2-RB/2-WR lineup.
+      benchPhase: bench({ QB: 1, RB: 7, WR: 3, TE: 1 }),
+    });
+
+    expect(list.planComparison?.winner?.nowPosition).toBe('RB');
+    expect(list.planComparison?.winner?.score).toBe(0);
+    expect(list.highlightPlayerId).toBe('wr4');
+    expect(list.reasonKind).toBe('bench-depth');
+    expect(list.reason).toMatch(/WR is your thinnest position \(1 backup\)/);
+    expect(list.reason).toMatch(/Quentin Johnston .* over Chris Rodriguez Jr\. \(RB\)/);
   });
 
   it('redirects off a capped-position board leader and says why — the rehearsal regression', () => {
@@ -244,12 +385,11 @@ describe('the bench phase (FR-9/FR-10 amendment)', () => {
     expect(list.reason).toMatch(/a backup QB can wait until every FLEX-eligible position has one/);
   });
 
-  it('allows one backup QB once every FLEX-eligible position is covered', () => {
-    const list = compute(bench({ QB: 1, RB: 3, WR: 4, TE: 2 }));
+  it('uses the thinnest eligible fallback when no scoring model exists', () => {
+    const list = compute(bench({ QB: 1, RB: 4, WR: 4, TE: 1 }));
 
-    // Flex covered, QB depth 0 is genuinely the open bench hole: Purdy by the ordinary ladder.
-    expect(list.highlightPlayerId).toBe('qb3');
-    expect(list.reasonKind).not.toBe('bench-depth');
+    expect(list.highlightPlayerId).toBe('te1');
+    expect(list.reasonKind).toBe('bench-depth');
   });
 
   it('keeps the displayed rows in raw ECR order — only the recommendation is constrained', () => {

@@ -219,6 +219,60 @@ describe('the highlight and its one-line reason (AC-51, AC-52, AC-56, AC-58, AC-
     );
   });
 
+  it('defers a safe lone QB need for FLEX depth when the turn teams already filled QB', () => {
+    const safe = projectionOf([
+      ['qb1', 'rb4', 'wr4'],
+      ['qb1', 'rb4', 'wr4'],
+    ]);
+    const list = listOf({
+      board: boardOf(['rb1', 'rb2', 'rb3', 'wr1', 'wr2', 'wr3', 'te1']),
+      needVector: need({ QB: 1 }),
+      survival: safe,
+      unfilledDedicatedSlots: { QB: 1, RB: 0, WR: 0, TE: 0 },
+      unfilledFlexSlots: 0,
+      benchPhase: {
+        rosterCounts: { QB: 0, RB: 3, WR: 3, TE: 1 },
+        slots: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 2, K: 1, DST: 1, BN: 5 },
+        teamCount: 10,
+      },
+    });
+
+    expect(list.planComparison?.winner).toMatchObject({ nowPosition: 'QB', nextPosition: 'QB' });
+    expect(list.planComparison?.contenders).toEqual(
+      expect.arrayContaining([expect.objectContaining({ nowPosition: 'RB', nextPosition: 'QB' })]),
+    );
+    expect(list.highlightPlayerId).toBe('rb4');
+  });
+
+  it('does not let FLEX-eligible TE override a depth-now plan inside the near-tie band', () => {
+    const safe = projectionOf([
+      ['qb1', 'te1', 'rb4', 'wr4'],
+      ['qb1', 'te1', 'rb4', 'wr4'],
+    ]);
+    const list = listOf({
+      board: boardOf(['rb1', 'rb2', 'rb3', 'wr1', 'wr2', 'wr3']),
+      needVector: need({ QB: 1, TE: 1 }),
+      survival: safe,
+      unfilledDedicatedSlots: { QB: 1, RB: 0, WR: 0, TE: 1 },
+      unfilledFlexSlots: 0,
+      benchPhase: {
+        rosterCounts: { QB: 0, RB: 3, WR: 3, TE: 0 },
+        slots: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 2, K: 1, DST: 1, BN: 5 },
+        teamCount: 10,
+      },
+      config: config({ planTotalTooClosePoints: 100 }),
+    });
+
+    expect(list.planComparison?.contenders).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ nowPosition: 'RB' }),
+        expect.objectContaining({ nowPosition: 'TE' }),
+      ]),
+    );
+    expect(list.highlightPlayerId).toBe('rb4');
+    expect(list.reason).toContain('adding depth now while the missing starter is projected to last');
+  });
+
   it('a value-driven pick: the top-ECR candidate whose ADP is ≥10 picks earlier than this pick', () => {
     // Every RB is gone by the next turn, so (RB,WR) at 20 + 18 = 38 wins and rb1 stays highlighted.
     const list = listOf({ survival: RB_GONE_WR_SAFE, window: windowAt(12, 20) });

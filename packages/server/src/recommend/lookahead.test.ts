@@ -345,6 +345,51 @@ describe('plan scoring and comparison (AC-55, AC-57, AC-58, AC-59)', () => {
     expect(comparison.applicable).toBe(true);
   });
 
+  it('takes replacement-adjusted depth now when the lone missing starter safely survives', () => {
+    const comparison = compare({
+      needVector: need({ TE: 1 }),
+      projection: projectionOf([
+        ['te1', 'rb2', 'wr2'],
+        ['te1', 'rb2', 'wr2'],
+      ]),
+      unfilledDedicatedSlots: { TE: 1, RB: 0, WR: 0, QB: 0 },
+      unfilledFlexSlots: 0,
+      deferredStarterDepthPositions: ['RB', 'WR'],
+      replacementRanks: { RB: 4, WR: 4, TE: 3 },
+    });
+
+    // RB depth adds 20 - replacement 10 = 10 now, then the safely surviving TE adds 12.
+    expect(comparison.winner).toMatchObject({
+      nowPosition: 'RB',
+      nextPosition: 'TE',
+      nowValue: 10,
+      nextValue: 12,
+      score: 22,
+    });
+  });
+
+  it('fills the lone missing starter now when that player will not survive', () => {
+    const comparison = compare({
+      needVector: need({ TE: 1 }),
+      projection: projectionOf([
+        ['rb2', 'wr2'],
+        ['rb2', 'wr2'],
+      ]),
+      unfilledDedicatedSlots: { TE: 1, RB: 0, WR: 0, QB: 0 },
+      unfilledFlexSlots: 0,
+      deferredStarterDepthPositions: ['RB', 'WR'],
+      replacementRanks: { RB: 4, WR: 4, TE: 3 },
+    });
+
+    expect(comparison.winner).toMatchObject({
+      nowPosition: 'TE',
+      nextPosition: 'TE',
+      nowValue: 12,
+      nextValue: 0,
+      score: 12,
+    });
+  });
+
   it('prices the other unfilled slots at their own later turns — a double no longer wins on unpriced deferral (AC-55 amendment)', () => {
     // The #28 regression from the 08-27/08-28 rehearsals, in miniature. Two WR starting slots
     // open, one RB slot; wr2 and the deep RBs survive to the next turn.

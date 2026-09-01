@@ -54,6 +54,9 @@ const BAND_STYLES: Readonly<Record<SurvivalBand, string>> = {
 const formatNumber = (value: number): string =>
   Number.isInteger(value) ? String(value) : value.toFixed(1);
 
+/** Audit math keeps hundredths so a 1.742 plan is visible as 1.74, not rounded into a tie. */
+const formatMath = (value: number): string => value.toFixed(2);
+
 /** AC-49's positional rank, shown the way FantasyPros writes it: "RB1", "WR12". */
 const positionalLabel = (row: Pick<CandidateRow, 'position' | 'positionalRank'>): string =>
   row.positionalRank === null ? row.position : `${row.position}${row.positionalRank}`;
@@ -63,8 +66,7 @@ const planLabel = (plan: Plan): string => `${plan.nowPosition} now / ${plan.next
 const REASON_EXPLANATIONS: Readonly<Record<HighlightReasonKind, string>> = {
   'plan-survival':
     'Two-pick plans were compared in projected points. This position is more valuable now because the alternative is more likely to survive to your next turn, or because waiting crosses a tier drop.',
-  need:
-    'The higher-ranked player was passed over because their position fills no open starting slot, while this pick fills one.',
+  need: 'The higher-ranked player was passed over because their position fills no open starting slot, while this pick fills one.',
   value:
     'No stronger roster or plan override applied. This player leads the available board and is going materially later than their market ADP.',
   'best-available':
@@ -81,6 +83,9 @@ const REASON_EXPLANATIONS: Readonly<Record<HighlightReasonKind, string>> = {
 
 const QB_POLICY =
   'In a 1-QB league, QB2 is blocked until RB, WR and TE each have at least one backup. It may then become eligible as bench insurance, but QB3 and beyond are blocked by the roster cap. Bench value is measured above the league-size replacement line using this league’s scoring, so streamable QBs are discounted.';
+
+const UNCLASSIFIED_EXPLANATION =
+  'The recommendation engine supplied the decision shown above, but this snapshot does not carry its structured rule label. The displayed reason and plan totals remain the authoritative explanation.';
 
 const emptyMessage = (filter: Position | null): string =>
   filter === null
@@ -255,6 +260,20 @@ function Recommendation({ data }: { data: CandidateListData }) {
   const winner = planComparison?.winner ?? null;
   const runnerUp = planComparison?.runnerUp ?? null;
   const separatingFact = planComparison?.separatingFact ?? null;
+  const candidateAt = (position: Position): CandidateRow | null =>
+    data.rowsByPosition?.[position]?.[0] ??
+    data.rows.find((row) => row.position === position) ??
+    null;
+  const valueBasis = reasonKind === 'bench-depth' ? 'points above replacement' : 'projected pts/gm';
+  const rawPlanLabels = planComparison?.tooClose === true;
+  const auditedPlans = [
+    ...(winner === null
+      ? []
+      : [{ label: rawPlanLabels ? 'Raw plan winner' : 'Chosen', plan: winner }]),
+    ...(runnerUp === null
+      ? []
+      : [{ label: rawPlanLabels ? 'Raw plan alternative' : 'Alternative', plan: runnerUp }]),
+  ];
 
   return (
     <section
@@ -294,16 +313,71 @@ function Recommendation({ data }: { data: CandidateListData }) {
         <p className="mt-1 text-xs text-slate-400">{separatingFact}</p>
       )}
 
-      {reasonKind !== null && (
-        <details className="mt-2 border-t border-emerald-500/20 pt-2 text-xs">
+      {reason !== null && (
+        <details open className="mt-2 border-t border-emerald-500/20 pt-2 text-xs">
           <summary className="cursor-pointer font-medium text-emerald-200">
             Why did Sidekick choose this?
           </summary>
           <div className="mt-2 space-y-2 text-slate-300">
-            <p>
-              <span className="font-medium text-slate-200">Active rule: </span>
-              {REASON_EXPLANATIONS[reasonKind]}
-            </p>
+            {auditedPlans.length > 0 ? (
+              <>
+                <p>
+                  Each total is <span className="font-medium text-slate-200">current pick</span> +{' '}
+                  <span className="font-medium text-slate-200">expected next-turn pick</span> +{' '}
+                  <span className="font-medium text-slate-200">remaining starter value</span>, in{' '}
+                  {valueBasis}.
+                </p>
+                <div className="overflow-x-auto">
+                  <table aria-label="Recommendation math" className="w-full text-left tabular-nums">
+                    <thead className="text-slate-500">
+                      <tr>
+                        <th className="pr-3 font-medium">Plan</th>
+                        <th className="pr-3 font-medium">Pick now</th>
+                        <th className="pr-3 font-medium">Now</th>
+                        <th className="pr-3 font-medium">Next</th>
+                        <th className="pr-3 font-medium">Remaining</th>
+                        <th className="font-medium">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditedPlans.map(({ label, plan }) => {
+                        const nowCandidate = candidateAt(plan.nowPosition);
+                        return (
+                          <tr key={`${label}-${plan.nowPosition}-${plan.nextPosition}`}>
+                            <td className="py-1 pr-3 text-slate-400">
+                              {label}: {planLabel(plan)}
+                            </td>
+                            <td className="py-1 pr-3 text-slate-200">
+                              {nowCandidate?.playerName ?? `Best ${plan.nowPosition}`}
+                            </td>
+                            <td className="py-1 pr-3">{formatMath(plan.nowValue)}</td>
+                            <td className="py-1 pr-3">{formatMath(plan.nextValue)}</td>
+                            <td className="py-1 pr-3">{formatMath(plan.fillValue)}</td>
+                            <td className="py-1 font-semibold text-slate-100">
+                              {formatMath(plan.score)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {winner !== null && runnerUp !== null && (
+                  <p>
+                    <span className="font-medium text-slate-200">Raw margin: </span>
+                    {formatMath(winner.score - runnerUp.score)} {valueBasis}.{' '}
+                    {planComparison?.tooClose === true
+                      ? 'That is inside the near-tie band, so the reason above states the tie-break that decided the displayed player.'
+                      : 'The higher plan total determines the recommendation.'}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p>
+                <span className="font-medium text-slate-200">Active rule: </span>
+                {reasonKind === null ? UNCLASSIFIED_EXPLANATION : REASON_EXPLANATIONS[reasonKind]}
+              </p>
+            )}
             {player?.position === 'QB' && (
               <p>
                 <span className="font-medium text-slate-200">Why another QB can appear: </span>
