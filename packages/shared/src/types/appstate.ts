@@ -33,7 +33,9 @@ export interface PreDraftWarning {
      * card will report "no NFL game data". Added by the orchestrator alongside FR-4's own
      * warnings — the pre-draft check is the one surface that answers "is this instance ready?".
      */
-    | 'gamelog-cache-missing';
+    | 'gamelog-cache-missing'
+    /** A positional tier page failed at attach (amended 2026-09-01) — tier urgency degrades. */
+    | 'positional-tiers-missing';
   message: string;
 }
 

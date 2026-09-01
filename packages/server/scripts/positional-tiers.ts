@@ -23,7 +23,6 @@ const RESEARCH_DIR = join(REPO_ROOT, 'research');
 
 const BASE = 'https://www.fantasypros.com/nfl/rankings';
 const PAGES = [
-  { key: 'ALL', label: 'Overall (half-PPR)', url: `${BASE}/half-point-ppr-cheatsheets.php` },
   { key: 'QB', label: 'QB', url: `${BASE}/qb-cheatsheets.php` },
   { key: 'RB', label: 'RB (half-PPR)', url: `${BASE}/half-point-ppr-rb-cheatsheets.php` },
   { key: 'WR', label: 'WR (half-PPR)', url: `${BASE}/half-point-ppr-wr-cheatsheets.php` },
@@ -32,10 +31,8 @@ const PAGES = [
   { key: 'K', label: 'K', url: `${BASE}/k-cheatsheets.php` },
 ] as const;
 
-/** Ranks past this are waiver-wire depth; positional sections stop at the tier containing it. */
+/** Ranks past this are waiver-wire depth; sections stop at the tier containing it. */
 const POSITIONAL_RANK_DEPTH = 60;
-/** The overall section stops at the tier containing this rank. */
-const OVERALL_RANK_DEPTH = 120;
 
 interface TierRow {
   tier: number | null;
@@ -96,16 +93,17 @@ async function main(): Promise<void> {
     .sort()
     .at(-1);
   const date = (newest ?? new Date().toISOString()).slice(0, 10);
-  const outPath = join(RESEARCH_DIR, `fantasypros-tiers-${date}.md`);
+  const outPath = join(RESEARCH_DIR, `fantasypros-positional-tiers-${date}.md`);
 
   const body = [
-    `# FantasyPros tiers — ${date}`,
-    `Pulled ${new Date().toISOString()} by \`npm run ecr:tiers\`. Overall board tiers plus the ` +
-      "positional cheat sheets' own **positional** tiers — the grouping that says where each " +
-      "position's run pauses. The app is untouched: an attached draft keeps its attach-time " +
-      'snapshot (AC-29); re-attach to draft on a newer board.',
+    `# FantasyPros positional tiers — ${date}`,
+    `Pulled ${new Date().toISOString()} by \`npm run tiers:positional\`. Each position page's ` +
+      "own **positional** tiers — the grouping that says where the run at that position pauses. " +
+      'The QB/RB/WR/TE pages are the same ones the app ingests at attach for tier urgency; an ' +
+      'attached draft keeps its attach-time snapshot (AC-29), so detach → re-attach to draft on ' +
+      'a newer board.',
     ...snapshots.map(({ page, snapshot }) =>
-      section(page.label, page.url, snapshot, page.key === 'ALL' ? OVERALL_RANK_DEPTH : POSITIONAL_RANK_DEPTH),
+      section(page.label, page.url, snapshot, POSITIONAL_RANK_DEPTH),
     ),
   ].join('\n\n');
 
@@ -116,7 +114,7 @@ async function main(): Promise<void> {
   console.log(`Wrote ${outPath}`);
   for (const { page, snapshot } of snapshots) {
     console.log(`\n${page.label} — ${ageHours(snapshot.capturedAt)}`);
-    for (const row of tierRows(snapshot, page.key === 'ALL' ? OVERALL_RANK_DEPTH : POSITIONAL_RANK_DEPTH).slice(0, 2)) {
+    for (const row of tierRows(snapshot, POSITIONAL_RANK_DEPTH).slice(0, 2)) {
       console.log(
         `  T${row.tier ?? '—'}: ${row.players.map((p) => playerCell(p, false)).join(', ')}`,
       );

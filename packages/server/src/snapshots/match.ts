@@ -274,6 +274,12 @@ export interface MatchSnapshotsInput {
   crosswalk: Crosswalk;
   /** Sleeper's `/v1/players/nfl` dump, keyed by `player_id`. Owned and fetched by T2. */
   sleeperPlayers: Record<string, SleeperPlayerRecord>;
+  /**
+   * FantasyPros id → positional tier, from the per-position cheat sheets (amended 2026-09-01).
+   * Absent or missing an id, the player's tier is null — the overall board's cross-position
+   * tier is never used.
+   */
+  positionalTiers?: Map<number, number>;
 }
 
 export function matchSnapshots(input: MatchSnapshotsInput): MatchResult {
@@ -335,7 +341,7 @@ export function matchSnapshots(input: MatchSnapshotsInput): MatchResult {
       team: entry.team,
       ecrRank: entry.ecrRank,
       positionalRank: entry.positionalRank,
-      tier: entry.tier,
+      tier: input.positionalTiers?.get(entry.fantasyProsId) ?? null,
       byeWeek: entry.byeWeek,
       adp: adpEntry?.adp ?? null,
       adpMissing: adpEntry === undefined,

@@ -6,6 +6,8 @@
  * the feed: extract it, validate it, and surface `rank_ecr` untouched (🔶 AS-8 — Sidekick
  * never re-sorts or blends FantasyPros' ordering).
  */
+import { SKILL_POSITIONS } from '@sidekick/shared';
+import type { SkillPosition } from '@sidekick/shared';
 import { z } from 'zod';
 
 import { normalizePosition, normalizeTeam } from './match';
@@ -13,6 +15,21 @@ import type { EcrEntry, EcrSnapshot } from './types';
 
 export const FANTASYPROS_HALF_PPR_URL =
   'https://www.fantasypros.com/nfl/rankings/half-point-ppr-cheatsheets.php';
+
+/**
+ * The per-position cheat sheets whose `tier` field is the **positional** tiering — "where does
+ * the run at this position pause" (amended 2026-09-01: the user draft-preps on positional tiers,
+ * and the overall board's cross-position tiers slice the same players differently — the 2026 TE
+ * board reads Bowers/McBride/Loveland/Warren as one positional Tier 1 where the overall board
+ * splits them 2/3/3/4). QB pages are scoring-independent; RB/WR/TE take the half-PPR variant.
+ * K/DST are absent by design: 🔶 AS-7 keeps them out of every piece of prediction math.
+ */
+export const FANTASYPROS_POSITIONAL_TIER_URLS: Readonly<Record<SkillPosition, string>> = {
+  QB: 'https://www.fantasypros.com/nfl/rankings/qb-cheatsheets.php',
+  RB: 'https://www.fantasypros.com/nfl/rankings/half-point-ppr-rb-cheatsheets.php',
+  WR: 'https://www.fantasypros.com/nfl/rankings/half-point-ppr-wr-cheatsheets.php',
+  TE: 'https://www.fantasypros.com/nfl/rankings/half-point-ppr-te-cheatsheets.php',
+};
 
 /**
  * Non-greedy up to the first `};` that closes the object literal. The page declares several
@@ -128,6 +145,56 @@ export interface FetchEcrOptions {
   url?: string;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
+}
+
+/** The positional tier join: FantasyPros id → that player's own position-page tier. */
+export interface PositionalTiers {
+  byFantasyProsId: Map<number, number>;
+  /**
+   * Positions whose page could not supply tiers, with why — surfaced by the pre-draft check.
+   * A failed page degrades that position to per-player tier steps; it never fails the attach.
+   */
+  errors: Partial<Record<SkillPosition, string>>;
+}
+
+/**
+ * Fetches the four positional cheat sheets and joins their tiers by FantasyPros id — once per
+ * attach, alongside the overall snapshot (AC-29 freezes both for the draft's lifetime).
+ *
+ * Each page degrades independently: a fetch failure, a changed embed, or a page shipping no
+ * tier column records an error for that position and moves on. Rows whose position does not
+ * match the page they came from are ignored rather than trusted (a defense against the shared
+ * embed shape ever serving the wrong table).
+ */
+export async function fetchPositionalTiers(
+  options: FetchEcrOptions = {},
+): Promise<PositionalTiers> {
+  const byFantasyProsId = new Map<number, number>();
+  const errors: Partial<Record<SkillPosition, string>> = {};
+
+  await Promise.all(
+    SKILL_POSITIONS.map(async (position) => {
+      try {
+        const snapshot = await fetchEcrSnapshot({
+          ...options,
+          url: FANTASYPROS_POSITIONAL_TIER_URLS[position],
+        });
+        let tiered = 0;
+        for (const entry of snapshot.entries) {
+          if (entry.position !== position || entry.tier === null) continue;
+          byFantasyProsId.set(entry.fantasyProsId, entry.tier);
+          tiered += 1;
+        }
+        if (tiered === 0) {
+          errors[position] = `page parsed (${snapshot.entries.length} rows) but carried no tiers`;
+        }
+      } catch (error) {
+        errors[position] = (error as Error).message;
+      }
+    }),
+  );
+
+  return { byFantasyProsId, errors };
 }
 
 /** Fetches the cheat sheet once. AC-29 forbids any re-fetch for an attached draft. */

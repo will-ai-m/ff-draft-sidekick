@@ -73,6 +73,39 @@ describe('SnapshotStore — immutability for the attached draft (AC-29)', () => 
   });
 });
 
+describe('SnapshotStore — positional tiers (amended 2026-09-01)', () => {
+  it('joins each player\u2019s tier from their position\u2019s own page, never the overall board', async () => {
+    const counts = createRequestCounts();
+    server.use(...snapshotHandlers({ counts }));
+    const store = new SnapshotStore();
+
+    const bundle = await store.load(input());
+    const byName = new Map(bundle.matching.players.map((p) => [p.playerName, p]));
+
+    // Josh Allen: overall-board tier 3 in the fixture, positional QB Tier 1 — the join must
+    // surface the positional number.
+    expect(byName.get('Josh Allen')?.tier).toBe(1);
+    expect(byName.get('Chig Okonkwo')?.tier).toBe(3);
+    // K/DST pages are never fetched for the engine (\ud83d\udd36 AS-7): their tier is null.
+    expect(byName.get('Houston Texans')?.tier).toBeNull();
+    expect(byName.get('Brandon Aubrey')?.tier).toBeNull();
+    expect(bundle.positionalTierErrors).toEqual({});
+    expect(counts.positionalTiers).toBe(4);
+  });
+
+  it('degrades a failed tier page to null tiers for that position, and records why', async () => {
+    server.use(...snapshotHandlers({ positionalTierStatus: 502 }));
+    const store = new SnapshotStore();
+
+    const bundle = await store.load(input());
+
+    expect(bundle.matching.players.length).toBeGreaterThan(0);
+    expect(bundle.matching.players.every((p) => p.tier === null)).toBe(true);
+    expect(Object.keys(bundle.positionalTierErrors).sort()).toEqual(['QB', 'RB', 'TE', 'WR']);
+    expect(bundle.positionalTierErrors.QB).toMatch(/502/);
+  });
+});
+
 describe('SnapshotStore — degraded loads (AC-28)', () => {
   it('still returns a bundle when the ECR fetch fails, recording the error', async () => {
     server.use(...snapshotHandlers({ ecrStatus: 503 }));

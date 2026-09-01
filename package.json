@@ -19,7 +19,7 @@
     "prep:nflverse": "tsx packages/server/scripts/prep-nflverse-data.ts",
     "trace:report": "tsx packages/server/scripts/trace-report.ts",
     "trace:calibrate": "tsx packages/server/scripts/trace-calibrate.ts",
-    "ecr:tiers": "tsx packages/server/scripts/ecr-tiers.ts",
+    "tiers:positional": "tsx packages/server/scripts/positional-tiers.ts",
     "test": "vitest run",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p packages/shared/tsconfig.json && tsc --noEmit -p packages/server/tsconfig.json && tsc --noEmit -p packages/web/tsconfig.json"

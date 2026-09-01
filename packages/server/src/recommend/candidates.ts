@@ -182,7 +182,8 @@ export interface CandidatePlayer {
    */
   ecrRank: number | null;
   positionalRank: number | null;
-  /** FantasyPros overall-board tier (FR-4); null on an untiered or ADP-only row. */
+  /** The player's positional tier (FR-4, amended 2026-09-01); null when their position's
+   *  tier page was unavailable, and always null on ADP-only and K/DST rows. */
   tier: number | null;
   adp: number | null;
 }

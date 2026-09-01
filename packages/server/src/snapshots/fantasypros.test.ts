@@ -7,7 +7,7 @@ import {
   ecrFixtureHtml,
   snapshotHandlers,
 } from '../../test/msw/snapshotHandlers';
-import { fetchEcrSnapshot, parseEcrHtml, snapshotHasKickersAndDefenses } from './fantasypros';
+import { fetchEcrSnapshot, parseEcrHtml, snapshotHasKickersAndDefenses , FANTASYPROS_POSITIONAL_TIER_URLS, fetchPositionalTiers } from './fantasypros';
 
 const server = setupServer(...snapshotHandlers());
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
@@ -102,5 +102,90 @@ describe('fetchEcrSnapshot', () => {
   it('throws on a non-200 response so the caller can fall back to "no rankings loaded" (AC-28)', async () => {
     server.use(...snapshotHandlers({ ecrStatus: 503 }));
     await expect(fetchEcrSnapshot()).rejects.toThrow(/503/);
+  });
+});
+
+describe('fetchPositionalTiers (amended 2026-09-01)', () => {
+  const page = (players: Record<string, unknown>[]): string =>
+    `<html><body><script>var ecrData = ${JSON.stringify({ scoring: 'HALF', players })};</script></body></html>`;
+
+  const row = (id: number, name: string, position: string, rank: number, tier: number | null) => ({
+    player_id: id,
+    player_name: name,
+    player_position_id: position,
+    rank_ecr: rank,
+    pos_rank: `${position}${rank}`,
+    tier,
+  });
+
+  const stub = (bodies: Partial<Record<string, string | Error>>): typeof fetch =>
+    (async (url: unknown) => {
+      const body = bodies[String(url)];
+      if (body instanceof Error) throw body;
+      if (body === undefined) return new Response(null, { status: 404 });
+      return new Response(body, { status: 200 });
+    }) as typeof fetch;
+
+  it('joins tiers by FantasyPros id across all four pages', async () => {
+    const tiers = await fetchPositionalTiers({
+      fetchImpl: stub({
+        [FANTASYPROS_POSITIONAL_TIER_URLS.QB]: page([row(17298, 'Josh Allen', 'QB', 1, 1)]),
+        [FANTASYPROS_POSITIONAL_TIER_URLS.RB]: page([row(22968, 'Jahmyr Gibbs', 'RB', 1, 1)]),
+        [FANTASYPROS_POSITIONAL_TIER_URLS.WR]: page([row(19788, "Ja'Marr Chase", 'WR', 1, 1)]),
+        [FANTASYPROS_POSITIONAL_TIER_URLS.TE]: page([
+          row(22955, 'Brock Bowers', 'TE', 1, 1),
+          row(23982, 'Chig Okonkwo', 'TE', 2, 3),
+        ]),
+      }),
+    });
+
+    expect(tiers.errors).toEqual({});
+    expect(tiers.byFantasyProsId.get(17298)).toBe(1);
+    expect(tiers.byFantasyProsId.get(23982)).toBe(3);
+  });
+
+  it('records a per-position error for a failed page and keeps the others', async () => {
+    const tiers = await fetchPositionalTiers({
+      fetchImpl: stub({
+        [FANTASYPROS_POSITIONAL_TIER_URLS.QB]: new Error('socket hang up'),
+        [FANTASYPROS_POSITIONAL_TIER_URLS.RB]: page([row(22968, 'Jahmyr Gibbs', 'RB', 1, 2)]),
+        [FANTASYPROS_POSITIONAL_TIER_URLS.WR]: page([row(19788, "Ja'Marr Chase", 'WR', 1, 1)]),
+        [FANTASYPROS_POSITIONAL_TIER_URLS.TE]: page([row(22955, 'Brock Bowers', 'TE', 1, 1)]),
+      }),
+    });
+
+    expect(tiers.errors.QB).toMatch(/socket hang up/);
+    expect(tiers.errors.RB).toBeUndefined();
+    expect(tiers.byFantasyProsId.get(22968)).toBe(2);
+    expect(tiers.byFantasyProsId.has(17298)).toBe(false);
+  });
+
+  it('treats a page that parses but ships no tier column as an error, not silent nulls', async () => {
+    const tiers = await fetchPositionalTiers({
+      fetchImpl: stub({
+        [FANTASYPROS_POSITIONAL_TIER_URLS.QB]: page([row(17298, 'Josh Allen', 'QB', 1, null)]),
+        [FANTASYPROS_POSITIONAL_TIER_URLS.RB]: page([row(22968, 'Jahmyr Gibbs', 'RB', 1, 1)]),
+        [FANTASYPROS_POSITIONAL_TIER_URLS.WR]: page([row(19788, "Ja'Marr Chase", 'WR', 1, 1)]),
+        [FANTASYPROS_POSITIONAL_TIER_URLS.TE]: page([row(22955, 'Brock Bowers', 'TE', 1, 1)]),
+      }),
+    });
+
+    expect(tiers.errors.QB).toMatch(/no tiers/);
+  });
+
+  it('ignores rows whose position does not match the page they came from', async () => {
+    const tiers = await fetchPositionalTiers({
+      fetchImpl: stub({
+        [FANTASYPROS_POSITIONAL_TIER_URLS.QB]: page([
+          row(17298, 'Josh Allen', 'QB', 1, 1),
+          row(22968, 'Jahmyr Gibbs', 'RB', 2, 9),
+        ]),
+        [FANTASYPROS_POSITIONAL_TIER_URLS.RB]: page([row(22968, 'Jahmyr Gibbs', 'RB', 1, 1)]),
+        [FANTASYPROS_POSITIONAL_TIER_URLS.WR]: page([row(19788, "Ja'Marr Chase", 'WR', 1, 1)]),
+        [FANTASYPROS_POSITIONAL_TIER_URLS.TE]: page([row(22955, 'Brock Bowers', 'TE', 1, 1)]),
+      }),
+    });
+
+    expect(tiers.byFantasyProsId.get(22968)).toBe(1);
   });
 });

@@ -26,9 +26,10 @@
  *    the RB curve is steep, which is also why real 1-QB rooms rarely spend a top-5 pick on a
  *    quarterback. No "no early QB" rule exists here; the curve is the rule.
  *  - **Waiting inside a tier is free; missing a tier's last member is not.** `nextValue` and the
- *    tier facts below read the same survivor matrix, so "Bowers/McBride/Loveland, then a pause
- *    before Warren" (overall tiers 2/3/3 → 4 on the 2026 board) shows up as: TE urgency spikes
- *    while the last tier-3 TE is likely to vanish, and relaxes the moment the tier breaks.
+ *    tier facts below read the same survivor matrix over FR-4's **positional** tiers (their
+ *    position page's own grouping — amended 2026-09-01), so "the elite TE run, then a pause"
+ *    shows up as: TE urgency spikes while that tier's last member is likely to vanish, and
+ *    relaxes the moment the tier breaks.
  *
  * Three things this module deliberately does not do:
  *

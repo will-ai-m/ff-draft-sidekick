@@ -10,7 +10,7 @@
 import { PARAMETER_DEFAULTS, type ParameterValues } from '@sidekick/shared';
 
 import { loadCrosswalk } from './crosswalk';
-import { fetchEcrSnapshot } from './fantasypros';
+import { fetchEcrSnapshot, fetchPositionalTiers } from './fantasypros';
 import { fetchAdpSnapshot } from './ffc';
 import { matchSnapshots } from './match';
 import type { AdpSnapshot, EcrSnapshot, SleeperPlayerRecord, SnapshotBundle } from './types';
@@ -90,7 +90,7 @@ export class SnapshotStore {
 
     // Either snapshot may fail without taking the app down: AC-28 keeps board sync, rosters
     // and the pick feed running, and a missing ADP just means ECR-order sampling (AC-26).
-    const [[ecr, ecrError], [adp, adpError]] = await Promise.all([
+    const [[ecr, ecrError], [adp, adpError], positionalTiers] = await Promise.all([
       settle<EcrSnapshot>(
         fetchEcrSnapshot({ fetchImpl: input.fetchImpl, signal: input.signal }),
       ),
@@ -103,11 +103,14 @@ export class SnapshotStore {
           signal: input.signal,
         }),
       ),
+      // Degrades per position internally (errors, never throws), so no settle() wrapper.
+      fetchPositionalTiers({ fetchImpl: input.fetchImpl, signal: input.signal }),
     ]);
 
     return Object.freeze({
       ecr,
       ecrError,
+      positionalTierErrors: positionalTiers.errors,
       adp,
       adpError,
       crosswalk,
@@ -116,6 +119,7 @@ export class SnapshotStore {
         adp,
         crosswalk,
         sleeperPlayers: input.sleeperPlayers,
+        positionalTiers: positionalTiers.byFantasyProsId,
       }),
       loadedAt: new Date().toISOString(),
     });

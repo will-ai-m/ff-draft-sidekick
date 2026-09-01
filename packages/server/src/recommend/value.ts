@@ -19,11 +19,12 @@
  *     rounds later. A superflex league (out of scope for the current slot model, which reads no
  *     `slots_super_flex`) would invert that automatically once its slots are ingested.
  *
- *  2. **FantasyPros tiers** (FR-4's `tier`, ingested since v1 but unused until now). Restricted
- *     to one position, the overall-board tiers are the expert consensus on where the dropoffs
- *     sit *this season* — the 2026 TE board's Bowers/McBride/Loveland run, then a gap to
- *     Warren, is tiers 2/3/3 → 4 verbatim. Tiers govern **timing**: the hold probability and
- *     next-tier-drop facts FR-10's reason line and AC-57's separating fact cite.
+ *  2. **FantasyPros positional tiers** (FR-4's `tier`, sourced from each position's own cheat
+ *     sheet since 2026-09-01 — the overall board's cross-position tiers are ignored). They are
+ *     the expert consensus on where each position's run pauses *this season* — the 2026 TE page
+ *     holds Bowers/McBride/Loveland/Warren as one Tier 1, where the overall board sliced them
+ *     2/3/3/4. Tiers govern **timing**: the hold probability and next-tier-drop facts FR-10's
+ *     reason line and AC-57's separating fact cite.
  *
  * **Pricing is by a player's own positional rank, shaded down; tiers time, they do not price.**
  * The first cut of this model priced every tier member at the group's mean, and the 08-31
@@ -50,7 +51,7 @@ export interface ValueModelPlayer {
   position: Position;
   /** Overall ECR rank; a null-ranked row (AC-50's ADP-only case) never enters the model. */
   ecrRank: number | null;
-  /** FantasyPros overall-board tier; null groups as a singleton tier. */
+  /** The player's positional tier (FR-4, amended 2026-09-01); null groups as a singleton tier. */
   tier: number | null;
 }
 

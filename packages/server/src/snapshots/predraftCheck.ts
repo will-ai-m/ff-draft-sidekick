@@ -207,6 +207,20 @@ export function buildPreDraftCheck(input: PreDraftCheckInput): PreDraftCheckData
     }
   }
 
+  // Positional tier pages (amended 2026-09-01) — a failed page degrades that position's tier
+  // urgency to per-player steps rather than failing the attach, and the user should know before
+  // the draft, not by noticing the reason lines went tier-less.
+  const tierFailures = Object.entries(bundle.positionalTierErrors ?? {});
+  if (tierFailures.length > 0) {
+    warnings.push({
+      code: 'positional-tiers-missing',
+      message:
+        `Positional tier page${tierFailures.length === 1 ? '' : 's'} unavailable — ` +
+        `${tierFailures.map(([position, why]) => `${position}: ${why}`).join('; ')}. ` +
+        'Tier urgency degrades to per-player steps for those positions.',
+    });
+  }
+
   // AC-28 — the explicit "no rankings loaded" state, surfaced as a warning too.
   const disabledReason = rankingsDisabledReason(bundle);
   if (disabledReason) warnings.push({ code: 'no-ecr-loaded', message: disabledReason });

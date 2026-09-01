@@ -151,6 +151,12 @@ export interface MatchedPlayer {
   /** Overall ECR rank, or null on a row the ECR snapshot does not carry at all (AC-50). */
   ecrRank: number | null;
   positionalRank: number | null;
+  /**
+   * The player's **positional** tier, from their position's own cheat sheet (amended
+   * 2026-09-01 — the overall board's cross-position tiers are ignored; the user drafts on
+   * positional runs). Null when that position's tier page was unavailable, and always null
+   * for K/DST (🔶 AS-7 — their pages are never fetched for the engine).
+   */
   tier: number | null;
   byeWeek: number | null;
   /** FFC ADP for the pool used, or null when the ADP snapshot has no row for them (AC-26). */
@@ -230,6 +236,11 @@ export interface MatchResult {
 export interface SnapshotBundle {
   ecr: EcrSnapshot | null;
   ecrError: string | null;
+  /**
+   * Positions whose positional-tier page failed, with why (amended 2026-09-01) — the pre-draft
+   * check's warning source. Empty when all four skill-position pages supplied tiers.
+   */
+  positionalTierErrors: Partial<Record<'QB' | 'RB' | 'WR' | 'TE', string>>;
   adp: AdpSnapshot | null;
   adpError: string | null;
   crosswalk: Crosswalk;

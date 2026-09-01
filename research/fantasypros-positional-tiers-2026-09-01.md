@@ -1,27 +1,11 @@
-# FantasyPros tiers — 2026-09-01
+# FantasyPros positional tiers — 2026-09-01
 
-Pulled 2026-09-01T06:46:39.764Z by `npm run ecr:tiers`. Overall board tiers plus the positional cheat sheets' own **positional** tiers — the grouping that says where each position's run pauses. The app is untouched: an attached draft keeps its attach-time snapshot (AC-29); re-attach to draft on a newer board.
-
-## Overall (half-PPR)
-
-- Source: https://www.fantasypros.com/nfl/rankings/half-point-ppr-cheatsheets.php
-- Captured: 2026-09-01T05:36:35.000Z (1.2 h old) · 941 players · scoring HALF
-
-| Tier | Players (rank) |
-|---:|---|
-| 1 | Jahmyr Gibbs DET (1), Bijan Robinson ATL (2), Ja'Marr Chase CIN (3), Puka Nacua LAR (4), Jaxon Smith-Njigba SEA (5), Amon-Ra St. Brown DET (6), Christian McCaffrey SF (7), Jonathan Taylor IND (8), CeeDee Lamb DAL (9), James Cook III BUF (10) |
-| 2 | Justin Jefferson MIN (11), Chase Brown CIN (12), A.J. Brown NE (13), Saquon Barkley PHI (14), Drake London ATL (15), De'Von Achane MIA (16), Kenneth Walker III KC (17), Omarion Hampton LAC (18), Nico Collins HOU (19), Brock Bowers LV (20), Derrick Henry BAL (21), George Pickens DAL (22), Ashton Jeanty LV (23), Chris Olave NO (24) |
-| 3 | Trey McBride ARI (25), Malik Nabers NYG (26), Josh Allen BUF (27), DeVonta Smith PHI (28), Rashee Rice KC (29), Zay Flowers BAL (30), Kyren Williams LAR (31), Javonte Williams DAL (32), Tee Higgins CIN (33), Breece Hall NYJ (34), Ladd McConkey LAC (35), Jaylen Waddle DEN (36), Tetairoa McMillan CAR (37), Garrett Wilson NYJ (38), Jeremiyah Love ARI (39), Colston Loveland CHI (40), Lamar Jackson BAL (41), Emeka Egbuka TB (42) |
-| 4 | Travis Etienne Jr. NO (43), Drake Maye NE (44), D'Andre Swift CHI (45), Luther Burden III CHI (46), Terry McLaurin WAS (47), Davante Adams LAR (48), Joe Burrow CIN (49), Jameson Williams DET (50), Bucky Irving TB (51), Tyler Warren IND (52), Cam Skattebo NYG (53), David Montgomery HOU (54), DJ Moore BUF (55), Quinshon Judkins CLE (56), Christian Watson GB (57), Rome Odunze CHI (58), Bhayshul Tuten JAX (59), Jadarian Price SEA (60), Mike Evans SF (61), Jayden Daniels WAS (62), Jalen Hurts PHI (63), Parker Washington JAX (64) |
-| 5 | TreVeyon Henderson NE (65), Caleb Williams CHI (66), Rhamondre Stevenson NE (67), Tucker Kraft GB (68), Marvin Harrison Jr. ARI (69), Justin Herbert LAC (70), Jaylen Warren PIT (71), Carnell Tate TEN (72), Trevor Lawrence JAX (73), Tony Pollard TEN (74), Dak Prescott DAL (75), Jonathon Brooks CAR (76), Brian Thomas Jr. JAX (77), DK Metcalf PIT (78), Rico Dowdle PIT (79), Chris Godwin Jr. TB (80), Harold Fannin Jr. CLE (81), Sam LaPorta DET (82), Kyle Pitts Sr. ATL (83), Courtland Sutton DEN (84), Quentin Johnston LAC (85), Michael Pittman Jr. PIT (86), J.K. Dobbins DEN (87), MarShawn Lloyd GB (88), Blake Corum LAR (89), Michael Wilson ARI (90) |
-| 6 | George Kittle SF (91), Alec Pierce IND (92), Josh Downs IND (93), Brock Purdy SF (94), Chuba Hubbard CAR (95), Stefon Diggs WAS (96), Bo Nix DEN (97), Jaxson Dart NYG (98), RJ Harvey DEN (99), Wan'Dale Robinson TEN (100), Jordan Mason MIN (101), Jacory Croskey-Merritt WAS (102), Travis Kelce KC (103), Patrick Mahomes II KC (104), Kenny Gainwell TB (105), Jayden Reed GB (106), Jordan Addison MIN (107), Jared Goff DET (108), Dalton Kincaid BUF (109), Matthew Stafford LAR (110), Kyle Monangai CHI (111), Rachaad White WAS (112), Makai Lemon PHI (113), Jakobi Meyers JAX (114), Dallas Goedert PHI (115), KC Concepcion CLE (116), Aaron Jones Sr. MIN (117), Isaiah Likely NYG (118), Jordan Love GB (119), Jake Ferguson DAL (120), Baker Mayfield TB (121), Chris Rodriguez Jr. JAX (122), Kyler Murray MIN (123), Romeo Doubs NE (124), Matthew Golden GB (125), Xavier Worthy KC (126), Mark Andrews BAL (127), Jalen Coker CAR (128), Woody Marks HOU (129), Tyler Allgeier ARI (130), Tyler Shough NO (131), Khalil Shakir BUF (132) |
-
-_Truncated after the tier containing rank 120 (last shown: Khalil Shakir, rank 132)._
+Pulled 2026-09-01T06:59:15.604Z by `npm run tiers:positional`. Each position page's own **positional** tiers — the grouping that says where the run at that position pauses. The QB/RB/WR/TE pages are the same ones the app ingests at attach for tier urgency; an attached draft keeps its attach-time snapshot (AC-29), so detach → re-attach to draft on a newer board.
 
 ## QB
 
 - Source: https://www.fantasypros.com/nfl/rankings/qb-cheatsheets.php
-- Captured: 2026-09-01T05:36:36.000Z (1.2 h old) · 105 players · scoring STD
+- Captured: 2026-09-01T05:36:36.000Z (1.4 h old) · 105 players · scoring STD
 
 | Tier | Players (rank) |
 |---:|---|
@@ -38,7 +22,7 @@ _Truncated after the tier containing rank 60 (last shown: Andy Dalton, rank 68).
 ## RB (half-PPR)
 
 - Source: https://www.fantasypros.com/nfl/rankings/half-point-ppr-rb-cheatsheets.php
-- Captured: 2026-09-01T05:36:35.000Z (1.2 h old) · 246 players · scoring HALF
+- Captured: 2026-09-01T05:36:35.000Z (1.4 h old) · 246 players · scoring HALF
 
 | Tier | Players (rank) |
 |---:|---|
@@ -55,7 +39,7 @@ _Truncated after the tier containing rank 60 (last shown: Malik Davis, rank 69).
 ## WR (half-PPR)
 
 - Source: https://www.fantasypros.com/nfl/rankings/half-point-ppr-wr-cheatsheets.php
-- Captured: 2026-09-01T05:36:35.000Z (1.2 h old) · 380 players · scoring HALF
+- Captured: 2026-09-01T05:36:35.000Z (1.4 h old) · 380 players · scoring HALF
 
 | Tier | Players (rank) |
 |---:|---|
@@ -71,7 +55,7 @@ _Truncated after the tier containing rank 60 (last shown: Kayshon Boutte, rank 6
 ## TE (half-PPR)
 
 - Source: https://www.fantasypros.com/nfl/rankings/half-point-ppr-te-cheatsheets.php
-- Captured: 2026-09-01T05:36:35.000Z (1.2 h old) · 211 players · scoring HALF
+- Captured: 2026-09-01T05:36:35.000Z (1.4 h old) · 211 players · scoring HALF
 
 | Tier | Players (rank) |
 |---:|---|
@@ -88,7 +72,7 @@ _Truncated after the tier containing rank 60 (last shown: Jonnu Smith, rank 69).
 ## DST
 
 - Source: https://www.fantasypros.com/nfl/rankings/dst-cheatsheets.php
-- Captured: 2026-09-01T03:31:03.000Z (3.3 h old) · 32 players · scoring STD
+- Captured: 2026-09-01T03:31:03.000Z (3.5 h old) · 32 players · scoring STD
 
 | Tier | Players (rank) |
 |---:|---|
@@ -101,7 +85,7 @@ _Truncated after the tier containing rank 60 (last shown: Jonnu Smith, rank 69).
 ## K
 
 - Source: https://www.fantasypros.com/nfl/rankings/k-cheatsheets.php
-- Captured: 2026-09-01T03:22:40.000Z (3.4 h old) · 44 players · scoring STD
+- Captured: 2026-09-01T03:22:40.000Z (3.6 h old) · 44 players · scoring STD
 
 | Tier | Players (rank) |
 |---:|---|

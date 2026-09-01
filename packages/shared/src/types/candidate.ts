@@ -29,9 +29,10 @@ export interface CandidateRow {
   /** FantasyPros positional rank, e.g. the numeric part of "RB1". */
   positionalRank: number | null;
   /**
-   * FantasyPros' overall-board tier (FR-4; surfaced 2026-08-31). Restricted to one position this
-   * is the tier structure FR-10's dropoff model reads — e.g. the 2026 TE board's Bowers/McBride/
-   * Loveland run followed by a gap to Warren. Null on an ADP-only row or an untiered entry.
+   * The player's **positional** tier, from their position's own FantasyPros cheat sheet (FR-4,
+   * amended 2026-09-01 — the overall board's cross-position tiers are ignored). This is the
+   * structure FR-10's dropoff model reads: the 2026 TE page holds Bowers/McBride/Loveland/Warren
+   * as one Tier 1. Null on an ADP-only row, on K/DST, or when the position's tier page failed.
    */
   tier: number | null;
   /** FFC ADP for the league's team-count pool; null when the player has no ADP entry (AC-26). */

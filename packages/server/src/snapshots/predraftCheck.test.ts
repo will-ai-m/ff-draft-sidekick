@@ -38,6 +38,7 @@ const makeBundle = (overrides: Partial<SnapshotBundle> = {}): SnapshotBundle => 
   const base: SnapshotBundle = {
     ecr,
     ecrError: null,
+    positionalTierErrors: {},
     adp,
     adpError: null,
     crosswalk,
@@ -295,5 +296,23 @@ describe('no ECR snapshot loaded (AC-28)', () => {
 
   it('leaves the disabled reason null when rankings did load, so sync-only surfaces stay on', () => {
     expect(rankingsDisabledReason(makeBundle())).toBeNull();
+  });
+});
+
+describe('positional tier degradation (amended 2026-09-01)', () => {
+  it('warns, naming each failed position and why', () => {
+    const check = build({
+      ...makeBundle(),
+      positionalTierErrors: { QB: 'HTTP 502', TE: 'no tiers' },
+    });
+
+    const warning = check.warnings.find((w) => w.code === 'positional-tiers-missing');
+    expect(warning?.message).toMatch(/QB: HTTP 502/);
+    expect(warning?.message).toMatch(/TE: no tiers/);
+    expect(warning?.message).toMatch(/per-player steps/);
+  });
+
+  it('stays silent when every tier page answered', () => {
+    expect(codes(makeBundle())).not.toContain('positional-tiers-missing');
   });
 });
