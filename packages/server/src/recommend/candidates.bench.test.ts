@@ -90,8 +90,18 @@ describe('benchPlanPositions', () => {
       'WR',
       'TE',
     ]);
-    // One QB is under the cap, so a backup QB is still a legitimate bench pick.
+  });
+
+  it('gates a backup QB until every FLEX-eligible position has one (amended 2026-08-31)', () => {
+    // Under the cap but RB and TE carry no backup yet: a spare QB can never start weekly in a
+    // 1-QB lineup, so FLEX depth comes first — rehearsal #7's Lawrence/Purdy regression.
     expect(benchPlanPositions(bench({ QB: 1, RB: 2, WR: 6, TE: 1 }), cfg())).toEqual([
+      'RB',
+      'WR',
+      'TE',
+    ]);
+    // Every FLEX position has a backup: one QB2 becomes a legitimate bench pick again.
+    expect(benchPlanPositions(bench({ QB: 1, RB: 3, WR: 3, TE: 2 }), cfg())).toEqual([
       'QB',
       'RB',
       'WR',
@@ -103,7 +113,7 @@ describe('benchPlanPositions', () => {
     // A 2-QB league caps at 3 — the cap is slot arithmetic, never a hardcoded league shape.
     const twoQb: SlotConfig = { ...SLOTS, QB: 2 };
     expect(
-      benchPlanPositions({ rosterCounts: { QB: 2 }, slots: twoQb }, cfg()),
+      benchPlanPositions({ rosterCounts: { QB: 2, RB: 3, WR: 3, TE: 2 }, slots: twoQb }, cfg()),
     ).toContain('QB');
   });
 });
@@ -137,10 +147,21 @@ describe('the bench phase (FR-9/FR-10 amendment)', () => {
     expect(list.reason).toMatch(/Kenny Gainwell \(ECR 106\) over Josh Downs \(WR\)/);
   });
 
-  it('still allows a backup QB while the roster is under the cap', () => {
+  it('holds a backup QB behind FLEX depth, and says so (amended 2026-08-31)', () => {
+    // QB count 1 is under the cap, but RB and TE have no backup: the flex-first gate keeps
+    // Purdy out of the pool and the redirect names the gate, not a phantom cap.
     const list = compute(bench({ QB: 1, RB: 2, WR: 4, TE: 1 }));
 
-    // QB count 1 < cap 2: Purdy is a legitimate QB2 recommendation, by the ordinary ladder.
+    expect(list.highlightPlayerId).toBe('rb1');
+    expect(list.reasonKind).toBe('bench-depth');
+    expect(list.reason).toMatch(/Brock Purdy \(QB\) leads the board/);
+    expect(list.reason).toMatch(/a backup QB can wait until every FLEX-eligible position has one/);
+  });
+
+  it('allows one backup QB once every FLEX-eligible position is covered', () => {
+    const list = compute(bench({ QB: 1, RB: 3, WR: 4, TE: 2 }));
+
+    // Flex covered, QB depth 0 is genuinely the open bench hole: Purdy by the ordinary ladder.
     expect(list.highlightPlayerId).toBe('qb3');
     expect(list.reasonKind).not.toBe('bench-depth');
   });

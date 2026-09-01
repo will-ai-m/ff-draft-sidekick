@@ -304,6 +304,24 @@ describe('the highlight and its one-line reason (AC-51, AC-52, AC-56, AC-58, AC-
     expect(list.reason).toContain("better-consensus player now: Ja'Marr Chase (ECR 2)");
   });
 
+  it('breaks a near-tie toward the FLEX-eligible pick over a single-slot position (AC-58, rehearsal #7)', () => {
+    // The Drake Maye regression in miniature: the open QB slot and the flex WR tie at 40 once
+    // every slot is horizon-priced (the late QB pool dries at pick 50, so QB-now plans stop
+    // gaining), and a dedicated-slot-only rule would promote the QB — the one pick that can
+    // never start anywhere else. FLEX-eligibility outranks the dedicated-slot preference.
+    const list = listOf({
+      needVector: need({ QB: 1, WR: 1 / 3 }),
+      survival: twice(['qb1', 'qb2', 'wr1', 'wr4', 'rb1', 'rb4', 'te1', 'te2']),
+      unfilledDedicatedSlots: { QB: 1, WR: 0 },
+      unfilledFlexSlots: 1,
+      futureUserPickNos: [20, 50],
+    });
+    expect(list.highlightPlayerId).toBe('wr1');
+    expect(list.reason).toContain(
+      "keeping the pick FLEX-eligible: Ja'Marr Chase (WR, ECR 2)",
+    );
+  });
+
   it('breaks a near-tie toward the now-pick that fills a dedicated starting slot (AC-58, round-6 directive)', () => {
     // Both anchors survive and the plans tie at 38: (RB,WR) wins the enumeration order, but its
     // RB is a FLEX-only pick (no dedicated RB slot open) while the runner-up's WR fills the

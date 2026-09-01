@@ -85,19 +85,28 @@ export interface BenchPhaseInput {
  * AC-54's "positions the user still needs", which runs dry at the no-need sentinel.
  *
  * A FLEX-eligible position always qualifies: its depth starts games. A non-FLEX position (QB in
- * a 1-QB league) has a weekly ceiling, so it stops qualifying once the roster holds
- * `starting slots + 🔶 benchPositionHeadroom` of it. Born from the 08-27 rehearsal, where the
- * no-need→raw-ECR regime — amplified by AS-8's QB-vs-market ECR skew reading as "value" pick
- * after pick — recommended QB3 through QB6 while the bench held two running backs.
+ * a 1-QB league) has a weekly ceiling, so it qualifies only while the roster holds fewer than
+ * `starting slots + 🔶 benchPositionHeadroom` of it **and** every FLEX-eligible position already
+ * carries at least one backup (the flex-first gate, amended 2026-08-31). Born from the 08-27
+ * rehearsal, where the no-need→raw-ECR regime — amplified by AS-8's QB-vs-market ECR skew
+ * reading as "value" pick after pick — recommended QB3 through QB6 while the bench held two
+ * running backs; the gate closes the residue rehearsal #7 exposed, where the thinnest-position
+ * rule read "no backup QB" as the neediest bench hole and pitched Lawrence and Purdy while a
+ * 1-QB roster's spare starts could only ever come through FLEX.
  */
 export function benchPlanPositions(
   bench: BenchPhaseInput,
   config: Pick<CandidateListConfig, 'benchPositionHeadroom' | 'flexEligiblePositions'>,
 ): SkillPosition[] {
+  const depth = (position: SkillPosition): number =>
+    Math.max(0, (bench.rosterCounts[position] ?? 0) - bench.slots[position]);
+  const flexCovered = config.flexEligiblePositions.every((position) => depth(position) >= 1);
+
   return SKILL_POSITIONS.filter(
     (position) =>
       config.flexEligiblePositions.includes(position) ||
-      (bench.rosterCounts[position] ?? 0) < bench.slots[position] + config.benchPositionHeadroom,
+      (flexCovered &&
+        (bench.rosterCounts[position] ?? 0) < bench.slots[position] + config.benchPositionHeadroom),
   );
 }
 
@@ -377,6 +386,8 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
   let benchThinnest: { depth: number; passedOver: RankedCandidate } | null = null;
   /** AC-58 only: the near-tie was separated by an unfilled dedicated slot, not by consensus. */
   let tieBrokenByNeed = false;
+  /** AC-58 only: the near-tie was separated by FLEX-eligibility over a single-slot position. */
+  let tieBrokenByFlex = false;
 
   if (allowed !== null && input.benchPhase != null) {
     // Bench phase (amended 2026-08-28): the roster's thinnest position wins the highlight, ECR
@@ -403,15 +414,19 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
     }
   } else if (comparison.winner !== null) {
     // AC-58 (amended 2026-08-31): totals this close cannot separate the plans, so present-tense
-    // facts do it instead, over **every plan inside the band** — a now-pick that fills an
-    // unfilled dedicated starting slot beats one that only flexes ("optimize what's out there
-    // against what I need", the round-6 directive), then the better-ECR player ("take the
-    // consensus"). The band matters: rehearsal #6's mid-rounds tied two flex-RB plans at the
-    // top with the WR-need plan 0.1 behind them, and a top-two-only tiebreak never saw it. The
-    // 08-31 rehearsal is why the consensus rule is stated player-first: the old rank-delta
-    // reading sent Josh Allen out at pick 1. The shown comparison still reports the real winner.
+    // facts do it instead, over **every plan inside the band** — a now-pick at a FLEX-eligible
+    // position beats one at a single-slot position (rehearsal #7: with the totals flat, a
+    // dedicated-slot rule alone promoted Drake Maye at pick 46 — the QB slot was the only
+    // dedicated hole, yet QB is the one position whose pick can never start anywhere else and
+    // whose deferral the flat curve makes cheap), then a now-pick filling an unfilled dedicated
+    // starting slot beats one that only flexes (the round-6 directive), then the better-ECR
+    // player ("take the consensus"). The band matters: rehearsal #6's mid-rounds tied two
+    // flex-RB plans at the top with the WR-need plan 0.1 behind them, invisible to a
+    // top-two-only rule. The shown comparison still reports the real winner.
     let chosen = comparison.winner;
     if (comparison.tooClose && (comparison.contenders?.length ?? 0) > 1) {
+      const flexEligible = (position: SkillPosition): boolean =>
+        config.flexEligiblePositions.includes(position);
       const fillsDedicated = (position: SkillPosition): boolean =>
         (input.unfilledDedicatedSlots?.[position] ?? 0) > 0;
       const ranked = [...(comparison.contenders ?? [])]
@@ -419,6 +434,7 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
         .filter((entry) => entry.now !== undefined)
         .sort(
           (a, b) =>
+            Number(flexEligible(b.plan.nowPosition)) - Number(flexEligible(a.plan.nowPosition)) ||
             Number(fillsDedicated(b.plan.nowPosition)) -
               Number(fillsDedicated(a.plan.nowPosition)) ||
             a.now!.ecrRank - b.now!.ecrRank,
@@ -426,7 +442,11 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
       const top = ranked[0];
       if (top !== undefined) {
         chosen = top.plan;
+        tieBrokenByFlex =
+          flexEligible(top.plan.nowPosition) &&
+          ranked.some((entry) => !flexEligible(entry.plan.nowPosition));
         tieBrokenByNeed =
+          !tieBrokenByFlex &&
           fillsDedicated(top.plan.nowPosition) &&
           ranked.some((entry) => !fillsDedicated(entry.plan.nowPosition));
       }
@@ -457,11 +477,18 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
     const count = input.benchPhase?.rosterCounts[rawTop.position] ?? 0;
     const starts = input.benchPhase?.slots[rawTop.position] ?? 0;
     reasonKind = 'bench-depth';
-    baseClause =
-      `Roster balance: ${rawTop.playerName} (${rawTop.position}) leads the board, but you ` +
-      `already carry ${count} ${rawTop.position}${count === 1 ? '' : 's'} for ` +
-      `${starts} starting slot${starts === 1 ? '' : 's'} — ` +
-      `${highlight.playerName} (${highlight.position}) is the best pick that still adds depth.`;
+    // Two ways a position leaves the bench pool: it hit its roster cap, or the flex-first gate
+    // holds it back while a FLEX-eligible position still has no backup. Say which.
+    const gated = count < starts + config.benchPositionHeadroom;
+    baseClause = gated
+      ? `Roster balance: ${rawTop.playerName} (${rawTop.position}) leads the board, but a backup ` +
+        `${rawTop.position} can wait until every FLEX-eligible position has one — ` +
+        `${highlight.playerName} (${highlight.position}) is the best pick that still adds ` +
+        `startable depth.`
+      : `Roster balance: ${rawTop.playerName} (${rawTop.position}) leads the board, but you ` +
+        `already carry ${count} ${rawTop.position}${count === 1 ? '' : 's'} for ` +
+        `${starts} starting slot${starts === 1 ? '' : 's'} — ` +
+        `${highlight.playerName} (${highlight.position}) is the best pick that still adds depth.`;
   } else if (benchThinnest !== null) {
     const depthNote =
       benchThinnest.depth === 0
@@ -541,9 +568,11 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
   }
 
   if (comparison.tooClose && comparison.winner !== null && comparison.runnerUp !== null) {
-    const separator = tieBrokenByNeed
-      ? `taking the pick that still fills a starting slot: ${highlight.playerName} (${highlight.position}, ECR ${highlight.ecrRank})`
-      : `taking the better-consensus player now: ${highlight.playerName} (ECR ${highlight.ecrRank})`;
+    const separator = tieBrokenByFlex
+      ? `keeping the pick FLEX-eligible: ${highlight.playerName} (${highlight.position}, ECR ${highlight.ecrRank})`
+      : tieBrokenByNeed
+        ? `taking the pick that still fills a starting slot: ${highlight.playerName} (${highlight.position}, ECR ${highlight.ecrRank})`
+        : `taking the better-consensus player now: ${highlight.playerName} (ECR ${highlight.ecrRank})`;
     tieClauses.push(
       `Plan totals within ${config.planTotalTooClosePoints} proj pts ` +
         `(${formatNumber(comparison.winner.score)} vs ${formatNumber(comparison.runnerUp.score)}) — ` +
