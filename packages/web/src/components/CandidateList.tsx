@@ -80,7 +80,7 @@ const REASON_EXPLANATIONS: Readonly<Record<HighlightReasonKind, string>> = {
 };
 
 const QB_POLICY =
-  'In a 1-QB league, QB2 is blocked until RB, WR and TE each have at least one backup. It may then become eligible as bench insurance, but QB3 and beyond are blocked by the roster cap. The cap scales with leagues that start multiple QBs.';
+  'In a 1-QB league, QB2 is blocked until RB, WR and TE each have at least one backup. It may then become eligible as bench insurance, but QB3 and beyond are blocked by the roster cap. Bench value is measured above the league-size replacement line using this league’s scoring, so streamable QBs are discounted.';
 
 const emptyMessage = (filter: Position | null): string =>
   filter === null

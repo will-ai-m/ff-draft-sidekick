@@ -78,6 +78,36 @@ export type EndgameKdstConfig = Pick<ParameterValues, 'endgameKdstBufferPicks'>;
 export interface BenchPhaseInput {
   rosterCounts: Partial<Record<Position, number>>;
   slots: SlotConfig;
+  /** League size sets the waiver/replacement line for bench-value pricing. */
+  teamCount?: number;
+}
+
+/**
+ * First player beyond the league-wide starting demand at each skill position.
+ *
+ * FLEX demand is divided evenly across its eligible positions. This is deliberately a market
+ * baseline, not a roster cap: a TE may legally start at FLEX, but in a 10-team league TE18's
+ * league-scored production is the relevant cost of streaming instead of carrying another one.
+ */
+export function benchReplacementRanks(
+  bench: BenchPhaseInput,
+  config: Pick<CandidateListConfig, 'flexEligiblePositions'>,
+): Partial<Record<SkillPosition, number>> | undefined {
+  if (bench.teamCount === undefined || bench.teamCount <= 0) return undefined;
+  const teamCount = bench.teamCount;
+  const flexShare =
+    config.flexEligiblePositions.length === 0
+      ? 0
+      : bench.slots.FLEX / config.flexEligiblePositions.length;
+
+  return Object.fromEntries(
+    SKILL_POSITIONS.map((position) => {
+      const startersPerTeam =
+        bench.slots[position] +
+        (config.flexEligiblePositions.includes(position) ? flexShare : 0);
+      return [position, Math.ceil(teamCount * startersPerTeam) + 1];
+    }),
+  );
 }
 
 /**
@@ -341,6 +371,26 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
     input.needVector === NO_NEED_SIGNAL && input.benchPhase != null
       ? benchPlanPositions(input.benchPhase, config)
       : null;
+  const benchPickCapacity =
+    benchPositions === null || input.benchPhase === null || input.benchPhase === undefined
+      ? undefined
+      : Object.fromEntries(
+          SKILL_POSITIONS.map((position) => [
+            position,
+            config.flexEligiblePositions.includes(position)
+              ? Number.POSITIVE_INFINITY
+              : Math.max(
+                  0,
+                  input.benchPhase!.slots[position] +
+                    config.benchPositionHeadroom -
+                    (input.benchPhase!.rosterCounts[position] ?? 0),
+                ),
+          ]),
+        );
+  const replacementRanks =
+    benchPositions === null || input.benchPhase == null
+      ? undefined
+      : benchReplacementRanks(input.benchPhase, config);
   const allowed = benchPositions === null ? null : new Set<Position>(benchPositions);
   const pool =
     allowed === null ? available : available.filter((player) => allowed.has(player.position));
@@ -354,6 +404,8 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
     userRemainingPicks: input.userRemainingPicks,
     config,
     ...(benchPositions === null ? {} : { benchPositions }),
+    ...(benchPickCapacity === undefined ? {} : { benchPickCapacity }),
+    ...(replacementRanks === undefined ? {} : { replacementRanks }),
     ...(input.unfilledDedicatedSlots === undefined
       ? {}
       : { unfilledDedicatedSlots: input.unfilledDedicatedSlots }),
@@ -384,32 +436,47 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
   let highlight: RankedCandidate = topEcr;
   /** Bench phase only: the thinnest-position rule moved the highlight; what the reason needs. */
   let benchThinnest: { depth: number; passedOver: RankedCandidate } | null = null;
+  /** Bench phase with scoring data: the replacement-adjusted plan moved the highlight. */
+  let benchValueChoice: { passedOver: RankedCandidate; replacementRank: number | null } | null =
+    null;
   /** AC-58 only: the near-tie was separated by an unfilled dedicated slot, not by consensus. */
   let tieBrokenByNeed = false;
   /** AC-58 only: the near-tie was separated by FLEX-eligibility over a single-slot position. */
   let tieBrokenByFlex = false;
 
   if (allowed !== null && input.benchPhase != null) {
-    // Bench phase (amended 2026-08-28): the roster's thinnest position wins the highlight, ECR
-    // picks the player within it. Rehearsal #3 showed why ECR cannot pick the *position* here —
-    // it bought WR7 and WR8 for a two-RB roster, because WR ECR ranks beat RB ECR ranks at
-    // every bench turn. Depth = bodies behind the dedicated starters; FLEX is shared, so it is
-    // deliberately no position's credit.
-    const counts = input.benchPhase.rosterCounts;
-    const slots = input.benchPhase.slots;
-    const thinnestFirst = (benchPositions ?? [])
-      .filter((position) => best.has(position))
-      .map((position) => ({
-        position,
-        depth: Math.max(0, (counts[position] ?? 0) - slots[position]),
-        player: best.get(position)!,
-      }))
-      .sort((a, b) => a.depth - b.depth || a.player.ecrRank - b.player.ecrRank);
-    const thinnest = thinnestFirst[0];
-    if (thinnest !== undefined) {
-      highlight = thinnest.player;
-      if (thinnest.player.sleeperPlayerId !== topEcr.sleeperPlayerId) {
-        benchThinnest = { depth: thinnest.depth, passedOver: topEcr };
+    // With a value model, the league-size/scoring-adjusted plan chooses the position; without
+    // one, the established thinnest-position fallback still prevents raw ECR from piling onto
+    // one bench position. In either path ECR chooses the player within the chosen position.
+    const plannedPosition = comparison.winner?.nowPosition;
+    const plannedPlayer = plannedPosition === undefined ? undefined : best.get(plannedPosition);
+    if (plannedPosition !== undefined && plannedPlayer !== undefined) {
+      highlight = plannedPlayer;
+      if (plannedPlayer.sleeperPlayerId !== topEcr.sleeperPlayerId) {
+        benchValueChoice = {
+          passedOver: topEcr,
+          replacementRank: replacementRanks?.[plannedPosition] ?? null,
+        };
+      }
+    } else {
+      // No league-scored value model: keep the established roster-balance fallback rather than
+      // silently reverting to raw ECR, but do not claim it is replacement-adjusted.
+      const counts = input.benchPhase.rosterCounts;
+      const slots = input.benchPhase.slots;
+      const thinnestFirst = (benchPositions ?? [])
+        .filter((position) => best.has(position))
+        .map((position) => ({
+          position,
+          depth: Math.max(0, (counts[position] ?? 0) - slots[position]),
+          player: best.get(position)!,
+        }))
+        .sort((a, b) => a.depth - b.depth || a.player.ecrRank - b.player.ecrRank);
+      const thinnest = thinnestFirst[0];
+      if (thinnest !== undefined) {
+        highlight = thinnest.player;
+        if (thinnest.player.sleeperPlayerId !== topEcr.sleeperPlayerId) {
+          benchThinnest = { depth: thinnest.depth, passedOver: topEcr };
+        }
       }
     }
   } else if (comparison.winner !== null) {
@@ -489,6 +556,22 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
         `already carry ${count} ${rawTop.position}${count === 1 ? '' : 's'} for ` +
         `${starts} starting slot${starts === 1 ? '' : 's'} — ` +
         `${highlight.playerName} (${highlight.position}) is the best pick that still adds depth.`;
+  } else if (benchValueChoice !== null) {
+    const winner = comparison.winner!;
+    const runnerUp = comparison.runnerUp;
+    const comparisonText =
+      runnerUp === null
+        ? `${formatNumber(winner.score)} points above replacement`
+        : `${formatNumber(winner.score)} vs ${formatNumber(runnerUp.score)} points above replacement`;
+    const replacementText =
+      benchValueChoice.replacementRank === null
+        ? ''
+        : ` against the ${highlight.position}${benchValueChoice.replacementRank} league replacement line`;
+    reasonKind = 'bench-depth';
+    baseClause =
+      `Bench value: ${highlight.playerName} (${highlight.position}) leads the league-scored plan ` +
+      `${comparisonText}${replacementText} — over ` +
+      `${benchValueChoice.passedOver.playerName} (${benchValueChoice.passedOver.position}).`;
   } else if (benchThinnest !== null) {
     const depthNote =
       benchThinnest.depth === 0
@@ -546,7 +629,7 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
   // candidate" a tie line would name must itself come from positions the bench phase allows.
   const tieClauses: string[] = [];
   const other =
-    redirected || benchThinnest !== null
+    redirected || benchThinnest !== null || benchValueChoice !== null
       ? null
       : (pool.find((player) => player.position !== highlight.position) ?? null);
   const highlightSurvival = survivalOf(survival, highlight);
@@ -567,7 +650,12 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
     );
   }
 
-  if (comparison.tooClose && comparison.winner !== null && comparison.runnerUp !== null) {
+  if (
+    benchValueChoice === null &&
+    comparison.tooClose &&
+    comparison.winner !== null &&
+    comparison.runnerUp !== null
+  ) {
     const separator = tieBrokenByFlex
       ? `keeping the pick FLEX-eligible: ${highlight.playerName} (${highlight.position}, ECR ${highlight.ecrRank})`
       : tieBrokenByNeed

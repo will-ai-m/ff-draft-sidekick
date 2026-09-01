@@ -12,8 +12,10 @@ import { NO_NEED_SIGNAL, PARAMETER_DEFAULTS } from '@sidekick/shared';
 import type { SlotConfig } from '@sidekick/shared';
 import { describe, expect, it } from 'vitest';
 
-import { benchPlanPositions, computeCandidateList } from './candidates';
+import { benchPlanPositions, benchReplacementRanks, computeCandidateList } from './candidates';
 import type { BenchPhaseInput, CandidatePlayer, CandidateListConfig } from './candidates';
+import type { SurvivalProjection } from '../simulation/montecarlo';
+import type { PlayerValueModel } from './value';
 
 const cfg = (overrides: Partial<CandidateListConfig> = {}): CandidateListConfig => ({
   candidateListDefaultRows: PARAMETER_DEFAULTS.candidateListDefaultRows,
@@ -61,6 +63,7 @@ const BOARD_AT_108: CandidatePlayer[] = [
 const bench = (rosterCounts: BenchPhaseInput['rosterCounts']): BenchPhaseInput => ({
   rosterCounts,
   slots: SLOTS,
+  teamCount: 10,
 });
 
 const compute = (benchPhase: BenchPhaseInput | null, players = BOARD_AT_108) =>
@@ -118,7 +121,90 @@ describe('benchPlanPositions', () => {
   });
 });
 
+describe('bench replacement ranks', () => {
+  it('uses league size, dedicated starters and an even share of FLEX demand', () => {
+    expect(benchReplacementRanks(bench({}), cfg())).toEqual({
+      QB: 11,
+      RB: 28,
+      WR: 28,
+      TE: 18,
+    });
+  });
+});
+
 describe('the bench phase (FR-9/FR-10 amendment)', () => {
+  it('uses league-scored value above replacement instead of recommending QB2 as the thinnest bench hole', () => {
+    const players = [
+      player('qb2', 'Trevor Lawrence', 'QB', 74, 85),
+      player('rb4', 'Jonathon Brooks', 'RB', 75, 92),
+      player('wr4', 'Bench Receiver', 'WR', 76, 93),
+      player('te3', 'Bench Tightend', 'TE', 77, 95),
+    ];
+    const points = new Map([
+      ['qb2', 16.5],
+      ['rb4', 13],
+      ['wr4', 12],
+      ['te3', 9],
+    ]);
+    const valueModel: PlayerValueModel = {
+      pointsByPlayerId: points,
+      tierGroupByPlayerId: new Map(),
+      tierGroupsByPosition: { QB: [], RB: [], WR: [], TE: [] },
+      valueAt: (position) => ({ QB: 16, RB: 8, WR: 9, TE: 8 })[position],
+    };
+    const universe = players.map((p, index) => ({
+      sleeperPlayerId: p.sleeperPlayerId,
+      position: p.position as 'QB' | 'RB' | 'WR' | 'TE',
+      ecrRank: p.ecrRank!,
+      adp: p.adp,
+      index,
+      samplingRank: index + 1,
+      addedForDisplay: false,
+    }));
+    const survival: SurvivalProjection = {
+      suppressed: false,
+      degraded: false,
+      runCount: 1,
+      universe,
+      survivors: new Uint8Array(universe.length).fill(1),
+      survivalByPlayerId: new Map(
+        players.map((p) => [
+          p.sleeperPlayerId,
+          { probability: 1, band: 'likely-available' as const },
+        ]),
+      ),
+      indexByPlayerId: new Map(players.map((p, index) => [p.sleeperPlayerId, index])),
+    };
+
+    const list = computeCandidateList({
+      players,
+      board: { players: {} },
+      window: {
+        picks: [],
+        userOnTheClock: true,
+        inProgressPickNo: 74,
+        currentUserPickNo: 74,
+        nextUserPickNo: 94,
+      },
+      needVector: NO_NEED_SIGNAL,
+      survival,
+      valueModel,
+      userRemainingPicks: 5,
+      config: cfg(),
+      // Mirrors the screenshot: one QB, one backup at every FLEX-eligible position.
+      benchPhase: bench({ QB: 1, RB: 3, WR: 3, TE: 2 }),
+    });
+
+    expect(list.planComparison?.winner?.nowPosition).toBe('RB');
+    expect(list.planComparison?.winner).not.toMatchObject({
+      nowPosition: 'QB',
+      nextPosition: 'QB',
+    });
+    expect(list.highlightPlayerId).toBe('rb4');
+    expect(list.reason).toMatch(/points above replacement/);
+    expect(list.reason).toMatch(/RB28 league replacement line/);
+  });
+
   it('redirects off a capped-position board leader and says why — the rehearsal regression', () => {
     // Pick #108 of the 08-27 mock: two QBs already rostered, Purdy leading the board. The old
     // regime highlighted him (QB3); the bench phase must not — and among the eligible

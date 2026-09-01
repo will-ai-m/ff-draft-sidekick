@@ -317,6 +317,18 @@ export interface ComparePlansInput {
    */
   benchPositions?: readonly SkillPosition[];
   /**
+   * Bench-phase capacity for the plan's two picks, after the roster's current counts are
+   * subtracted from each positional cap. A 1-QB roster carrying QB1 therefore supplies `QB: 1`:
+   * QB-now is legal, QB-now/QB-next is not. Omitted outside the bench phase.
+   */
+  benchPickCapacity?: Partial<Record<SkillPosition, number>>;
+  /**
+   * Bench phase only: positional rank of the first player beyond league-wide starting demand.
+   * Plan values are priced above this replacement line, using the attached league's scoring
+   * curve, so a streamable QB/TE is not valued like an additional weekly starter.
+   */
+  replacementRanks?: Partial<Record<SkillPosition, number>>;
+  /**
    * The user's unfilled dedicated starting slots per skill position, for the fill-value term
    * (AC-55 as amended 2026-08-28/31) and the plan-pick starter cap below. Absent, plans score
    * by `nowValue + nextValue` alone, uncapped. K/DST slots are ignored here whatever the caller
@@ -530,21 +542,45 @@ export function comparePlans(input: ComparePlansInput): PlanComparison {
     return (input.unfilledDedicatedSlots[position] ?? 0) + flex;
   };
 
+  const withinBenchCapacity = (plan: {
+    nowPosition: SkillPosition;
+    nextPosition: SkillPosition;
+  }): boolean => {
+    if (input.benchPickCapacity === undefined) return true;
+    for (const position of SKILL_POSITIONS) {
+      const picks = Number(plan.nowPosition === position) + Number(plan.nextPosition === position);
+      if (picks > (input.benchPickCapacity[position] ?? Number.POSITIVE_INFINITY)) return false;
+    }
+    return true;
+  };
+
+  const aboveReplacement = (position: SkillPosition, value: number): number => {
+    const replacementRank = input.replacementRanks?.[position];
+    if (replacementRank === undefined) return value;
+    return Math.max(0, value - valueModel.valueAt(position, replacementRank));
+  };
+
   const scored: Plan[] = enumeratePlans(positions)
+    .filter(withinBenchCapacity)
     .flatMap((plan) => {
       const now = best.get(plan.nowPosition);
       if (now === undefined) return [];
       // A pick past the position's startable capacity is a bench pick and prices at 0 — points
       // maximisation would otherwise double-bank an elite position against a single slot.
       const nowValue =
-        starterCapacity(plan.nowPosition) >= 1 ? valueOf(valueModel, now.sleeperPlayerId) : 0;
+        starterCapacity(plan.nowPosition) >= 1
+          ? aboveReplacement(plan.nowPosition, valueOf(valueModel, now.sleeperPlayerId))
+          : 0;
       const nextStartable =
         starterCapacity(plan.nextPosition) >= (plan.nextPosition === plan.nowPosition ? 2 : 1);
       const nextValue = nextStartable
-        ? expectation(
+        ? aboveReplacement(
             plan.nextPosition,
-            1,
-            plan.nextPosition === plan.nowPosition ? now.sleeperPlayerId : undefined,
+            expectation(
+              plan.nextPosition,
+              1,
+              plan.nextPosition === plan.nowPosition ? now.sleeperPlayerId : undefined,
+            ),
           )
         : 0;
       const remainder = fillValue(plan, now.sleeperPlayerId);

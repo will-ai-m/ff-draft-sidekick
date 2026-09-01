@@ -178,6 +178,49 @@ describe('the plan set (AC-54)', () => {
   });
 });
 
+describe('bench plan capacity', () => {
+  it('never scores QB-now / QB-next when only one backup-QB slot remains', () => {
+    const comparison = comparePlans({
+      players: SNAPSHOT,
+      board: boardOf(),
+      needVector: NO_NEED_SIGNAL,
+      projection: RB_HOLDS_WR_BREAKS,
+      valueModel: MODEL,
+      userRemainingPicks: 4,
+      config: config(),
+      benchPositions: ['QB', 'RB', 'WR', 'TE'],
+      benchPickCapacity: { QB: 1 },
+    });
+
+    const scored = [comparison.winner, comparison.runnerUp, ...(comparison.contenders ?? [])].filter(
+      (plan) => plan !== null,
+    );
+    expect(scored).not.toContainEqual(
+      expect.objectContaining({ nowPosition: 'QB', nextPosition: 'QB' }),
+    );
+  });
+
+  it('prices bench choices above the league replacement line, not as extra starters', () => {
+    const comparison = comparePlans({
+      players: SNAPSHOT,
+      board: boardOf(),
+      needVector: NO_NEED_SIGNAL,
+      projection: RB_HOLDS_WR_BREAKS,
+      valueModel: MODEL,
+      userRemainingPicks: 4,
+      config: config(),
+      benchPositions: ['QB', 'RB', 'WR', 'TE'],
+      benchPickCapacity: { QB: 1 },
+      replacementRanks: { QB: 11, RB: 28, WR: 28, TE: 18 },
+    });
+
+    // The raw QB curve is largest (22/21), but it is flat through the streamable replacement
+    // line. RB's drop over replacement is much larger, so a 10-team bench plan starts RB.
+    expect(comparison.winner?.nowPosition).toBe('RB');
+    expect(comparison.winner?.nextPosition).not.toBe('QB');
+  });
+});
+
 describe('the best available player at a position, present tense (AC-55)', () => {
   it('is the numerically lowest overall ECR rank still on the board', () => {
     const best = bestAvailableByPosition(SNAPSHOT, boardOf());
