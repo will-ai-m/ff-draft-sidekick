@@ -53,5 +53,6 @@ npm run dev                  # foreground alternative to start-app.sh (Ctrl-C to
 - Logs: `.dev/dev-<port>.log` · full event traces: `data/traces/*.jsonl`
 - Tuning: copy `config.local.json.example` → `config.local.json`, edit, restart
   ([details](docs/GUIDE.md#configuration))
-- In Claude Code or Cursor: the `/start-app` command runs the start script for you
+- In Claude Code: the `/start-app` and `/positional-tiers` skills cover the routine ops; other
+  agents (OpenAI Codex etc.) get the same runbooks from [AGENTS.md](AGENTS.md)
 - Development: `npm test` · `npm run lint` · `npm run typecheck`
