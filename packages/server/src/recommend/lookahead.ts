@@ -317,6 +317,25 @@ export interface ComparePlansInput {
    */
   benchPositions?: readonly SkillPosition[];
   /**
+   * Starter phase only: already-filled positions that may be drafted for replacement-adjusted
+   * depth now while the plan reserves its next pick for an unfilled starter. This is what lets a
+   * turn-window projection act on an opponent roster saying the missing starter is safe to wait
+   * on, instead of forcing every current pick to fill a dedicated hole immediately.
+   */
+  deferredStarterDepthPositions?: readonly SkillPosition[];
+  /**
+   * Bench-phase capacity for the plan's two picks, after the roster's current counts are
+   * subtracted from each positional cap. A 1-QB roster carrying QB1 therefore supplies `QB: 1`:
+   * QB-now is legal, QB-now/QB-next is not. Omitted outside the bench phase.
+   */
+  benchPickCapacity?: Partial<Record<SkillPosition, number>>;
+  /**
+   * Positional rank of the first player beyond league-wide starting demand.
+   * Plan values are priced above this replacement line, using the attached league's scoring
+   * curve, so a streamable QB/TE is not valued like an additional weekly starter.
+   */
+  replacementRanks?: Partial<Record<SkillPosition, number>>;
+  /**
    * The user's unfilled dedicated starting slots per skill position, for the fill-value term
    * (AC-55 as amended 2026-08-28/31) and the plan-pick starter cap below. Absent, plans score
    * by `nowValue + nextValue` alone, uncapped. K/DST slots are ignored here whatever the caller
@@ -390,6 +409,8 @@ export function comparePlans(input: ComparePlansInput): PlanComparison {
     input.needVector === NO_NEED_SIGNAL
       ? (input.benchPositions ?? [])
       : planPositions(input.needVector);
+  const deferredDepthPositions =
+    input.needVector === NO_NEED_SIGNAL ? [] : (input.deferredStarterDepthPositions ?? []);
   const best = bestAvailableByPosition(input.players, input.board);
   // No position a plan may draw from that the board can still fill: the best-available regime,
   // not a plan. (Need phase: no unfilled starting slot; bench phase: every position capped.)
@@ -530,22 +551,61 @@ export function comparePlans(input: ComparePlansInput): PlanComparison {
     return (input.unfilledDedicatedSlots[position] ?? 0) + flex;
   };
 
-  const scored: Plan[] = enumeratePlans(positions)
+  const withinBenchCapacity = (plan: {
+    nowPosition: SkillPosition;
+    nextPosition: SkillPosition;
+  }): boolean => {
+    if (input.benchPickCapacity === undefined) return true;
+    for (const position of SKILL_POSITIONS) {
+      const picks = Number(plan.nowPosition === position) + Number(plan.nextPosition === position);
+      if (picks > (input.benchPickCapacity[position] ?? Number.POSITIVE_INFINITY)) return false;
+    }
+    return true;
+  };
+
+  const aboveReplacement = (position: SkillPosition, value: number): number => {
+    const replacementRank = input.replacementRanks?.[position];
+    if (replacementRank === undefined) return value;
+    return Math.max(0, value - valueModel.valueAt(position, replacementRank));
+  };
+
+  const ordinaryPlans = enumeratePlans(positions);
+  const deferStarterPlans = deferredDepthPositions.flatMap((nowPosition) =>
+    positions.map((nextPosition) => ({ nowPosition, nextPosition })),
+  );
+  const scored: Plan[] = [...ordinaryPlans, ...deferStarterPlans]
+    .filter(withinBenchCapacity)
     .flatMap((plan) => {
       const now = best.get(plan.nowPosition);
       if (now === undefined) return [];
       // A pick past the position's startable capacity is a bench pick and prices at 0 — points
       // maximisation would otherwise double-bank an elite position against a single slot.
+      const isDeferredDepthPick = deferredDepthPositions.includes(plan.nowPosition);
+      const priceNow = (value: number): number =>
+        input.needVector === NO_NEED_SIGNAL || isDeferredDepthPick
+          ? aboveReplacement(plan.nowPosition, value)
+          : value;
       const nowValue =
-        starterCapacity(plan.nowPosition) >= 1 ? valueOf(valueModel, now.sleeperPlayerId) : 0;
+        starterCapacity(plan.nowPosition) >= 1 || isDeferredDepthPick
+          ? priceNow(valueOf(valueModel, now.sleeperPlayerId))
+          : 0;
       const nextStartable =
         starterCapacity(plan.nextPosition) >= (plan.nextPosition === plan.nowPosition ? 2 : 1);
       const nextValue = nextStartable
-        ? expectation(
-            plan.nextPosition,
-            1,
-            plan.nextPosition === plan.nowPosition ? now.sleeperPlayerId : undefined,
-          )
+        ? input.needVector === NO_NEED_SIGNAL
+          ? aboveReplacement(
+              plan.nextPosition,
+              expectation(
+                plan.nextPosition,
+                1,
+                plan.nextPosition === plan.nowPosition ? now.sleeperPlayerId : undefined,
+              ),
+            )
+          : expectation(
+              plan.nextPosition,
+              1,
+              plan.nextPosition === plan.nowPosition ? now.sleeperPlayerId : undefined,
+            )
         : 0;
       const remainder = fillValue(plan, now.sleeperPlayerId);
       return [

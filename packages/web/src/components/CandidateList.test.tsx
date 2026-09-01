@@ -237,6 +237,44 @@ describe('candidate rows', () => {
 // ---------------------------------------------------------------------------------------------
 
 describe('the highlighted recommendation and its reason line', () => {
+  it('explains the active recommendation rule on demand', () => {
+    renderList();
+
+    const explanation = screen.getByText(/why did sidekick choose this/i);
+    expect(explanation).toBeTruthy();
+    expect(explanation.closest('details')?.open).toBe(true);
+    expect(recommendation().textContent).toContain(
+      'No plan, open-starter, roster-balance or value rule produced a stronger override',
+    );
+    expect(recommendation().textContent).toContain('Apply phase and roster-eligibility gates');
+  });
+
+  it('explains the backup-QB gate when the recommendation is a quarterback', () => {
+    renderList(
+      data({
+        rows: [QB1, RB1, WR1],
+        highlightPlayerId: 'qb1',
+        reasonKind: 'best-available',
+        reason: 'Best available: Josh Allen (ECR 4).',
+      }),
+    );
+
+    expect(recommendation().textContent).toContain(
+      'QB2 is blocked until RB, WR and TE each have at least one backup',
+    );
+    expect(recommendation().textContent).toContain('QB3 and beyond are blocked by the roster cap');
+  });
+
+  it('keeps transparency visible for an older payload without a structured rule label', () => {
+    renderList(data({ reasonKind: null, reason: 'Best available: Bijan Robinson (ECR 1).' }));
+
+    const explanation = screen.getByText(/why did sidekick choose this/i);
+    expect(explanation.closest('details')?.open).toBe(true);
+    expect(recommendation().textContent).toContain(
+      'this snapshot does not carry its structured rule label',
+    );
+  });
+
   it('a need-driven pick', () => {
     const reason = "Bijan Robinson (RB) fills no unfilled starting slot — Ja'Marr Chase (WR) does.";
     renderList(data({ highlightPlayerId: 'wr1', reasonKind: 'need', reason }));
@@ -326,8 +364,22 @@ describe('the highlighted recommendation and its reason line', () => {
         reasonKind: 'plan-survival',
         reason: 'Plan WR now / RB next scores best (38 vs 34 proj pts).',
         planComparison: {
-          winner: { nowPosition: 'WR', nextPosition: 'RB', nowValue: 18, nextValue: 20, fillValue: 0, score: 38 },
-          runnerUp: { nowPosition: 'RB', nextPosition: 'WR', nowValue: 20, nextValue: 14, fillValue: 0, score: 34 },
+          winner: {
+            nowPosition: 'WR',
+            nextPosition: 'RB',
+            nowValue: 18,
+            nextValue: 20,
+            fillValue: 0,
+            score: 38,
+          },
+          runnerUp: {
+            nowPosition: 'RB',
+            nextPosition: 'WR',
+            nowValue: 20,
+            nextValue: 14,
+            fillValue: 0,
+            score: 34,
+          },
           separatingFact,
           tooClose: false,
           applicable: true,
@@ -337,14 +389,68 @@ describe('the highlighted recommendation and its reason line', () => {
 
     expect(within(recommendation()).getByText('WR now / RB next · 38')).toBeTruthy();
     expect(within(recommendation()).getByText('RB now / WR next · 34')).toBeTruthy();
+    const math = within(recommendation()).getByRole('table', { name: /recommendation math/i });
+    expect(math.textContent).toContain("Chosen: WR now / RB nextJa'Marr Chase18.0020.000.0038.00");
+    expect(math.textContent).toContain(
+      'Alternative: RB now / WR nextBijan Robinson20.0014.000.0034.00',
+    );
+    expect(recommendation().textContent).toContain('Raw margin: 4.00 projected pts/gm');
     expect(screen.getByText(separatingFact)).toBeTruthy();
+  });
+
+  it('shows bench-plan values to hundredths and labels them above replacement', () => {
+    renderList(
+      data({
+        rows: [TE1, RB1],
+        rowsByPosition: byPosition({ TE: [TE1], RB: [RB1] }),
+        highlightPlayerId: 'te1',
+        reasonKind: 'bench-depth',
+        reason: 'Bench value: Sam LaPorta leads the league-scored plan.',
+        planComparison: {
+          winner: {
+            nowPosition: 'TE',
+            nextPosition: 'RB',
+            nowValue: 1.1230065359,
+            nextValue: 0.6193241176,
+            fillValue: 0,
+            score: 1.7423306535,
+          },
+          runnerUp: {
+            nowPosition: 'RB',
+            nextPosition: 'TE',
+            nowValue: 0.6193241176,
+            nextValue: 1.02,
+            fillValue: 0,
+            score: 1.6393241176,
+          },
+          separatingFact: null,
+          tooClose: true,
+          applicable: true,
+        },
+      }),
+    );
+
+    const math = within(recommendation()).getByRole('table', { name: /recommendation math/i });
+    expect(math.textContent).toContain('Raw plan winner: TE now / RB next');
+    expect(math.textContent).toContain('Raw plan alternative: RB now / TE next');
+    expect(math.textContent).toContain('1.120.620.001.74');
+    expect(math.textContent).toContain('0.621.020.001.64');
+    expect(recommendation().textContent).toContain('Raw margin: 0.10 points above replacement');
+    expect(recommendation().textContent).toContain('inside the near-tie band');
   });
 
   it('renders nothing in place of a separating fact the server did not name (AC-57)', () => {
     renderList(
       data({
         planComparison: {
-          winner: { nowPosition: 'RB', nextPosition: 'WR', nowValue: 20, nextValue: 14, fillValue: 0, score: 34 },
+          winner: {
+            nowPosition: 'RB',
+            nextPosition: 'WR',
+            nowValue: 20,
+            nextValue: 14,
+            fillValue: 0,
+            score: 34,
+          },
           runnerUp: null,
           separatingFact: null,
           tooClose: false,

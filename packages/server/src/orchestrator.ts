@@ -777,9 +777,13 @@ export class Orchestrator {
             futureUserPickNos,
             unfilledK: userRoster?.unfilledStartingSlots.dedicated.K ?? 0,
             unfilledDst: userRoster?.unfilledStartingSlots.dedicated.DST ?? 0,
-            benchPhase: { rosterCounts: userRosterCounts, slots: state.meta.slots },
-            // The slot picture rides only while starters are open: bench picks fill no starting
-            // slot, so the bench phase compares raw shaded values instead of a zeroed cap.
+            benchPhase: {
+              rosterCounts: userRosterCounts,
+              slots: state.meta.slots,
+              teamCount: state.meta.teamCount,
+            },
+            // The slot picture rides only while starters are open. Bench picks instead use the
+            // roster cap plus team-count/scoring-adjusted replacement values.
             ...(userRoster === undefined ||
             userRoster === null ||
             userRoster.needVector === NO_NEED_SIGNAL

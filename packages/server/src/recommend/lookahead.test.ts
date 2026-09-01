@@ -178,6 +178,49 @@ describe('the plan set (AC-54)', () => {
   });
 });
 
+describe('bench plan capacity', () => {
+  it('never scores QB-now / QB-next when only one backup-QB slot remains', () => {
+    const comparison = comparePlans({
+      players: SNAPSHOT,
+      board: boardOf(),
+      needVector: NO_NEED_SIGNAL,
+      projection: RB_HOLDS_WR_BREAKS,
+      valueModel: MODEL,
+      userRemainingPicks: 4,
+      config: config(),
+      benchPositions: ['QB', 'RB', 'WR', 'TE'],
+      benchPickCapacity: { QB: 1 },
+    });
+
+    const scored = [comparison.winner, comparison.runnerUp, ...(comparison.contenders ?? [])].filter(
+      (plan) => plan !== null,
+    );
+    expect(scored).not.toContainEqual(
+      expect.objectContaining({ nowPosition: 'QB', nextPosition: 'QB' }),
+    );
+  });
+
+  it('prices bench choices above the league replacement line, not as extra starters', () => {
+    const comparison = comparePlans({
+      players: SNAPSHOT,
+      board: boardOf(),
+      needVector: NO_NEED_SIGNAL,
+      projection: RB_HOLDS_WR_BREAKS,
+      valueModel: MODEL,
+      userRemainingPicks: 4,
+      config: config(),
+      benchPositions: ['QB', 'RB', 'WR', 'TE'],
+      benchPickCapacity: { QB: 1 },
+      replacementRanks: { QB: 11, RB: 28, WR: 28, TE: 18 },
+    });
+
+    // The raw QB curve is largest (22/21), but it is flat through the streamable replacement
+    // line. RB's drop over replacement is much larger, so a 10-team bench plan starts RB.
+    expect(comparison.winner?.nowPosition).toBe('RB');
+    expect(comparison.winner?.nextPosition).not.toBe('QB');
+  });
+});
+
 describe('the best available player at a position, present tense (AC-55)', () => {
   it('is the numerically lowest overall ECR rank still on the board', () => {
     const best = bestAvailableByPosition(SNAPSHOT, boardOf());
@@ -300,6 +343,51 @@ describe('plan scoring and comparison (AC-55, AC-57, AC-58, AC-59)', () => {
     expect(comparison.runnerUp?.score).toBe(34);
     expect(comparison.tooClose).toBe(false);
     expect(comparison.applicable).toBe(true);
+  });
+
+  it('takes replacement-adjusted depth now when the lone missing starter safely survives', () => {
+    const comparison = compare({
+      needVector: need({ TE: 1 }),
+      projection: projectionOf([
+        ['te1', 'rb2', 'wr2'],
+        ['te1', 'rb2', 'wr2'],
+      ]),
+      unfilledDedicatedSlots: { TE: 1, RB: 0, WR: 0, QB: 0 },
+      unfilledFlexSlots: 0,
+      deferredStarterDepthPositions: ['RB', 'WR'],
+      replacementRanks: { RB: 4, WR: 4, TE: 3 },
+    });
+
+    // RB depth adds 20 - replacement 10 = 10 now, then the safely surviving TE adds 12.
+    expect(comparison.winner).toMatchObject({
+      nowPosition: 'RB',
+      nextPosition: 'TE',
+      nowValue: 10,
+      nextValue: 12,
+      score: 22,
+    });
+  });
+
+  it('fills the lone missing starter now when that player will not survive', () => {
+    const comparison = compare({
+      needVector: need({ TE: 1 }),
+      projection: projectionOf([
+        ['rb2', 'wr2'],
+        ['rb2', 'wr2'],
+      ]),
+      unfilledDedicatedSlots: { TE: 1, RB: 0, WR: 0, QB: 0 },
+      unfilledFlexSlots: 0,
+      deferredStarterDepthPositions: ['RB', 'WR'],
+      replacementRanks: { RB: 4, WR: 4, TE: 3 },
+    });
+
+    expect(comparison.winner).toMatchObject({
+      nowPosition: 'TE',
+      nextPosition: 'TE',
+      nowValue: 12,
+      nextValue: 0,
+      score: 12,
+    });
   });
 
   it('prices the other unfilled slots at their own later turns — a double no longer wins on unpriced deferral (AC-55 amendment)', () => {
