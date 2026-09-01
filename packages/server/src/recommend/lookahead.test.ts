@@ -463,6 +463,39 @@ describe('plan scoring and comparison (AC-55, AC-57, AC-58, AC-59)', () => {
     expect(rbDoubleWith(1)?.fillValue).toBe(0);
   });
 
+  it('never lets two different positions bank the same single FLEX seat (rehearsal #8)', () => {
+    // The pick-53 regression: no dedicated RB or WR slot left, one open FLEX. Each pick of a
+    // WR-now/RB-next plan used to ask "dedicated + openFlex >= 1?" on its own and both said
+    // yes, banking ~2 starters against 1 seat — a phantom that beat every TE plan and passed
+    // over the last member of the TE board's top tier, who went the very next pick.
+    const projection = projectionOf([
+      ['rb1', 'rb2', 'wr1', 'wr2', 'te1', 'te2'],
+      ['rb1', 'rb2', 'wr1', 'wr2', 'te1', 'te2'],
+    ]);
+    const crossFlex = compare({
+      projection,
+      needVector: need({ RB: 1 / 3, WR: 1 / 3, TE: 1 + 1 / 3 }),
+      unfilledDedicatedSlots: { RB: 0, WR: 0, TE: 1 },
+      unfilledFlexSlots: 1,
+      futureUserPickNos: [20, 30, 40],
+      // A band wide enough that `contenders` carries every scored plan, so this test can read
+      // the losers' terms rather than only the two the near-tie rule would surface.
+      config: config({ planTotalTooClosePoints: 999 }),
+    });
+    const planFor = (nowPosition: SkillPosition, nextPosition: SkillPosition) =>
+      (crossFlex.contenders ?? []).find(
+        (plan) => plan.nowPosition === nowPosition && plan.nextPosition === nextPosition,
+      );
+
+    // The FLEX seat goes to the now-pick; the next-pick at another slotless position banks 0.
+    expect(planFor('WR', 'RB')?.nowValue).toBe(18);
+    expect(planFor('WR', 'RB')?.nextValue).toBe(0);
+    // A next-pick that fills its own dedicated slot is untouched by the allocation.
+    expect(planFor('WR', 'TE')?.nextValue).toBeGreaterThan(0);
+    // ...so stacking two flex-only positions can no longer out-score filling the open TE slot.
+    expect(planFor('WR', 'TE')!.score).toBeGreaterThan(planFor('WR', 'RB')!.score);
+  });
+
   it('names the tier facts separating the winner from the alternative (AC-57)', () => {
     expect(compare().separatingFact).toBe(
       'WR Tier 1: 1 of 1 left, 0% chance one lasts to your next pick (next tier −3.0 pts/gm). ' +

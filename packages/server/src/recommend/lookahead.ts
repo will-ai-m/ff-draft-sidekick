@@ -544,12 +544,49 @@ export function comparePlans(input: ComparePlansInput): PlanComparison {
    * FLEX-eligible position, the open FLEX slots. Uncapped with no slot picture (the caller either
    * predates the amendment or is the bench phase, where nothing starts and raw values compare).
    */
-  const starterCapacity = (position: SkillPosition): number => {
-    if (input.unfilledDedicatedSlots === undefined) return Number.POSITIVE_INFINITY;
-    const flex = config.flexEligiblePositions.includes(position)
-      ? Math.max(0, input.unfilledFlexSlots ?? 0)
-      : 0;
-    return (input.unfilledDedicatedSlots[position] ?? 0) + flex;
+  /**
+   * Which of a plan's two picks can actually **start**, allocated jointly against one shared
+   * pool (amended 2026-09-01): each pick takes an unfilled dedicated slot at its own position
+   * first, then competes for the open FLEX slots, in plan order. A pick with no slot left is a
+   * bench pick and banks no starter points.
+   *
+   * Joint allocation is the whole point. The per-position reading it replaces asked
+   * `dedicated[position] + openFlex >= 1` for the now-pick and again for the next-pick, so two
+   * *different* positions with no dedicated slot left both counted the same single FLEX seat:
+   * rehearsal #8's pick 53 scored WR-now/RB-next at 10.1 + 9.8 against one open FLEX, a phantom
+   * ~10 points that beat every TE plan and passed over Tyler Warren — the last member of the TE
+   * board's top positional tier — with the TE slot empty. He went the very next pick. The
+   * same-position case was already guarded (it asked for capacity >= 2); this generalises that
+   * guard to every pair, and the guard is now the allocator rather than a counted comparison.
+   */
+  const startablePicks = (plan: {
+    nowPosition: SkillPosition;
+    nextPosition: SkillPosition;
+  }): { now: boolean; next: boolean } => {
+    if (input.unfilledDedicatedSlots === undefined) return { now: true, next: true };
+
+    const dedicated: Record<SkillPosition, number> = { QB: 0, RB: 0, WR: 0, TE: 0 };
+    for (const position of SKILL_POSITIONS) {
+      dedicated[position] = Math.max(0, input.unfilledDedicatedSlots[position] ?? 0);
+    }
+    let flex = Math.max(0, input.unfilledFlexSlots ?? 0);
+
+    const take = (position: SkillPosition): boolean => {
+      if (dedicated[position] > 0) {
+        dedicated[position] -= 1;
+        return true;
+      }
+      if (flex > 0 && config.flexEligiblePositions.includes(position)) {
+        flex -= 1;
+        return true;
+      }
+      return false;
+    };
+
+    // Plan order, not value order: the now-pick is the one actually being made on the clock.
+    const now = take(plan.nowPosition);
+    const next = take(plan.nextPosition);
+    return { now, next };
   };
 
   const withinBenchCapacity = (plan: {
@@ -586,13 +623,12 @@ export function comparePlans(input: ComparePlansInput): PlanComparison {
         input.needVector === NO_NEED_SIGNAL || isDeferredDepthPick
           ? aboveReplacement(plan.nowPosition, value)
           : value;
+      const startable = startablePicks(plan);
       const nowValue =
-        starterCapacity(plan.nowPosition) >= 1 || isDeferredDepthPick
+        startable.now || isDeferredDepthPick
           ? priceNow(valueOf(valueModel, now.sleeperPlayerId))
           : 0;
-      const nextStartable =
-        starterCapacity(plan.nextPosition) >= (plan.nextPosition === plan.nowPosition ? 2 : 1);
-      const nextValue = nextStartable
+      const nextValue = startable.next
         ? input.needVector === NO_NEED_SIGNAL
           ? aboveReplacement(
               plan.nextPosition,
