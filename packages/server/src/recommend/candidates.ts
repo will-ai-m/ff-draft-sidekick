@@ -39,6 +39,7 @@
 import { NO_NEED_SIGNAL, SKILL_POSITIONS, isSkillPosition } from '@sidekick/shared';
 import type {
   Board,
+  CandidateExplanation,
   CandidateListData,
   CandidateRow,
   DraftWindow,
@@ -444,6 +445,13 @@ const formatNumber = (value: number): string =>
   Number.isInteger(value) ? String(value) : value.toFixed(1);
 
 const formatPercent = (survival: Survival): string => `${Math.round(survival.probability * 100)}%`;
+
+/** Plain-language band names for the per-player explanation (FR-9, 2026-09-01). */
+const BAND_TEXT: Readonly<Record<Survival['band'], string>> = {
+  'likely-gone': 'likely gone',
+  'coin-flip': 'a coin flip',
+  'likely-available': 'likely available',
+};
 
 export interface ComputeCandidateListInput {
   /** The matched snapshot (T3), immutable for this draft's lifetime (AC-29). */
@@ -989,6 +997,116 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
     rows.push(toRow(highlight, survival, true));
   }
 
+  // ---- Per-player explanations (FR-9, added 2026-09-01) --------------------------------------
+  // Every row the list or its position filters can show gets the same audit the highlight gets:
+  // what the engine priced this player at, where the tier stands, whether he lasts, and how he
+  // fits the roster. Facts only — each one is a number the recommendation actually consumed.
+  const explanations: Record<string, CandidateExplanation> = {};
+  const benchPhaseOn = allowed !== null && input.benchPhase != null;
+  const winnerPlan = comparison.winner;
+
+  const explanationFor = (player: RankedCandidate): CandidateExplanation => {
+    const factors: string[] = [];
+    const position = player.position;
+    const skill = isSkillPosition(position);
+    const value = input.valueModel?.pointsByPlayerId.get(player.sleeperPlayerId);
+    const bestAtPosition = skill ? best.get(position) : undefined;
+
+    if (value !== undefined && value > 0) {
+      factors.push(`Worth ${value.toFixed(1)} proj pts/gm on this league's scoring.`);
+    }
+
+    const group = input.valueModel?.tierGroupByPlayerId.get(player.sleeperPlayerId);
+    if (group !== undefined && skill) {
+      const left = group.memberIds.filter((id) => !isDrafted(board, id)).length;
+      const label = group.tier === null ? 'its top group' : `${position} Tier ${group.tier}`;
+      const outlook = tierOutlook(input.valueModel!, board, position);
+      // Only the position's *current* live tier can quote a step down; a player deeper in the
+      // board would otherwise borrow the top tier's cliff and read as more urgent than he is.
+      const isCurrentTier =
+        outlook !== null &&
+        outlook.tierLabel === (group.tier === null ? 'the top group' : `Tier ${group.tier}`);
+      const dropNote =
+        isCurrentTier && outlook.dropPerGame > 0
+          ? ` Next tier is ${outlook.dropPerGame.toFixed(1)} pts/gm lower.`
+          : '';
+      factors.push(`${label}: ${left} of ${group.memberIds.length} still on the board.${dropNote}`);
+    }
+
+    const rowSurvival = survivalOf(survival, player);
+    if (rowSurvival !== null) {
+      factors.push(
+        `${formatPercent(rowSurvival)} chance he lasts to your next pick (${BAND_TEXT[rowSurvival.band]}).`,
+      );
+    }
+
+    // Roster fit — the half of the decision that has nothing to do with the player.
+    if (skill) {
+      if (benchPhaseOn) {
+        const worth =
+          scarcity === undefined || input.valueModel === null || value === undefined
+            ? null
+            : benchPickWorth(scarcity, input.valueModel, position, value);
+        const share = scarcity?.[position].startShare;
+        if (worth !== null && share !== undefined) {
+          factors.push(
+            worth > 0
+              ? `Bench depth: ${share.toFixed(1)} lineup slot${share === 1 ? '' : 's'} at ${position} to insure, ` +
+                `and he beats the best free agent there by ${(worth / Math.max(share, 0.001)).toFixed(1)} pts/gm.`
+              : `Your starters are set, and the best free-agent ${position} is already as good as him — ` +
+                `a bench spot here buys nothing.`,
+          );
+        }
+      } else if ((input.unfilledDedicatedSlots?.[position] ?? 0) > 0) {
+        factors.push(`Fills one of your open ${position} starting slots.`);
+      } else if (config.flexEligiblePositions.includes(position)) {
+        factors.push(`Your ${position} starters are set — he would go to a FLEX slot.`);
+      } else {
+        factors.push(`Your ${position} starting slot is already filled.`);
+      }
+    }
+
+    // The headline: the single reason he is or is not the pick.
+    let headline: string;
+    if (player.sleeperPlayerId === highlight.sleeperPlayerId) {
+      headline = 'Recommended — this is the pick.';
+    } else if (
+      bestAtPosition !== undefined &&
+      bestAtPosition.sleeperPlayerId !== player.sleeperPlayerId
+    ) {
+      headline = `Passed over: ${bestAtPosition.playerName} is ahead of him at ${position}.`;
+    } else if (skill && !planned.has(position)) {
+      headline = benchPhaseOn
+        ? `Passed over: ${position} no longer adds bench value for this roster.`
+        : `Passed over: ${position} fills no open starting slot.`;
+    } else if (winnerPlan !== null) {
+      headline =
+        `Passed over: the ${winnerPlan.nowPosition}-now / ${winnerPlan.nextPosition}-next plan ` +
+        `scored higher (${formatNumber(winnerPlan.score)} proj pts).`;
+    } else {
+      headline = `Passed over: ${highlight.playerName} leads the board.`;
+    }
+
+    return { headline, factors: factors.length > 0 ? factors : ['No further detail available.'] };
+  };
+
+  // Bounded on purpose: the displayed rows plus what each position filter can show. The snapshot
+  // is rebroadcast whole on every recompute, so this must not grow with the whole board.
+  const explained = new Set<string>();
+  const record = (player: RankedCandidate): void => {
+    if (explained.has(player.sleeperPlayerId)) return;
+    explained.add(player.sleeperPlayerId);
+    explanations[player.sleeperPlayerId] = explanationFor(player);
+  };
+  for (const player of available.slice(0, config.candidateListDefaultRows)) record(player);
+  record(highlight);
+  for (const position of SKILL_POSITIONS) {
+    const atPosition = available
+      .filter((player) => player.position === position)
+      .slice(0, config.candidateListDefaultRows);
+    for (const player of atPosition) record(player);
+  }
+
   return {
     rows,
     highlightPlayerId: highlight.sleeperPlayerId,
@@ -996,6 +1114,7 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
     reasonKind,
     planComparison: comparison,
     disabledReason: null,
+    explanations,
   };
 }
 

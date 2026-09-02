@@ -23,6 +23,7 @@
 import { useState } from 'react';
 import { POSITIONS } from '@sidekick/shared';
 import type {
+  CandidateExplanation,
   CandidateListData,
   CandidateRow,
   HighlightReasonKind,
@@ -152,12 +153,65 @@ function PositionFilter({ active, onChange }: PositionFilterProps) {
   );
 }
 
+/**
+ * The per-player explanation card (FR-9, added 2026-09-01).
+ *
+ * Positioned `fixed` against the hovered name's own bounding box rather than absolutely inside
+ * the row: both the panel body and the table's horizontal scroller clip their overflow, so an
+ * absolutely-positioned card would be cut off by whichever edge the row sits near. Fixed
+ * coordinates escape both, and the card is clamped so it never runs off the right edge.
+ *
+ * Content is the server's, rendered verbatim — the same rule the highlight's reason line follows.
+ */
+function ExplanationCard({
+  explanation,
+  anchor,
+  id,
+}: {
+  explanation: CandidateExplanation;
+  anchor: DOMRect;
+  id: string;
+}) {
+  const WIDTH = 300;
+  const left = Math.max(8, Math.min(anchor.left, window.innerWidth - WIDTH - 8));
+  // Flip above the name when there is not enough room below it.
+  const below = anchor.bottom + 8;
+  const flip = below + 180 > window.innerHeight && anchor.top > 190;
+
+  return (
+    <div
+      id={id}
+      role="tooltip"
+      style={{
+        position: 'fixed',
+        left,
+        width: WIDTH,
+        ...(flip ? { bottom: window.innerHeight - anchor.top + 8 } : { top: below }),
+      }}
+      className="pointer-events-none z-50 rounded-md border border-slate-700 bg-slate-900/98 p-3 text-xs shadow-2xl"
+    >
+      <p className="font-semibold text-slate-100">{explanation.headline}</p>
+      <ul className="mt-2 flex flex-col gap-1.5 text-slate-300">
+        {explanation.factors.map((factor) => (
+          <li key={factor} className="flex gap-1.5">
+            <span aria-hidden="true" className="text-slate-600">
+              •
+            </span>
+            <span>{factor}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 interface RowsTableProps {
   rows: readonly CandidateRow[];
   highlightPlayerId: string | null;
   showSurvival: boolean;
   recomputing: boolean;
   nextUserPickNo: number | null;
+  explanations: Record<string, CandidateExplanation> | undefined;
 }
 
 function RowsTable({
@@ -166,8 +220,18 @@ function RowsTable({
   showSurvival,
   recomputing,
   nextUserPickNo,
+  explanations,
 }: RowsTableProps) {
+  // One card at a time, anchored to whichever name is hovered or keyboard-focused.
+  const [hovered, setHovered] = useState<{ playerId: string; anchor: DOMRect } | null>(null);
+  const show = (playerId: string, element: HTMLElement): void => {
+    setHovered({ playerId, anchor: element.getBoundingClientRect() });
+  };
+  const hoveredExplanation =
+    hovered === null ? undefined : explanations?.[hovered.playerId];
+
   return (
+    <>
     <table
       aria-label="Candidate rows"
       aria-busy={recomputing}
@@ -218,6 +282,23 @@ function RowsTable({
                   onClick={() => {
                     openPlayerCard(row.playerId);
                   }}
+                  aria-describedby={
+                    hovered?.playerId === row.playerId && hoveredExplanation !== undefined
+                      ? `why-${row.playerId}`
+                      : undefined
+                  }
+                  onMouseEnter={(event) => {
+                    show(row.playerId, event.currentTarget);
+                  }}
+                  onMouseLeave={() => {
+                    setHovered(null);
+                  }}
+                  onFocus={(event) => {
+                    show(row.playerId, event.currentTarget);
+                  }}
+                  onBlur={() => {
+                    setHovered(null);
+                  }}
                   className="rounded-sm text-left font-medium text-slate-100 underline decoration-slate-600 decoration-dotted underline-offset-4 hover:decoration-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
                 >
                   {row.playerName}
@@ -244,6 +325,14 @@ function RowsTable({
         })}
       </tbody>
     </table>
+      {hovered !== null && hoveredExplanation !== undefined && (
+        <ExplanationCard
+          explanation={hoveredExplanation}
+          anchor={hovered.anchor}
+          id={`why-${hovered.playerId}`}
+        />
+      )}
+    </>
   );
 }
 
@@ -464,6 +553,7 @@ export function CandidateList({ candidateList, nextUserPickNo = null }: Candidat
               showSurvival={showSurvival}
               recomputing={recomputing}
               nextUserPickNo={nextUserPickNo}
+              explanations={data.explanations}
             />
             {note !== null && <p className="text-xs text-slate-500">{note}</p>}
           </div>

@@ -464,6 +464,57 @@ describe('the highlighted recommendation and its reason line', () => {
   });
 });
 
+describe('the per-player explanation card (FR-9)', () => {
+  const withExplanations = () =>
+    data({
+      highlightPlayerId: 'rb1',
+      explanations: {
+        rb1: {
+          headline: 'Recommended — this is the pick.',
+          factors: ['Worth 13.0 proj pts/gm on this league\u2019s scoring.'],
+        },
+        wr1: {
+          headline: 'Passed over: RB fills no open starting slot.',
+          factors: ['RB Tier 1: 2 of 4 still on the board.', '39% chance he lasts to your next pick (a coin flip).'],
+        },
+      },
+    });
+
+  it('shows nothing until a name is hovered', () => {
+    renderList(withExplanations());
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it('explains why the hovered player was passed over, verbatim from the server', () => {
+    renderList(withExplanations());
+    fireEvent.mouseEnter(screen.getByRole('button', { name: "Ja'Marr Chase" }));
+
+    const tip = screen.getByRole('tooltip');
+    expect(tip.textContent).toContain('Passed over: RB fills no open starting slot.');
+    expect(tip.textContent).toContain('RB Tier 1: 2 of 4 still on the board.');
+    expect(tip.textContent).toContain('39% chance he lasts to your next pick');
+  });
+
+  it('opens on keyboard focus and closes again on blur, so it is not mouse-only', () => {
+    renderList(withExplanations());
+    const name = screen.getByRole('button', { name: 'Bijan Robinson' });
+
+    fireEvent.focus(name);
+    expect(screen.getByRole('tooltip').textContent).toContain('Recommended — this is the pick.');
+    // The card is announced for the focused name rather than floating unlabelled.
+    expect(name.getAttribute('aria-describedby')).toBe('why-rb1');
+
+    fireEvent.blur(name);
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it('renders no card for a row the snapshot carries no explanation for', () => {
+    renderList(data({ explanations: {} }));
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Bijan Robinson' }));
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+});
+
 // ---------------------------------------------------------------------------------------------
 // The position filter (AC-50)
 // ---------------------------------------------------------------------------------------------

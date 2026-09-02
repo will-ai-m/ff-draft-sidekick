@@ -44,6 +44,21 @@ export interface CandidateRow {
   addedForHighlight: boolean;
 }
 
+/**
+ * Why one candidate is — or is not — the recommendation (FR-9, added 2026-09-01).
+ *
+ * Produced server-side and rendered verbatim, exactly as the highlight's own reason line is: the
+ * browser must not re-derive a second opinion about a pick the engine already reasoned about.
+ * Every field is a fact the recommendation actually used, so a reader can audit the call rather
+ * than trust it.
+ */
+export interface CandidateExplanation {
+  /** One line: "Recommended", or the single reason this player was passed over. */
+  headline: string;
+  /** Short supporting facts — value, tier standing, survival, roster fit. Never empty. */
+  factors: string[];
+}
+
 /** The single decisive factor named on the recommendation's one-line reason (AC-51). */
 export type HighlightReasonKind =
   | 'plan-survival'
@@ -150,4 +165,13 @@ export interface CandidateListData {
    * built before rankings loaded.
    */
   rowsByPosition?: Partial<Record<Position, CandidateRow[]>>;
+  /**
+   * Per-player explanations keyed by player id (added 2026-09-01), covering every row the list
+   * and its position filters can show.
+   *
+   * A map rather than a field on `CandidateRow` because the same player appears in both `rows`
+   * and `rowsByPosition`, and one copy on the wire cannot drift from the other. Absent on a
+   * payload built before rankings loaded.
+   */
+  explanations?: Record<string, CandidateExplanation>;
 }
