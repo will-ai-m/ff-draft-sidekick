@@ -781,6 +781,7 @@ export class Orchestrator {
               rosterCounts: userRosterCounts,
               slots: state.meta.slots,
               teamCount: state.meta.teamCount,
+              rounds: state.meta.rounds,
             },
             // The slot picture rides only while starters are open. Bench picks instead use the
             // roster cap plus team-count/scoring-adjusted replacement values.

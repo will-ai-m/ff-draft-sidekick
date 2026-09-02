@@ -87,6 +87,8 @@ export interface BenchPhaseInput {
   slots: SlotConfig;
   /** League size sets the waiver/replacement line for bench-value pricing. */
   teamCount?: number;
+  /** Draft length; with `teamCount` it bounds how deep each position is actually rostered. */
+  rounds?: number;
 }
 
 /**
@@ -127,6 +129,119 @@ export function benchReplacementRanks(
   }
 
   return Object.fromEntries(SKILL_POSITIONS.map((position) => [position, demand[position] + 1]));
+}
+
+/**
+ * What a **bench** pick at each position is actually worth, in two numbers (added 2026-09-01).
+ *
+ * The bench phase used to rank positions by raw depth — `rostered − starting slots` — so in a
+ * 1-QB/1-TE league QB and TE, sitting permanently at zero backups, read as the neediest holes
+ * forever. Rehearsal #9 shows the consequence: a second QB and a second TE recommended late
+ * while the roster carried two RB and three WR starting slots to insure. Depth counts bodies;
+ * it does not ask what a body is worth, and those are different questions once the starters are
+ * full.
+ *
+ * Two position-dependent facts decide it, and neither is in a depth count:
+ *
+ *  - **`startShare`** — the lineup slots the position actually fills for this team (its
+ *    dedicated slots plus the FLEX demand its own curve earns). A backup is only ever worth the
+ *    games it starts, and a position with two or three starting slots exposes its holder to
+ *    several times the injury and bye risk of a single-slot position.
+ *  - **`waiverRank`** — the first player at the position the league does **not** roster, read
+ *    off ADP: how many of that position come off the board inside `teamCount × rounds` picks.
+ *    This is the user's own observation made measurable — a 10- or 12-team room drafts only
+ *    ~1–2 quarterbacks and tight ends per team, so the best free-agent QB or TE is close in
+ *    value to the one you would bench, while running backs and receivers are drafted deep
+ *    enough that the waiver wire is a real cliff below your bench.
+ *
+ * A bench pick is then worth `startShare × (value − value at waiverRank)`: what it adds over
+ * the player you could have for nothing, times how often you would start it. That is 0 for a
+ * backup no better than the wire, which is the honest price of QB2 in a shallow-QB room.
+ *
+ * Returns undefined when the league shape is unknown; callers keep their pre-amendment
+ * behaviour rather than pricing against a guess.
+ */
+export interface PositionScarcity {
+  /** Lineup slots this position fills per team — dedicated plus earned FLEX share. */
+  startShare: number;
+  /** Rank of the first player at this position the league does not roster (the waiver line). */
+  waiverRank: number;
+}
+
+export function benchPositionScarcity(input: {
+  players: readonly CandidatePlayer[];
+  bench: BenchPhaseInput;
+  config: Pick<CandidateListConfig, 'flexEligiblePositions'>;
+  valueModel: Pick<PlayerValueModel, 'valueAt'>;
+}): Record<SkillPosition, PositionScarcity> | undefined {
+  const { bench, config, valueModel } = input;
+  const teamCount = bench.teamCount;
+  if (teamCount === undefined || teamCount <= 0) return undefined;
+
+  // League-wide starting demand, with FLEX allocated to whichever eligible position's next
+  // player is worth most — the same allocation `benchReplacementRanks` uses, so a TE-premium or
+  // QB-eligible FLEX format can earn its own share instead of inheriting a hardcoded tactic.
+  const demand: Record<SkillPosition, number> = Object.fromEntries(
+    SKILL_POSITIONS.map((position) => [position, teamCount * bench.slots[position]]),
+  ) as Record<SkillPosition, number>;
+  const eligible = config.flexEligiblePositions.filter((position) =>
+    SKILL_POSITIONS.includes(position),
+  );
+  const flexStarters = Math.max(0, Math.trunc(teamCount * bench.slots.FLEX));
+  for (let slot = 0; slot < flexStarters && eligible.length > 0; slot += 1) {
+    let winner = eligible[0]!;
+    let winnerValue = valueModel.valueAt(winner, demand[winner] + 1);
+    for (const position of eligible.slice(1)) {
+      const value = valueModel.valueAt(position, demand[position] + 1);
+      if (value > winnerValue) {
+        winner = position;
+        winnerValue = value;
+      }
+    }
+    demand[winner] += 1;
+  }
+
+  // How deep each position is actually drafted. ADP is the market's own answer; a position the
+  // feed barely covers falls back to "one bench body per team past the starters", which is
+  // conservative rather than invented.
+  const totalPicks = bench.rounds === undefined ? undefined : teamCount * bench.rounds;
+  const draftedByPosition: Record<SkillPosition, number> = { QB: 0, RB: 0, WR: 0, TE: 0 };
+  if (totalPicks !== undefined) {
+    for (const player of input.players) {
+      if (!isSkillPosition(player.position) || player.adp === null) continue;
+      if (player.adp <= totalPicks) draftedByPosition[player.position] += 1;
+    }
+  }
+
+  return Object.fromEntries(
+    SKILL_POSITIONS.map((position) => {
+      const rostered = draftedByPosition[position];
+      const fallback = demand[position] + teamCount;
+      return [
+        position,
+        {
+          startShare: demand[position] / teamCount,
+          // Never shallower than the league's own starting demand: the wire cannot hold a
+          // player every team needs in its lineup.
+          waiverRank: Math.max(demand[position], rostered >= demand[position] ? rostered : fallback) + 1,
+        },
+      ];
+    }),
+  ) as Record<SkillPosition, PositionScarcity>;
+}
+
+/**
+ * What one bench pick at `position` is worth: its edge over the best free agent, weighted by how
+ * often the position starts. See {@link benchPositionScarcity} for why both factors are needed.
+ */
+export function benchPickWorth(
+  scarcity: Record<SkillPosition, PositionScarcity>,
+  valueModel: Pick<PlayerValueModel, 'valueAt'>,
+  position: SkillPosition,
+  playerValue: number,
+): number {
+  const { startShare, waiverRank } = scarcity[position];
+  return startShare * Math.max(0, playerValue - valueModel.valueAt(position, waiverRank));
 }
 
 /**
@@ -405,6 +520,17 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
     input.benchPhase == null || input.valueModel == null
       ? undefined
       : benchReplacementRanks(input.benchPhase, config, input.valueModel);
+  // What a bench pick at each position is worth over the wire, and how often it would start
+  // (amended 2026-09-01) — the signal that replaces raw depth once the starters are full.
+  const scarcity =
+    input.benchPhase == null || input.valueModel == null
+      ? undefined
+      : benchPositionScarcity({
+          players: input.players,
+          bench: input.benchPhase,
+          config,
+          valueModel: input.valueModel,
+        });
   const benchPositions = benchPhaseActive
     ? benchPlanPositions(input.benchPhase!, config, replacementRanks)
     : null;
@@ -517,19 +643,43 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
     // 0–0 score. Inside the configured noise band, use the roster signal that still contains
     // information — bench depth — while retaining ECR as the within-position player choice.
     // A scoring format that creates a real edge outside the band still controls the pick.
+    // Depth counts bodies; it does not ask what a body is worth. Ranking the tied positions by
+    // raw depth made QB and TE — permanently at zero backups in a 1-QB/1-TE league — the
+    // neediest holes forever, which is how rehearsal #9 drew a second QB and a second TE while
+    // two RB and three WR starting slots went uninsured. Rank by what the pick is actually
+    // worth instead: its edge over the best free agent at that position, times the lineup slots
+    // that position fills. Depth survives only as the tiebreak between equal worths, and as the
+    // whole rule when no value model exists to price anything.
     const balancedPosition = comparison.tooClose
       ? (benchPositions ?? [])
           .filter((position) => best.has(position))
-          .map((position) => ({
-            position,
-            depth: Math.max(
-              0,
-              (input.benchPhase!.rosterCounts[position] ?? 0) -
-                input.benchPhase!.slots[position],
-            ),
-            player: best.get(position)!,
-          }))
-          .sort((a, b) => a.depth - b.depth || a.player.ecrRank - b.player.ecrRank)[0]
+          .map((position) => {
+            const player = best.get(position)!;
+            return {
+              position,
+              depth: Math.max(
+                0,
+                (input.benchPhase!.rosterCounts[position] ?? 0) -
+                  input.benchPhase!.slots[position],
+              ),
+              worth:
+                scarcity === undefined || input.valueModel === null
+                  ? null
+                  : benchPickWorth(
+                      scarcity,
+                      input.valueModel,
+                      position,
+                      input.valueModel.pointsByPlayerId.get(player.sleeperPlayerId) ?? 0,
+                    ),
+              player,
+            };
+          })
+          .sort(
+            (a, b) =>
+              (b.worth ?? 0) - (a.worth ?? 0) ||
+              a.depth - b.depth ||
+              a.player.ecrRank - b.player.ecrRank,
+          )[0]
       : undefined;
     const plannedPosition = balancedPosition?.position ?? rawPlannedPosition;
     const plannedPlayer = plannedPosition === undefined ? undefined : best.get(plannedPosition);

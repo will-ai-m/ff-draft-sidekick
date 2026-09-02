@@ -9,10 +9,16 @@
  * displayed rows stay raw ECR order throughout.
  */
 import { NO_NEED_SIGNAL, PARAMETER_DEFAULTS } from '@sidekick/shared';
-import type { SlotConfig } from '@sidekick/shared';
+import type { SkillPosition, SlotConfig } from '@sidekick/shared';
 import { describe, expect, it } from 'vitest';
 
-import { benchPlanPositions, benchReplacementRanks, computeCandidateList } from './candidates';
+import {
+  benchPickWorth,
+  benchPlanPositions,
+  benchPositionScarcity,
+  benchReplacementRanks,
+  computeCandidateList,
+} from './candidates';
 import type { BenchPhaseInput, CandidatePlayer, CandidateListConfig } from './candidates';
 import type { SurvivalProjection } from '../simulation/montecarlo';
 import type { PlayerValueModel } from './value';
@@ -227,7 +233,14 @@ describe('the bench phase (FR-9/FR-10 amendment)', () => {
       pointsByPlayerId: points,
       tierGroupByPlayerId: new Map(),
       tierGroupsByPosition: { QB: [], RB: [], WR: [], TE: [] },
-      valueAt: (position) => ({ QB: 16, RB: 8, WR: 9, TE: 8 })[position],
+      // Declines with rank, as a real league-scored curve does. A constant-per-position stub
+      // would hand every league FLEX slot to one position and make the RB/WR comparison below
+      // an artifact of the stub rather than of the scarcity model.
+      valueAt: (position, rank) => {
+        const base = { QB: 24, RB: 20, WR: 19, TE: 13 }[position];
+        const decay = { QB: 0.25, RB: 0.3, WR: 0.28, TE: 0.3 }[position];
+        return Math.max(0, base - decay * (rank - 1));
+      },
     };
     const universe = players.map((p, index) => ({
       sleeperPlayerId: p.sleeperPlayerId,
@@ -279,6 +292,40 @@ describe('the bench phase (FR-9/FR-10 amendment)', () => {
     });
     expect(list.highlightPlayerId).toBe('rb4');
     expect(list.reasonKind).not.toBeNull();
+  });
+
+  it('prices a backup behind its own position, not behind a raw depth count (rehearsal #9)', () => {
+    // The user's two observations, made measurable. QB and TE sit permanently at zero backups in
+    // a 1-QB/1-TE league, so raw depth called them the neediest holes forever; scarcity prices
+    // them at what a backup there is actually worth. A 10-team room drafts QBs and TEs so
+    // shallow that the best free agent is *better* than the QB2 on offer (worth 0), while RB and
+    // WR fill several lineup slots and are drafted deep enough that the wire is a real cliff.
+    const valueAt = (position: SkillPosition, rank: number): number => {
+      const base = { QB: 24, RB: 20, WR: 19, TE: 13 }[position];
+      const decay = { QB: 0.25, RB: 0.3, WR: 0.28, TE: 0.3 }[position];
+      return Math.max(0, base - decay * (rank - 1));
+    };
+    const scarcity = benchPositionScarcity({
+      players: [],
+      bench: bench({ QB: 1, RB: 3, WR: 3, TE: 2 }),
+      config: cfg(),
+      valueModel: { valueAt } as Pick<PlayerValueModel, 'valueAt'>,
+    })!;
+
+    // Two RB and two WR starting slots plus a shared FLEX pool: RB/WR carry several times the
+    // lineup exposure of the single QB and TE slots.
+    expect(scarcity.QB.startShare).toBe(1);
+    expect(scarcity.TE.startShare).toBe(1);
+    expect(scarcity.RB.startShare).toBeGreaterThan(2);
+    expect(scarcity.WR.startShare).toBeGreaterThan(2);
+
+    const worth = (position: SkillPosition, value: number) =>
+      benchPickWorth(scarcity, { valueAt } as Pick<PlayerValueModel, 'valueAt'>, position, value);
+    // The QB2 on offer is worse than the quarterback sitting on the wire: worth nothing.
+    expect(worth('QB', 16.5)).toBe(0);
+    // A comparable bench RB clears its own waiver line and starts far more often.
+    expect(worth('RB', 13)).toBeGreaterThan(worth('TE', 9));
+    expect(worth('RB', 13)).toBeGreaterThan(worth('QB', 16.5));
   });
 
   it('uses the thinner core position when replacement-adjusted bench plans are flat', () => {
