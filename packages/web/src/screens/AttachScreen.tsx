@@ -23,6 +23,7 @@ import {
   writeStoredUsername,
 } from '../state/api';
 import type { AttachFailure } from '../state/api';
+import { ChatKeySetup } from '../components/ChatKeySetup';
 
 export interface AttachScreenProps {
   snapshot: AppStateSnapshot;
@@ -170,6 +171,8 @@ export function AttachScreen({ snapshot, onConfirm, onDetach }: AttachScreenProp
           </p>
         )}
       </section>
+
+      <ChatKeySetup />
 
       {isAttached && (
         <>

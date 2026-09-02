@@ -49,11 +49,7 @@ import type { LeagueSettings } from './roster/leagueSettings';
 import { RosterPanelTracker } from './roster/needvectors';
 import { simulateSurvival, toSimulatedPicks } from './simulation/montecarlo';
 import { AttachManager } from './sleeper/attach';
-import type {
-  AttachFailure,
-  AttachRequest,
-  DraftSession,
-} from './sleeper/attach';
+import type { AttachFailure, AttachRequest, DraftSession } from './sleeper/attach';
 import type { SleeperClient } from './sleeper/client';
 import { PollIntervalController } from './sleeper/instanceHeartbeat';
 import type { DegradedReason, PollOutcome, ResyncResult } from './sleeper/sync';
@@ -331,6 +327,157 @@ export class Orchestrator {
       candidateList: stamp(this.insights.candidateList),
       preDraftCheck: active.preDraftCheck,
       config: this.config,
+    };
+  }
+
+  /**
+   * A question-time, read-only view for the draft adviser.
+   *
+   * This intentionally comes from the orchestrator rather than trusting a browser-posted
+   * snapshot. It includes the full ranked pool still available plus the league's granular
+   * scoring table, while omitting the enormous Sleeper player dump and crosswalk that contain no
+   * draft decision signal. The route serializes this once per question, so every answer is tied
+   * to one explicit board version even if a pick lands while the model is responding.
+   */
+  draftChatContext(): Record<string, unknown> | null {
+    const active = this.active;
+    if (active === null) return null;
+
+    const snapshot = this.snapshot();
+    const drafted = snapshot.board.players;
+    const teamRosters = Object.fromEntries(
+      snapshot.board.teams.map((team) => [
+        team.teamId,
+        {
+          draftSlot: team.draftSlot,
+          name: team.displayName ?? team.ownerDisplayName ?? `Slot ${team.draftSlot}`,
+          isUser: team.isUser,
+          picks: snapshot.pickFeed
+            .filter((pick) => pick.teamId === team.teamId)
+            .map((pick) => ({
+              pickNo: pick.pickNo,
+              player: pick.playerName,
+              position: pick.position,
+            })),
+        },
+      ]),
+    );
+    const recommendation = snapshot.candidateList.data;
+    const recommendedPlayer =
+      recommendation.highlightPlayerId === null
+        ? null
+        : (recommendation.rows.find((row) => row.playerId === recommendation.highlightPlayerId) ??
+          null);
+    const resolvedPlan =
+      recommendedPlayer === null
+        ? null
+        : (recommendation.planComparison?.contenders
+            ?.filter((plan) => plan.nowPosition === recommendedPlayer.position)
+            .sort((a, b) => b.score - a.score)[0] ?? null);
+
+    // One row per opponent, even at a snake turn where the same manager picks twice. The raw
+    // opponent panel remains below for full auditability; this summary gives the adviser the
+    // tactical sentence humans actually need: who picks, how often, and which starters are open.
+    const opponentSummary = new Map<
+      string,
+      {
+        teamId: string;
+        name: string;
+        draftSlot: number | null;
+        picksBeforeNextTurn: number;
+        pickNos: number[];
+        openDedicatedStarters: Record<string, number>;
+        likelyPositions: { position: string; likelihood: number }[];
+      }
+    >();
+    for (const entry of snapshot.opponentPanel.data.entries) {
+      const roster = teamRosters[entry.teamId] as { name: string; draftSlot: number } | undefined;
+      const existing = opponentSummary.get(entry.teamId);
+      if (existing !== undefined) {
+        existing.picksBeforeNextTurn += 1;
+        existing.pickNos.push(entry.pickNo);
+        continue;
+      }
+      opponentSummary.set(entry.teamId, {
+        teamId: entry.teamId,
+        name: roster?.name ?? `Slot ${entry.teamId}`,
+        draftSlot: roster?.draftSlot ?? null,
+        picksBeforeNextTurn: 1,
+        pickNos: [entry.pickNo],
+        openDedicatedStarters: entry.unfilledStartingSlots.dedicated,
+        likelyPositions: entry.mostLikelyPositions.map(({ position, likelihood }) => ({
+          position,
+          likelihood,
+        })),
+      });
+    }
+
+    return {
+      capturedAt: new Date(this.now()).toISOString(),
+      boardVersion: snapshot.sync.boardVersion,
+      draft: {
+        status: snapshot.sync.draftStatus,
+        currentPickNo: snapshot.opponentPanel.data.window.inProgressPickNo,
+        nextUserPickNo: snapshot.opponentPanel.data.window.nextUserPickNo,
+      },
+      league: {
+        teamCount: active.league.teamCount,
+        rounds: active.league.rounds,
+        slots: active.league.slots,
+        scoringType: active.league.scoring.scoringType,
+        scoringSource: active.league.scoring.source,
+        scoringNote: active.league.scoring.note,
+        scoringSettings: active.league.scoring.settings,
+      },
+      recommendation,
+      decisionInterpretation: {
+        survivalSemantics: {
+          definition: "Probability that the player is still available at the user's next pick.",
+          highProbabilityMeaning:
+            'The player is safer to wait on; it is not evidence that the player is urgent now.',
+          lowProbabilityMeaning:
+            'The player is at greater risk of being drafted before the next turn.',
+        },
+        displayedRecommendation:
+          recommendedPlayer === null
+            ? null
+            : {
+                player: recommendedPlayer.playerName,
+                position: recommendedPlayer.position,
+                survivalToNextPick: recommendedPlayer.survival,
+                reasonKind: recommendation.reasonKind,
+                reason: recommendation.reason,
+              },
+        rawHighestScoringPlan: recommendation.planComparison?.winner ?? null,
+        resolvedDisplayedPlan: resolvedPlan,
+        resolutionNote:
+          recommendation.planComparison?.tooClose === true
+            ? 'The raw plan scores are inside the configured near-tie band. The displayed recommendation may therefore come from a final roster, flexibility, urgency, tier-risk, or consensus tie-break. Explain the resolved displayed plan, while labeling the raw winner separately.'
+            : 'The displayed recommendation follows the scored plan unless its stated reason identifies a later guard.',
+      },
+      userRoster: snapshot.userRoster.data,
+      userPicks: snapshot.pickFeed.filter((pick) => pick.isUserPick),
+      upcomingOpponentPicks: snapshot.opponentPanel.data,
+      tacticalOpponentSummary: {
+        totalPicksBeforeNextTurn: snapshot.opponentPanel.data.entries.length,
+        uniqueOpponents: [...opponentSummary.values()],
+        usage:
+          'Use open starters and likely positions to explain who may take the positions under discussion. Treat these as probabilities, not certainties; managers may draft backups or deviate from need.',
+      },
+      teamRosters,
+      availableRankedPlayers: active.players
+        .filter((player) => drafted[player.sleeperPlayerId]?.drafted !== true)
+        .map((player) => ({
+          playerId: player.sleeperPlayerId,
+          playerName: player.playerName,
+          position: player.position,
+          team: player.team,
+          ecrRank: player.ecrRank,
+          positionalRank: player.positionalRank,
+          tier: player.tier,
+          adp: player.adp,
+          byeWeek: player.byeWeek,
+        })),
     };
   }
 
@@ -842,9 +989,8 @@ export class Orchestrator {
     const highlightRow =
       candidateList.highlightPlayerId === null
         ? null
-        : (candidateList.rows.find(
-            (row) => row.playerId === candidateList.highlightPlayerId,
-          ) ?? null);
+        : (candidateList.rows.find((row) => row.playerId === candidateList.highlightPlayerId) ??
+          null);
     const round3 = (value: number): number => Math.round(value * 1000) / 1000;
 
     this.observability.recordEvent('recompute', {

@@ -2,9 +2,9 @@
  * The Express app: every route mounted onto one orchestrator, plus the built frontend.
  *
  * One process, one port, one attached draft. `/events` is the only push channel and `/api/*` the
- * only pull surface; nothing here writes to the Sleeper API, and the browser can never write
- * anything but attach/slot/resync/detach — the draft state itself is read-only by construction,
- * which is what makes AC-15's "multiple tabs, no write conflicts" free.
+ * only pull surface; nothing here writes to the Sleeper API. The browser can control the local
+ * draft session and an isolated in-memory chat credential, but the draft state itself is read-only
+ * by construction, which is what makes AC-15's "multiple tabs, no write conflicts" free.
  */
 import { existsSync } from 'node:fs';
 
@@ -15,6 +15,8 @@ import type { SidekickConfig } from '../config/loadConfig';
 import type { Observability } from '../observability';
 import type { Orchestrator } from '../orchestrator';
 import { createAttachRouter } from './attach';
+import { createChatRouter } from './chat';
+import type { ChatRouteOptions } from './chat';
 import { createClientLogRouter } from './clientLog';
 import { createConfigRouter } from './config';
 import { createEventsRouter } from './events';
@@ -31,6 +33,8 @@ export interface CreateAppOptions {
   observability?: Observability;
   /** Where this process's trace file lives, surfaced on `/api/debug/metrics`. */
   traceFilePath?: () => string | null;
+  /** Test seams and server-side configuration for the optional grounded draft chat. */
+  chat?: ChatRouteOptions;
 }
 
 export interface SidekickApp {
@@ -107,6 +111,7 @@ export function createSidekickApp(
 
   const { router: events, hub } = createEventsRouter(orchestrator, observability);
   app.use(createAttachRouter(orchestrator));
+  app.use(createChatRouter(orchestrator, options.chat));
   app.use(createResyncRouter(orchestrator));
   app.use(createPlayerGamelogRouter(orchestrator));
   app.use(createConfigRouter(orchestrator, config, { traceFilePath: options.traceFilePath }));

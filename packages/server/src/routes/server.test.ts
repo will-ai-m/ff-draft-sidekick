@@ -11,6 +11,7 @@ import type { Harness } from '../../test/harness';
 import { allHandlers, sleeperPlayersFixture } from '../../test/msw/handlers';
 import type { SleeperFixtureBundle } from '../../test/msw/handlers';
 import { createApp } from './server';
+import type { ChatRouteOptions } from './chat';
 
 const realBundle = realBundleJson as unknown as SleeperFixtureBundle;
 const DRAFT_ID = String(realBundle.draft['draft_id']);
@@ -40,7 +41,9 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-const start = async (options: { attach?: boolean } = {}): Promise<Running> => {
+const start = async (
+  options: { attach?: boolean; chat?: ChatRouteOptions } = {},
+): Promise<Running> => {
   const harness = createHarness({
     bundle: realBundle,
     visiblePicks: 0,
@@ -52,7 +55,7 @@ const start = async (options: { attach?: boolean } = {}): Promise<Running> => {
   });
   msw.use(...allHandlers({ scenario: harness.scenario }));
 
-  const app = createApp(harness.orchestrator, { serveWeb: false });
+  const app = createApp(harness.orchestrator, { serveWeb: false, chat: options.chat });
   const server: Server = await new Promise((resolve) => {
     const listening = app.listen(0, () => {
       resolve(listening);
@@ -232,6 +235,136 @@ describe('REST endpoints', () => {
     const body = (await response.json()) as { ok: boolean; durationMs: number };
     expect(body.ok).toBe(true);
     expect(harness.orchestrator.snapshot().pickFeed).toHaveLength(6);
+  });
+
+  it('POST /api/chat keeps model credentials server-side and grounds the question in live state', async () => {
+    let modelRequest: { url: string; init: RequestInit } | null = null;
+    const modelFetch: typeof fetch = vi.fn(async (url, init) => {
+      modelRequest = { url: String(url), init: init ?? {} };
+      return new Response(
+        JSON.stringify({
+          output: [{ type: 'message', content: [{ type: 'output_text', text: 'Take the WR.' }] }],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    const { origin, harness } = await start({ chat: { fetchImpl: modelFetch } });
+
+    const configure = await fetch(`${origin}/api/chat/session`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: 'openai', apiKey: 'server-secret', model: 'test-model' }),
+    });
+    expect(configure.status).toBe(201);
+    expect(await configure.clone().json()).not.toHaveProperty('apiKey');
+    const cookie = configure.headers.get('set-cookie')?.split(';')[0];
+    expect(cookie).toMatch(/^sidekick_chat_session=/);
+
+    const response = await fetch(`${origin}/api/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: cookie! },
+      body: JSON.stringify({ message: 'Why this player over a WR?' }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      answer: 'Take the WR.',
+      provider: 'openai',
+      model: 'test-model',
+      boardVersion: harness.orchestrator.snapshot().sync.boardVersion,
+    });
+    expect(modelRequest).not.toBeNull();
+    const captured = modelRequest as unknown as { url: string; init: RequestInit };
+    expect(captured.url).toBe('https://api.openai.com/v1/responses');
+    expect((captured.init.headers as Record<string, string>)['Authorization']).toBe(
+      'Bearer server-secret',
+    );
+    const body = JSON.parse(String(captured.init.body)) as {
+      input: string;
+      instructions: string;
+      model: string;
+    };
+    expect(body.model).toBe('test-model');
+    expect(body.input).toContain('Why this player over a WR?');
+    expect(body.input).toContain('"scoringSettings"');
+    expect(body.input).toContain('"availableRankedPlayers"');
+    expect(body.input).toContain('"teamRosters"');
+    expect(body.input).toContain('"decisionInterpretation"');
+    expect(body.input).toContain('"tacticalOpponentSummary"');
+    expect(body.input).toContain('"highProbabilityMeaning"');
+    expect(body.instructions).toMatch(/A HIGH survival\s+probability supports WAITING/);
+    expect(body.instructions).toMatch(/name the actual\s+teams or slots/);
+    expect(body.instructions).toContain('not a reader narrating a table');
+  });
+
+  it('POST /api/chat explains how to configure chat without affecting the draft', async () => {
+    const { origin } = await start();
+    const response = await fetch(`${origin}/api/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'What should I do?' }),
+    });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      code: 'chat-not-configured',
+      error: expect.stringContaining('OpenAI or Anthropic'),
+    });
+  });
+
+  it('POST /api/chat supports Anthropic BYOK and forgets the in-memory session', async () => {
+    let modelRequest: { url: string; init: RequestInit } | null = null;
+    const modelFetch: typeof fetch = vi.fn(async (url, init) => {
+      modelRequest = { url: String(url), init: init ?? {} };
+      return new Response(
+        JSON.stringify({ content: [{ type: 'text', text: 'Wait on tight end.' }] }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      );
+    });
+    const { origin } = await start({ chat: { fetchImpl: modelFetch } });
+    const configure = await fetch(`${origin}/api/chat/session`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: 'anthropic', apiKey: 'sk-ant-user-secret' }),
+    });
+    const cookie = configure.headers.get('set-cookie')?.split(';')[0];
+
+    const response = await fetch(`${origin}/api/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: cookie! },
+      body: JSON.stringify({ message: 'Should I draft a TE?' }),
+    });
+    expect(await response.json()).toMatchObject({
+      answer: 'Wait on tight end.',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+    });
+    const captured = modelRequest as unknown as { url: string; init: RequestInit };
+    expect(captured.url).toBe('https://api.anthropic.com/v1/messages');
+    expect((captured.init.headers as Record<string, string>)['X-Api-Key']).toBe(
+      'sk-ant-user-secret',
+    );
+    expect((captured.init.headers as Record<string, string>)['anthropic-version']).toBe(
+      '2023-06-01',
+    );
+
+    expect(
+      (
+        await fetch(`${origin}/api/chat/session`, {
+          method: 'DELETE',
+          headers: { cookie: cookie! },
+        })
+      ).status,
+    ).toBe(204);
+    const afterForget = await fetch(`${origin}/api/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: cookie! },
+      body: JSON.stringify({ message: 'Still there?' }),
+    });
+    expect(afterForget.status).toBe(503);
   });
 
   it('GET /api/player/:id/gamelog scores the log in the league’s own settings (AC-64)', async () => {

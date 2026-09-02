@@ -1,11 +1,19 @@
 /**
- * The browser's only write surface: attach, slot choice, re-sync, detach, plus AC-3's draft list.
+ * The browser's write surface: draft-session controls plus the isolated, read-only adviser chat.
  *
  * Everything the app *displays* arrives over SSE — these calls exist to move the server, not to
- * fetch state. Each one's effect comes back on the stream like any other change, so nothing here
- * ever writes into the store. That is what keeps a single answer to "what is on the board".
+ * fetch state. Draft controls come back on the stream like any other change, so nothing here ever
+ * writes into the store. Chat has its own ephemeral credential/session calls and never mutates the
+ * draft snapshot. That keeps a single answer to "what is on the board".
  */
-import type { AppStateSnapshot } from '@sidekick/shared';
+import type {
+  AppStateSnapshot,
+  DraftChatError,
+  DraftChatMessage,
+  DraftChatProvider,
+  DraftChatResponse,
+  DraftChatSessionStatus,
+} from '@sidekick/shared';
 
 /** Where the browser keeps the Sleeper username AC-3's convenience list is gated on. */
 export const STORED_USERNAME_KEY = 'sidekick.sleeperUsername';
@@ -150,6 +158,107 @@ export async function postResync(): Promise<ResyncResult> {
 export async function postDetach(): Promise<void> {
   await postJson('/api/detach', {});
 }
+
+export type DraftChatResult =
+  | { ok: true; response: DraftChatResponse }
+  | { ok: false; failure: DraftChatError };
+
+/** Ask against the server's current authoritative draft state; no snapshot is trusted from here. */
+export async function postDraftChat(
+  message: string,
+  history: DraftChatMessage[],
+): Promise<DraftChatResult> {
+  try {
+    const response = await postJson('/api/chat', { message, history });
+    const payload = (await readJson(response)) as Partial<DraftChatResponse & DraftChatError> | null;
+    if (!response.ok) {
+      return {
+        ok: false,
+        failure: {
+          code: payload?.code ?? 'model-error',
+          error: payload?.error ?? `Draft chat failed (HTTP ${response.status}).`,
+        },
+      };
+    }
+    return {
+      ok: true,
+      response: {
+        answer: payload?.answer ?? 'Sidekick returned an empty answer.',
+        provider: payload?.provider ?? 'openai',
+        model: payload?.model ?? 'unknown',
+        boardVersion: payload?.boardVersion ?? 0,
+      },
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      failure: {
+        code: 'model-error',
+        error: `Could not reach the draft adviser: ${(error as Error).message}`,
+      },
+    };
+  }
+}
+
+export type DraftChatSessionResult =
+  | { ok: true; status: DraftChatSessionStatus }
+  | { ok: false; error: string };
+
+const asChatSessionStatus = (payload: unknown): DraftChatSessionStatus => {
+  const value = payload as Partial<DraftChatSessionStatus> | null;
+  return {
+    configured: value?.configured === true,
+    provider: value?.provider === 'openai' || value?.provider === 'anthropic' ? value.provider : null,
+    model: typeof value?.model === 'string' ? value.model : null,
+    expiresAfterMinutes:
+      typeof value?.expiresAfterMinutes === 'number' ? value.expiresAfterMinutes : 30,
+  };
+};
+
+export async function getDraftChatSession(): Promise<DraftChatSessionResult> {
+  try {
+    const response = await fetch('/api/chat/session');
+    const payload = await readJson(response);
+    return response.ok
+      ? { ok: true, status: asChatSessionStatus(payload) }
+      : { ok: false, error: 'Could not read the chat-key session.' };
+  } catch (error) {
+    return { ok: false, error: `Could not reach the chat-key session: ${(error as Error).message}` };
+  }
+}
+
+export async function connectDraftChatKey(request: {
+  provider: DraftChatProvider;
+  apiKey: string;
+  model?: string;
+}): Promise<DraftChatSessionResult> {
+  try {
+    const response = await postJson('/api/chat/session', request);
+    const payload = await readJson(response);
+    if (!response.ok) {
+      return {
+        ok: false,
+        error:
+          (payload as { error?: string } | null)?.error ??
+          `Could not connect the key (HTTP ${response.status}).`,
+      };
+    }
+    return { ok: true, status: asChatSessionStatus(payload) };
+  } catch (error) {
+    return { ok: false, error: `Could not connect the key: ${(error as Error).message}` };
+  }
+}
+
+export async function forgetDraftChatKey(): Promise<void> {
+  await fetch('/api/chat/session', { method: 'DELETE' });
+}
+
+/** Best-effort cleanup for a tab/window exit; inactivity expiry remains the hard backstop. */
+export const forgetDraftChatKeyOnExit = (): void => {
+  if (typeof navigator.sendBeacon === 'function') {
+    navigator.sendBeacon('/api/chat/session/forget', new Blob([], { type: 'application/json' }));
+  }
+};
 
 export const readStoredUsername = (): string => {
   try {

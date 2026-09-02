@@ -6,6 +6,7 @@ export * from './needvector';
 export * from './types/appstate';
 export * from './types/board';
 export * from './types/candidate';
+export * from './types/chat';
 export * from './types/gamelog';
 export * from './types/insight';
 export * from './types/opponent';

@@ -7,7 +7,11 @@ post-draft reports), and [prd/](prd/) (requirements and design).
 
 ## Start the app, 0 → 100
 
-Prerequisite: Node.js ≥ 20 (with npm). Nothing else — no Sleeper login, no API key.
+Prerequisite: Node.js ≥ 20 (with npm). Sleeper draft data needs no login or key. The optional
+**Ask Sidekick** adviser is bring-your-own-key: connect either an OpenAI or Anthropic API key in
+the draft screen to use your own provider tokens. The raw key is held only in server memory behind
+an HttpOnly session cookie—never local/browser storage, logs, config, or the repository—and is
+erased on detach, explicit removal, server restart, page exit, or 30 minutes of inactivity.
 
 ```bash
 git clone git@github.com:will-ai-m/ff-draft-sidekick.git

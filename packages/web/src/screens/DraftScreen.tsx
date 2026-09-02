@@ -16,6 +16,7 @@
 import type { AppStateSnapshot } from '@sidekick/shared';
 
 import { CandidateList } from '../components/CandidateList';
+import { DraftChat } from '../components/DraftChat';
 import { OpponentPanel } from '../components/OpponentPanel';
 import { PickFeed } from '../components/PickFeed';
 import { PlayerCardHost } from '../components/PlayerCard';
@@ -57,10 +58,16 @@ export function DraftScreen({ snapshot, onDetach }: DraftScreenProps) {
           />
           <PickFeed pickFeed={snapshot.pickFeed} teams={snapshot.board.teams} />
         </div>
-        <CandidateList
-          candidateList={snapshot.candidateList}
-          nextUserPickNo={snapshot.opponentPanel.data.window.nextUserPickNo}
-        />
+        <div className="flex min-h-0 flex-col gap-4">
+          <DraftChat
+            draftId={snapshot.attach.draftId ?? 'attached-draft'}
+            boardVersion={snapshot.sync.boardVersion}
+          />
+          <CandidateList
+            candidateList={snapshot.candidateList}
+            nextUserPickNo={snapshot.opponentPanel.data.window.nextUserPickNo}
+          />
+        </div>
         <OpponentPanel
           opponentPanel={snapshot.opponentPanel}
           teams={snapshot.board.teams}

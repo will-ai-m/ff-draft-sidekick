@@ -45,8 +45,9 @@ describe('AttachScreen — paste (FR-1)', () => {
     render(<AttachScreen snapshot={makeUnattachedSnapshot()} onConfirm={vi.fn()} onDetach={vi.fn()} />);
 
     expect(screen.queryByRole('region', { name: /your recent drafts/i })).toBeNull();
-    // The username is kept for seat detection only — nothing is fetched on render.
-    expect(fetchMock.mock.calls.length).toBe(0);
+    // The username is kept for seat detection only — chat may read its ephemeral session status,
+    // but no recent-drafts request is made on render.
+    expect(fetchMock.mock.calls.some((call) => call[0].startsWith('/api/drafts'))).toBe(false);
   });
 
   it('attaches by posting the pasted input together with the stored username', async () => {
