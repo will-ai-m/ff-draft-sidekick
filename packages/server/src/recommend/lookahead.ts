@@ -59,9 +59,15 @@
  * at rank ~940 whenever the 40-player universe ran dry of one position.
  */
 
-import { NO_NEED_SIGNAL, SKILL_POSITIONS, isSkillPosition } from '@sidekick/shared';
+import {
+  NO_NEED_SIGNAL,
+  SKILL_POSITIONS,
+  flexingPositions,
+  isSkillPosition,
+} from '@sidekick/shared';
 import type {
   Board,
+  FlexShare,
   NeedVector,
   NoNeedSignal,
   ParameterValues,
@@ -352,6 +358,14 @@ export interface ComparePlansInput {
    */
   unfilledFlexSlots?: number;
   /**
+   * The league's FLEX share (amended 2026-09-02): only a position that flexes in practice may
+   * seat a surplus pick in an open FLEX slot or be assigned one by the fill term. With a
+   * standard room's RB/WR split a TE past its dedicated slot is a bench pick and prices at 0,
+   * which is what stops a TE-now/TE-next double from banking the FLEX seat. Absent, every
+   * eligible position flexes (the uniform AS-5 split).
+   */
+  flexShare?: FlexShare;
+  /**
    * The user's own upcoming pick numbers, in order, starting with the **next** turn (the same
    * pick FR-6's window closes at). The fill term assigns each slot left after the plan's two
    * picks to one of these turns — `[1]` onward — and prices it at that turn's market-depleted
@@ -418,6 +432,10 @@ export function comparePlans(input: ComparePlansInput): PlanComparison {
   if (positions.every((position) => !best.has(position))) return noComparison(true);
 
   const floors = outOfUniverseFloors(input.players, input.board, projection, valueModel);
+  // The positions a FLEX seat is actually filled from — the share's verdict, not the legal list.
+  const flexing = new Set<SkillPosition>(
+    flexingPositions(config.flexEligiblePositions, input.flexShare),
+  );
   const expectations = new Map<string, number>();
   const expectation = (position: SkillPosition, k: number, excludePlayerId?: string): number => {
     const key = `${position}|${k}|${excludePlayerId ?? ''}`;
@@ -515,9 +533,7 @@ export function comparePlans(input: ComparePlansInput): PlanComparison {
       if (pickNo === undefined) break; // no turn left to fill this slot — it prices at 0
 
       const open: SkillPosition[] = SKILL_POSITIONS.filter(
-        (position) =>
-          slotsLeft[position] > 0 ||
-          (flexLeft > 0 && config.flexEligiblePositions.includes(position)),
+        (position) => slotsLeft[position] > 0 || (flexLeft > 0 && flexing.has(position)),
       );
       let best: { position: SkillPosition; entry: MarketEntry } | null = null;
       for (const position of open) {
@@ -540,15 +556,12 @@ export function comparePlans(input: ComparePlansInput): PlanComparison {
   };
 
   /**
-   * How many of a plan's picks at `position` can actually start: the dedicated slots plus, for a
-   * FLEX-eligible position, the open FLEX slots. Uncapped with no slot picture (the caller either
-   * predates the amendment or is the bench phase, where nothing starts and raw values compare).
-   */
-  /**
    * Which of a plan's two picks can actually **start**, allocated jointly against one shared
    * pool (amended 2026-09-01): each pick takes an unfilled dedicated slot at its own position
-   * first, then competes for the open FLEX slots, in plan order. A pick with no slot left is a
-   * bench pick and banks no starter points.
+   * first, then — at a position that flexes in practice (the FLEX share, 2026-09-02) — competes
+   * for the open FLEX slots, in plan order. A pick with no slot left is a bench pick and banks
+   * no starter points. Uncapped with no slot picture (the caller either predates the amendment
+   * or is the bench phase, where nothing starts and raw values compare).
    *
    * Joint allocation is the whole point. The per-position reading it replaces asked
    * `dedicated[position] + openFlex >= 1` for the now-pick and again for the next-pick, so two
@@ -576,7 +589,7 @@ export function comparePlans(input: ComparePlansInput): PlanComparison {
         dedicated[position] -= 1;
         return true;
       }
-      if (flex > 0 && config.flexEligiblePositions.includes(position)) {
+      if (flex > 0 && flexing.has(position)) {
         flex -= 1;
         return true;
       }

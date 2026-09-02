@@ -34,6 +34,7 @@
 
 import {
   NO_NEED_SIGNAL,
+  PARAMETER_DEFAULTS,
   SKILL_POSITIONS,
   isSkillPosition,
   normalizeToDistribution,
@@ -49,6 +50,8 @@ import type {
   WindowPick,
 } from '@sidekick/shared';
 
+import { kdstPickLikelihoods } from '../simulation/kdstTiming';
+import type { KdstTimingConfig } from '../simulation/kdstTiming';
 import { assignSamplingRanks } from '../snapshots/match';
 
 /** Resolves the seat owning the pick made in `round` from board column `draftSlot` (AC-12). */
@@ -203,6 +206,12 @@ export interface OpponentPanelInput {
   /** The board, read only to exclude players it already shows drafted. */
   board: Pick<Board, 'players'>;
   examplesPerPosition?: number;
+  /**
+   * 🔶 `kdstEarlyPickWindow` / `kdstEarlyPickDecay` — FR-8's K/DST placement rule, read here as
+   * each pick's `kdstLikelihood` so the panel states what the simulation samples (added
+   * 2026-09-02). Defaults to the parameter defaults; the orchestrator passes the loaded config.
+   */
+  kdstTiming?: KdstTimingConfig;
 }
 
 type SkillCandidate = ExampleCandidate & { position: SkillPosition };
@@ -244,7 +253,9 @@ const asExample = (player: SkillCandidate): OpponentExamplePlayer => ({
 });
 
 /**
- * Ranks the positions a team's need vector actually points at (AC-36).
+ * Ranks the positions a team's need vector actually points at (AC-36), each likelihood scaled by
+ * the chance the pick is a skill pick at all (`skillShare = 1 − kdstLikelihood`, amended
+ * 2026-09-02) so the skill chips and the K/DST chip the panel renders beside them sum to 1.
  *
  * Ties resolve in the canonical QB/RB/WR/TE order — a team needing one RB, one WR and one TE
  * has three genuinely equal likelihoods, and an unchanged board must render them in the same
@@ -252,13 +263,14 @@ const asExample = (player: SkillCandidate): OpponentExamplePlayer => ({
  */
 const rankPositions = (
   distribution: Record<Position, number>,
+  skillShare: number,
 ): OpponentPanelEntry['mostLikelyPositions'] =>
   SKILL_POSITIONS.map((position, order) => ({ position, order }))
     .filter(({ position }) => distribution[position] > 0)
     .sort((a, b) => distribution[b.position] - distribution[a.position] || a.order - b.order)
     .map(({ position }) => ({
       position,
-      likelihood: distribution[position],
+      likelihood: distribution[position] * skillShare,
       confidence: 'position' as const,
     }));
 
@@ -269,17 +281,38 @@ const rankPositions = (
 export function buildOpponentPanel(input: OpponentPanelInput): OpponentPanelEntry[] {
   const limit = input.examplesPerPosition ?? DEFAULT_EXAMPLES_PER_POSITION;
   const { byPosition, bestAvailable } = orderAvailable(input.players, input.board);
+  const rosters = new Map(
+    input.window.picks.map((pick) => [pick.teamId, input.panelFor(pick.teamId)] as const),
+  );
 
-  return input.window.picks.map((pick) => {
-    const roster = input.panelFor(pick.teamId);
+  // FR-8's K/DST timing, read as an expectation per pick: the middle rounds go to skill depth,
+  // a team's last few picks increasingly to its kicker and defense (AC-47 as amended). Computed
+  // over the whole window at once because a team picking twice at a snake turn carries its
+  // first pick's chance into the second.
+  const kdstLikelihoods = kdstPickLikelihoods(
+    input.window.picks.map((pick) => {
+      const dedicated = rosters.get(pick.teamId)!.unfilledStartingSlots.dedicated;
+      return {
+        teamId: pick.teamId,
+        unfilledKDstSlots: dedicated.K + dedicated.DST,
+        remainingPicks: input.remainingPicks.get(pick.teamId) ?? 0,
+      };
+    }),
+    input.kdstTiming ?? PARAMETER_DEFAULTS,
+  );
+
+  return input.window.picks.map((pick, index) => {
+    const roster = rosters.get(pick.teamId)!;
     const needVector = roster.needVector;
+    const kdstLikelihood = kdstLikelihoods[index] ?? 0;
 
     // A team with no unfilled starting slot has no position-level prediction to display: it
     // drafts best-available from ADP order (Terms). Publishing a zero or uniform distribution
     // would dress that regime up as a prediction it is not.
     const needDistribution =
       needVector === NO_NEED_SIGNAL ? null : normalizeToDistribution(needVector);
-    const mostLikelyPositions = needDistribution === null ? [] : rankPositions(needDistribution);
+    const mostLikelyPositions =
+      needDistribution === null ? [] : rankPositions(needDistribution, 1 - kdstLikelihood);
 
     const examplePlayers =
       needDistribution === null
@@ -296,6 +329,7 @@ export function buildOpponentPanel(input: OpponentPanelInput): OpponentPanelEntr
       needVector,
       needDistribution,
       remainingPicks: input.remainingPicks.get(pick.teamId) ?? 0,
+      kdstLikelihood,
       mostLikelyPositions,
       examplePlayers,
     };
@@ -330,6 +364,7 @@ export function computeOpponentPanel(source: OpponentPanelSource): {
       ...(source.examplesPerPosition === undefined
         ? {}
         : { examplesPerPosition: source.examplesPerPosition }),
+      ...(source.kdstTiming === undefined ? {} : { kdstTiming: source.kdstTiming }),
     }),
   };
 }

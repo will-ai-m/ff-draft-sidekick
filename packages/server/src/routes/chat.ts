@@ -53,6 +53,12 @@ teams or slots picking before the user's next turn, how many picks they control,
 starting positions remain open, and whether their likely needs make a positional run plausible.
 Explain that opponent needs are probabilistic because teams can take backups or deviate. Do not
 invent a need, and do not claim a player is safe merely because every opponent has a starter.
+Rooms fill K and DST in their last few picks and use the middle rounds for skill depth:
+kdstChanceByPick is the modelled chance each upcoming opponent pick goes to a kicker or defense
+instead of a skill player, and the likelyPositions percentages are already scaled by that chance.
+league.flexShare says which positions actually fill a FLEX slot in this league (with standard
+scoring RB/WR only — a second TE is a bench pick, never a FLEX play); never recommend a player
+"for FLEX" at a position whose share is 0.
 
 Reconstruct the full decision before challenging it. Keep rawHighestScoringPlan separate from
 resolvedDisplayedPlan: a near-tie resolver may deliberately display a different player or position.

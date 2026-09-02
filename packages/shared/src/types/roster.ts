@@ -18,8 +18,9 @@ export interface SlotConfig {
 
 /**
  * A **need vector** — per-position weights (PRD §9 Terms). Each unfilled dedicated starting
- * slot contributes 1 to its position; each unfilled FLEX slot contributes
- * 1/(eligible positions) to each eligible position; K/DST contribute nothing (🔶 AS-7).
+ * slot contributes 1 to its position; each unfilled FLEX slot contributes its {@link FlexShare}
+ * to each eligible position (uniform 1/(eligible positions) — the original AS-5 split — when no
+ * share is known); K/DST contribute nothing (🔶 AS-7).
  */
 export type NeedVector = Record<Position, number>;
 
@@ -42,6 +43,25 @@ export interface UnfilledStartingSlots {
 
 /** Which positions may occupy a FLEX slot; configurable via `flexEligiblePositions`. */
 export type FlexEligiblePositions = readonly SkillPosition[];
+
+/**
+ * How the league's FLEX demand realistically splits across the eligible positions — one weight
+ * per FLEX-eligible position, summing to 1 (amended 2026-09-02). A position at 0 is legally
+ * eligible but does not flex in practice, and so takes no FLEX need weight, absorbs no FLEX slot
+ * with its surplus, and banks no starter points for a pick past its dedicated slots.
+ *
+ * Why it exists: the uniform 1/(eligible positions) split handed TE a third of every open FLEX
+ * slot, which kept TE in the user's plan set after TE1 was rostered and pitched a second tight
+ * end "for FLEX" (Tucker Kraft at picks 63–68 of the 2026-09-02 league draft) — while a 10-team
+ * half-PPR room starts RB/WR at FLEX almost without exception (the 2026 FFC pool's excess
+ * starters inside the top 70 picks: RB 36% / WR 64% / TE 0%). Derived per attach from the
+ * league's own scoring curves (`roster/flexDemand.ts`), which put the same room at
+ * RB 40% / WR 60% / TE 0%; overridable by 🔶 `flexShareOverride`.
+ */
+export type FlexShare = Readonly<Partial<Record<SkillPosition, number>>>;
+
+/** Where an attached league's {@link FlexShare} came from — shown on the pre-draft check. */
+export type FlexShareSource = 'league-scoring' | 'config-override' | 'uniform-default';
 
 /**
  * The **roster panel** (FR-5): filled starting slots, unfilled starting slots by position

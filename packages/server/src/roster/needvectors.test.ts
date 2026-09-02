@@ -174,6 +174,26 @@ describe('non-default league settings, same code path (AC-30, AC-32)', () => {
     expect(seat4.unfilledStartingSlots.flex).toBe(1);
   });
 
+  it('benches that same surplus TE when the league’s FLEX share says TE does not flex (2026-09-02)', () => {
+    const state = stateOf(nonStandardBundle, NON_STANDARD_USER_ID);
+    const seat4 = computeRosterPanel({
+      teamId: 'slot-4',
+      slots: state.meta.slots,
+      pickFeed: state.pickFeed,
+      flexShare: { RB: 0.5, WR: 0.5, TE: 0 },
+    });
+
+    // Both FLEX seats stay open for the RB/WR that will hold them; the second TE is bench.
+    expect(seat4.filledStartingSlots).toEqual({ QB: 1, RB: 1, WR: 0, TE: 1, K: 0, DST: 0 });
+    expect(seat4.filledFlexSlots).toBe(0);
+    expect(seat4.unfilledStartingSlots.flex).toBe(2);
+    expect(seat4.benchCount).toBe(1);
+    const need = seat4.needVector as Record<Position, number>;
+    expect(need.TE).toBe(0);
+    expect(need.RB).toBeCloseTo(1 + 1, 10); // one dedicated slot + half of two FLEX seats
+    expect(need.WR).toBeCloseTo(3 + 1, 10);
+  });
+
   it('handles a league shape the defaults never anticipated (2 QB, no FLEX, no K/DST, no bench)', () => {
     const superflex = { QB: 2, RB: 2, WR: 2, TE: 1, FLEX: 0, K: 0, DST: 0, BN: 0 };
     const panel = computeRosterPanel({
@@ -400,6 +420,19 @@ describe('RosterPanelTracker (AC-31, AC-66)', () => {
     expect(tracker.userPanel()!.filledStartingSlots.WR).toBe(2);
 
     tracker.stop();
+  });
+
+  it('applies the FLEX share it was constructed with to every seat it serves', () => {
+    const { sync } = syncFor(nonStandardBundle, {
+      userId: NON_STANDARD_USER_ID,
+      visiblePicks: nonStandardBundle.picks.length,
+    });
+    const uniform = new RosterPanelTracker({ sync });
+    const shared = new RosterPanelTracker({ sync, flexShare: { RB: 0.5, WR: 0.5, TE: 0 } });
+
+    // Seat 4's second TE fills a FLEX under the uniform split and rides the bench under the share.
+    expect(uniform.panelFor('slot-4').filledFlexSlots).toBe(1);
+    expect(shared.panelFor('slot-4').filledFlexSlots).toBe(0);
   });
 
   it('has no panel until the user’s seat is known, and produces one the moment it is (AC-5)', () => {

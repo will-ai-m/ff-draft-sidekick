@@ -41,17 +41,18 @@ const candidate = (
 ): SimulationCandidate => ({ sleeperPlayerId, position, ecrRank, adp });
 
 /**
- * The fixture config pins `drawSharpness: 1` and `opponentNeedBlend: 1` — the un-tuned draw
- * mechanics — so every hand-computed 1/rank and pure-bent expectation below stays exact
- * arithmetic. The tuned production defaults (1.5 / 0.45, fitted 2026-08-31 against observed
- * rehearsal drafts) are pinned by `parameters.test.ts`, and the blend's own behaviour has its
- * dedicated describe block below.
+ * The fixture config pins `drawSharpness: 1`, `opponentNeedBlend: 1` and `kdstEarlyPickDecay: 1`
+ * — the un-tuned draw mechanics — so every hand-computed 1/rank, pure-bent and uniform-placement
+ * expectation below stays exact arithmetic. The tuned production defaults (1.5 / 0.45, fitted
+ * 2026-08-31 against observed rehearsal drafts; decay 0.5, fitted 2026-09-02) are pinned by
+ * `parameters.test.ts`, and each lever's own behaviour has a dedicated block below.
  */
 const config = (overrides: Partial<SurvivalConfig> = {}): SurvivalConfig => ({
   simUniverseSize: PARAMETER_DEFAULTS.simUniverseSize,
   monteCarloRunCount: PARAMETER_DEFAULTS.monteCarloRunCount,
   reachAdjustmentPerPick: PARAMETER_DEFAULTS.reachAdjustmentPerPick,
   kdstEarlyPickWindow: PARAMETER_DEFAULTS.kdstEarlyPickWindow,
+  kdstEarlyPickDecay: 1,
   drawSharpness: 1,
   opponentNeedBlend: 1,
   survivalBandLikelyGoneMax: PARAMETER_DEFAULTS.survivalBandLikelyGoneMax,
@@ -392,6 +393,55 @@ describe('the K/DST saturation rule (AC-47)', () => {
       expect(sharp.top).toBeLessThan(spread.top);
       expect(sharp.tail).toBeGreaterThanOrEqual(spread.tail);
       expect(sharp.top).toBeLessThan(0.2); // nearly every sharp run spends the pick on rb1
+    });
+
+    it('back-weights K/DST toward the deadline with the decay (2026-09-02)', () => {
+      // Uniform: a team two slots short with five picks left spends this one on K/DST 2/5 of
+      // the time. At decay 0.5 the weights over its last five picks are 1, .5, .25, .125, .0625
+      // (sum 1.9375), so the pick five from the end carries 2 × 0.0625 / 1.9375 ≈ 6.5%.
+      expect(kdstPickChance(2, 5, 4, 1)).toBeCloseTo(0.4, 12);
+      expect(kdstPickChance(2, 5, 4, 0.5)).toBeCloseTo(0.125 / 1.9375, 12);
+      // The deadline and the window's edge are untouched by the decay.
+      expect(kdstPickChance(2, 2, 4, 0.5)).toBe(1);
+      expect(kdstPickChance(2, 7, 4, 0.5)).toBe(0);
+      // Decay 0 is the deadline-only rule again, whatever the window.
+      expect(kdstPickChance(2, 3, 4, 0)).toBe(0);
+    });
+
+    it('redraws the stream when the decay changes (the seed hashes it)', () => {
+      const universe = buildSimulationUniverse({ players: THREE_RBS, board: boardOf(), size: 40 });
+      const picks = [simPick({ unfilledKDstSlots: 2, remainingPicks: 4 })];
+
+      expect(deriveSeed(universe, picks, config({ kdstEarlyPickDecay: 0.5 }))).not.toBe(
+        deriveSeed(universe, picks, config()),
+      );
+    });
+
+    it('spends far fewer mid-round picks on K/DST at the fitted decay than uniform placement', () => {
+      // A team six picks from the end with both slots open. Uniform placement sends a third of
+      // such picks to K/DST; the fitted decay sends about 3%, which is what the recorded rooms
+      // did with those rounds — they drafted skill depth and left K/DST for the last two.
+      const players = Array.from({ length: 8 }, (_, i) =>
+        candidate(`rb${i}`, 'RB', i + 1, i + 1),
+      );
+      const picks = [simPick({ unfilledKDstSlots: 2, remainingPicks: 6 })];
+      const spentOnKdst = (decay: number): number => {
+        const projection = project({
+          picks,
+          players,
+          config: { kdstEarlyPickDecay: decay, kdstEarlyPickWindow: 5, monteCarloRunCount: 2000 },
+          seed: 5,
+        });
+        let total = 0;
+        for (const survival of projection.survivalByPlayerId.values()) {
+          total += survival.probability;
+        }
+        // Seven survive when the pick takes a skill player, all eight when it went to K/DST.
+        return total - 7;
+      };
+
+      expect(spentOnKdst(1)).toBeGreaterThan(0.28);
+      expect(spentOnKdst(PARAMETER_DEFAULTS.kdstEarlyPickDecay)).toBeLessThan(0.1);
     });
 
     it('walks the counters per run — an early K/DST pick relieves the deadline behind it', () => {
@@ -981,9 +1031,11 @@ describe('simulation stability on an unchanged board (SC-2, §T7 done-when 2)', 
       size: config().simUniverseSize,
     });
     // Re-pinned 2026-08-27 (`kdstEarlyPickWindow` joined the seed), 2026-08-28 (`drawSharpness`
-    // joined) and 2026-08-31 (`opponentNeedBlend` joined — the market/need position blend
-    // changes what a draw samples, so it must move the stream).
-    expect(deriveSeed(universe, picks, config())).toBe(1768107254);
+    // joined), 2026-08-31 (`opponentNeedBlend` joined — the market/need position blend changes
+    // what a draw samples, so it must move the stream) and 2026-09-02 (`kdstEarlyPickDecay`
+    // joined and the default window moved 4 → 5: the back-weighted K/DST placement changes
+    // which picks consume a skill player, so the stream had to move).
+    expect(deriveSeed(universe, picks, config())).toBe(547069614);
   });
 
   it('keeps two independent samples inside a band’s width at the default run count', () => {

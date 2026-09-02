@@ -1,4 +1,4 @@
-import { PARAMETER_DEFAULTS, NO_NEED_SIGNAL } from '@sidekick/shared';
+import { PARAMETER_DEFAULTS, NO_NEED_SIGNAL, computeNeedVector } from '@sidekick/shared';
 import type {
   Board,
   DraftWindow,
@@ -402,6 +402,88 @@ describe('the highlight and its one-line reason (AC-51, AC-52, AC-56, AC-58, AC-
     expect(list.reason).toContain("better-consensus player now: Ja'Marr Chase (ECR 2)");
   });
 
+  it('never plans a second TE for FLEX once the TE starter is set — the Tucker Kraft case (2026-09-02)', () => {
+    // Picks 63–68 of the 2026-09-02 league draft: Tyler Warren already started at TE, the FLEX
+    // was open, and the uniform need split handed TE a third of it — enough to keep TE-now
+    // plans in the band, where "keeping the pick FLEX-eligible" then went to Tucker Kraft. With
+    // the league's own FLEX share (RB/WR only in standard scoring) the need vector gives TE
+    // nothing, so no plan can reach him: the best tight end on the board is not a candidate.
+    const slots = { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1, BN: 6 };
+    const filled = { QB: 0, RB: 2, WR: 2, TE: 1, K: 0, DST: 0 };
+    const board = boardOf(['rb1', 'wr1', 'rb2', 'wr2', 'te2']); // te2 is the user's own starter
+    const survival = twice(['te1', 'qb1', 'qb2', 'rb3', 'wr3', 'rb4', 'wr4']);
+    const flexShare = { RB: 0.4, WR: 0.6, TE: 0 };
+
+    const withShare = listOf({
+      board,
+      survival,
+      needVector: computeNeedVector(slots, filled, { flexShare }),
+      flexShare,
+      unfilledDedicatedSlots: { QB: 1, RB: 0, WR: 0, TE: 0 },
+      unfilledFlexSlots: 1,
+      futureUserPickNos: [20, 30],
+      config: config({ planTotalTooClosePoints: 100 }),
+    });
+    const teEverPlanned = (withShare.planComparison?.contenders ?? []).some(
+      (plan) => plan.nowPosition === 'TE' || plan.nextPosition === 'TE',
+    );
+    expect(teEverPlanned).toBe(false);
+    expect(withShare.highlightPlayerId).not.toBe('te1');
+    expect(withShare.explanations?.['te1']?.factors).toEqual(
+      expect.arrayContaining([expect.stringContaining('does not flex in practice')]),
+    );
+
+    // The pre-amendment split, for contrast: TE carries a third of the FLEX and Bowers plans.
+    const uniform = listOf({
+      board,
+      survival,
+      needVector: computeNeedVector(slots, filled),
+      unfilledDedicatedSlots: { QB: 1, RB: 0, WR: 0, TE: 0 },
+      unfilledFlexSlots: 1,
+      futureUserPickNos: [20, 30],
+      config: config({ planTotalTooClosePoints: 100 }),
+    });
+    expect(
+      (uniform.planComparison?.contenders ?? []).some((plan) => plan.nowPosition === 'TE'),
+    ).toBe(true);
+  });
+
+  it('breaks a near-tie toward an open slot that will not wait before lineup flexibility (2026-09-02)', () => {
+    // The TE slot is empty and its best candidate is projected gone; RB/WR only flex. Under the
+    // pre-amendment ladder flexibility outranked need, so once TE stopped counting as a flexing
+    // position an urgent TE hole would have lost to a spare RB before its urgency was consulted.
+    const list = listOf({
+      needVector: need({ TE: 1, RB: 0.5, WR: 0.5 }),
+      survival: twice(['qb1', 'qb2', 'rb1', 'rb4', 'wr1', 'wr4']),
+      flexShare: { RB: 0.5, WR: 0.5 },
+      unfilledDedicatedSlots: { QB: 0, RB: 0, WR: 0, TE: 1 },
+      unfilledFlexSlots: 1,
+      futureUserPickNos: [20, 30],
+      config: config({ planTotalTooClosePoints: 100 }),
+    });
+
+    expect(list.highlightPlayerId).toBe('te1');
+    expect(list.reason).toContain('taking the pick that still fills a starting slot: Brock Bowers');
+  });
+
+  it('keeps a safe open TE behind the positions that actually flex (2026-09-02)', () => {
+    // Same roster, but Bowers is projected to last: waiting on him is cheap, and the flexibility
+    // rung then prefers the RB/WR the FLEX seat is for — TE is FLEX-eligible in law only.
+    const list = listOf({
+      needVector: need({ TE: 1, RB: 0.5, WR: 0.5 }),
+      survival: twice(['qb1', 'qb2', 'rb1', 'rb4', 'wr1', 'wr4', 'te1', 'te2']),
+      flexShare: { RB: 0.5, WR: 0.5 },
+      unfilledDedicatedSlots: { QB: 0, RB: 0, WR: 0, TE: 1 },
+      unfilledFlexSlots: 1,
+      futureUserPickNos: [20, 30],
+      config: config({ planTotalTooClosePoints: 100 }),
+    });
+
+    expect(list.highlightPlayerId).not.toBe('te1');
+    expect(['rb1', 'wr1']).toContain(list.highlightPlayerId);
+    expect(list.reason).toContain('keeping the pick FLEX-eligible');
+  });
+
   it('breaks a near-tie toward the FLEX-eligible pick over a single-slot position (AC-58, rehearsal #7)', () => {
     // The Drake Maye regression in miniature: the open QB slot and the flex WR tie at 40 once
     // every slot is horizon-priced (the late QB pool dries at pick 50, so QB-now plans stop
@@ -660,6 +742,7 @@ describe('composed against T7’s own simulation output', () => {
       monteCarloRunCount: 200,
       reachAdjustmentPerPick: PARAMETER_DEFAULTS.reachAdjustmentPerPick,
       kdstEarlyPickWindow: PARAMETER_DEFAULTS.kdstEarlyPickWindow,
+      kdstEarlyPickDecay: PARAMETER_DEFAULTS.kdstEarlyPickDecay,
       drawSharpness: PARAMETER_DEFAULTS.drawSharpness,
       opponentNeedBlend: PARAMETER_DEFAULTS.opponentNeedBlend,
       survivalBandLikelyGoneMax: PARAMETER_DEFAULTS.survivalBandLikelyGoneMax,

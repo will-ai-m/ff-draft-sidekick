@@ -16,19 +16,29 @@
  *     this derived view is catching up"; `degraded` says "the board itself cannot be trusted"
  *     (AC-17, AC-48). Both ride on every `Insight<T>`; neither is ever collapsed into the other.
  */
-import { NO_NEED_SIGNAL, POSITIONS, freshInsight, isSkillPosition } from '@sidekick/shared';
+import {
+  NO_NEED_SIGNAL,
+  POSITIONS,
+  freshInsight,
+  isSkillPosition,
+  resolveFlexShare,
+} from '@sidekick/shared';
 import type {
   AppStateSnapshot,
   AttachState,
   CandidateListData,
   CandidateRow,
+  FlexShare,
+  FlexShareSource,
   Insight,
   OpponentPanelData,
+  OpponentPanelEntry,
   PickFeedEntry,
   PlayerCard,
   Position,
   PreDraftCheckData,
   RosterPanelData,
+  SkillPosition,
 } from '@sidekick/shared';
 
 import type { SidekickConfig } from './config/loadConfig';
@@ -44,6 +54,7 @@ import {
 } from './recommend/candidates';
 import { buildPlayerValueModel } from './recommend/value';
 import type { PlayerValueModel } from './recommend/value';
+import { deriveFlexShare, unclampedCurveLookup } from './roster/flexDemand';
 import { resolveLeagueSettings } from './roster/leagueSettings';
 import type { LeagueSettings } from './roster/leagueSettings';
 import { RosterPanelTracker } from './roster/needvectors';
@@ -114,11 +125,24 @@ interface ActiveSession {
    * case plans are not scored and the pre-draft check says why.
    */
   valueModel: PlayerValueModel | null;
+  /**
+   * The league's FLEX share and where it came from (amended 2026-09-02) — derived once per
+   * attach from the value model's curves, overridden by 🔶 `flexShareOverride`, uniform when
+   * neither can say. Handed to every need-vector consumer so FR-5, FR-6, FR-7, FR-8 and FR-10
+   * read one answer to "who fills FLEX".
+   */
+  flexShare: ResolvedFlexShare;
   sleeperPlayers: Record<string, SleeperPlayerRecord>;
   roster: RosterPanelTracker;
   tendencies: TendencyProfileTracker;
   preDraftCheck: PreDraftCheckData;
   unsubscribe: (() => void)[];
+}
+
+/** The FLEX share as the pre-draft check and the trace state it: per eligible position, sourced. */
+interface ResolvedFlexShare {
+  share: Partial<Record<SkillPosition, number>>;
+  source: FlexShareSource;
 }
 
 /** The last cascade's output, plus the board version it was computed from (AC-21's comparand). */
@@ -386,6 +410,8 @@ export class Orchestrator {
         draftSlot: number | null;
         picksBeforeNextTurn: number;
         pickNos: number[];
+        /** Per pick in `pickNos`: the modelled chance it goes to K/DST, not a skill player. */
+        kdstChanceByPick: number[];
         openDedicatedStarters: Record<string, number>;
         likelyPositions: { position: string; likelihood: number }[];
       }
@@ -396,6 +422,7 @@ export class Orchestrator {
       if (existing !== undefined) {
         existing.picksBeforeNextTurn += 1;
         existing.pickNos.push(entry.pickNo);
+        existing.kdstChanceByPick.push(entry.kdstLikelihood);
         continue;
       }
       opponentSummary.set(entry.teamId, {
@@ -404,6 +431,7 @@ export class Orchestrator {
         draftSlot: roster?.draftSlot ?? null,
         picksBeforeNextTurn: 1,
         pickNos: [entry.pickNo],
+        kdstChanceByPick: [entry.kdstLikelihood],
         openDedicatedStarters: entry.unfilledStartingSlots.dedicated,
         likelyPositions: entry.mostLikelyPositions.map(({ position, likelihood }) => ({
           position,
@@ -428,6 +456,10 @@ export class Orchestrator {
         scoringSource: active.league.scoring.source,
         scoringNote: active.league.scoring.note,
         scoringSettings: active.league.scoring.settings,
+        flexShare: active.flexShare.share,
+        flexShareSource: active.flexShare.source,
+        flexShareNote:
+          'Share of FLEX starters each eligible position actually fills in this league; a position at 0 is legally eligible but does not flex in practice, so a surplus player there is a bench pick.',
       },
       recommendation,
       decisionInterpretation: {
@@ -462,7 +494,7 @@ export class Orchestrator {
         totalPicksBeforeNextTurn: snapshot.opponentPanel.data.entries.length,
         uniqueOpponents: [...opponentSummary.values()],
         usage:
-          'Use open starters and likely positions to explain who may take the positions under discussion. Treat these as probabilities, not certainties; managers may draft backups or deviate from need.',
+          'Use open starters and likely positions to explain who may take the positions under discussion. Treat these as probabilities, not certainties; managers may draft backups or deviate from need. Likely-position percentages are already scaled by kdstChanceByPick, the modelled chance that pick is spent on a kicker or defense instead (rooms fill K/DST in their last few picks and use the middle rounds for skill depth).',
       },
       teamRosters,
       availableRankedPlayers: active.players
@@ -546,6 +578,9 @@ export class Orchestrator {
       picksAlreadyMade: state.pickFeed.length,
       matchedPlayers: active.players.length,
       adpOnlyPlayers: active.bundle.matching.adpOnlyPlayers.length,
+      // Which positions the engine will treat as FLEX candidates all draft, and why — the
+      // number behind "a second TE is a bench pick here" (amended 2026-09-02).
+      flexShare: active.flexShare,
       teams: state.teams.map((team) => ({
         teamId: team.teamId,
         draftSlot: team.draftSlot,
@@ -627,9 +662,20 @@ export class Orchestrator {
       return matched?.position ?? null;
     };
 
+    // FR-10's value model: league-scored historical curves flattened over the snapshot's tiers.
+    // Built before the trackers because the FLEX share reads its curves.
+    const curves = this.gameLogStore.positionalPointCurves(league.scoring.settings);
+    const valueModel = curves === null ? null : buildPlayerValueModel(players, curves);
+
+    // The FLEX share every need-vector consumer reads (amended 2026-09-02): the roster panel,
+    // the opponent panel, the tendency profiles, the simulation's position draw (through the
+    // panel) and the plan cap all take this one answer to "who fills FLEX in this league".
+    const flexShare = this.resolveLeagueFlexShare(league, curves);
+
     const roster = new RosterPanelTracker({
       sync: session.sync,
       flexEligiblePositions: this.config.flexEligiblePositions,
+      flexShare: flexShare.share,
       observability: this.observability,
       resolvePosition,
     });
@@ -638,14 +684,11 @@ export class Orchestrator {
       players,
       adpFor: (playerId) => bundle.matching.byPlayerId.get(playerId)?.adp ?? null,
       config: this.config,
+      flexShare: flexShare.share,
       resolvePosition,
     });
 
-    const preDraftCheck = this.buildPreDraftCheck(bundle, league);
-
-    // FR-10's value model: league-scored historical curves flattened over the snapshot's tiers.
-    const curves = this.gameLogStore.positionalPointCurves(league.scoring.settings);
-    const valueModel = curves === null ? null : buildPlayerValueModel(players, curves);
+    const preDraftCheck = this.buildPreDraftCheck(bundle, league, flexShare);
 
     // AC-50: when the cheat sheet ships without kickers or defenses (AC-23's warning case), the
     // K/DST filter falls back to ADP order. Skill positions never do — the list proper is
@@ -663,6 +706,7 @@ export class Orchestrator {
       players,
       kdstAdpFallback,
       valueModel,
+      flexShare,
       sleeperPlayers,
       roster,
       tendencies,
@@ -689,11 +733,48 @@ export class Orchestrator {
   }
 
   /**
+   * The FLEX share for this league (amended 2026-09-02): 🔶 `flexShareOverride` when set, else
+   * the league-scored curves through `deriveFlexShare` (read unclamped, so a cache too shallow to
+   * reach the FLEX band decides nothing), else the uniform AS-5 split — restricted to the
+   * eligible positions and renormalised, so a caller reading it sees exactly what the need
+   * vector will apply. The source rides along for the pre-draft check and the trace.
+   */
+  private resolveLeagueFlexShare(
+    league: LeagueSettings,
+    curves: Record<SkillPosition, readonly number[]> | null,
+  ): ResolvedFlexShare {
+    const eligible = this.config.flexEligiblePositions;
+    const restrict = (share: FlexShare): Partial<Record<SkillPosition, number>> => {
+      const resolved = resolveFlexShare(eligible, share);
+      return Object.fromEntries(eligible.map((position) => [position, resolved[position]]));
+    };
+
+    if (this.config.flexShareOverride !== null) {
+      return { share: restrict(this.config.flexShareOverride), source: 'config-override' };
+    }
+    const derived =
+      curves === null
+        ? null
+        : deriveFlexShare({
+            slots: league.slots,
+            teamCount: league.teamCount,
+            flexEligiblePositions: eligible,
+            valueAt: unclampedCurveLookup(curves),
+          });
+    if (derived !== null) return { share: restrict(derived), source: 'league-scoring' };
+    return { share: restrict({}), source: 'uniform-default' };
+  }
+
+  /**
    * FR-4's pre-draft check, plus the one line FR-11 contributes: an instance whose nflverse cache
    * was never built will answer every player card with "no NFL game data", and the pre-draft check
    * is the surface that answers "is this instance ready to draft with?" (T9's handoff).
    */
-  private buildPreDraftCheck(bundle: SnapshotBundle, league: LeagueSettings): PreDraftCheckData {
+  private buildPreDraftCheck(
+    bundle: SnapshotBundle,
+    league: LeagueSettings,
+    flexShare: ResolvedFlexShare,
+  ): PreDraftCheckData {
     const check = buildPreDraftCheck({
       bundle,
       league: {
@@ -703,6 +784,7 @@ export class Orchestrator {
         // AC-27 compares the settings, not the label. `resolveScoring` already says whether this
         // dict is the league's own or one of the named fallback tables (AC-30).
         scoring: { source: league.scoring.source, settings: league.scoring.settings },
+        flexShare,
       },
       config: this.config,
     });
@@ -852,7 +934,8 @@ export class Orchestrator {
     const picksMade = state.pickFeed.length;
     const startedAt = this.now();
 
-    // FR-6 — the window and its rows, then FR-7's bend on top of them.
+    // FR-6 — the window and its rows, then FR-7's bend on top of them. The K/DST timing rides
+    // in so each row's `kdstLikelihood` is the expectation of what FR-8 will sample.
     const panel = computeOpponentPanel({
       teamCount: state.meta.teamCount,
       rounds: state.meta.rounds,
@@ -862,6 +945,7 @@ export class Orchestrator {
       panelFor: (teamId) => roster.panelFor(teamId),
       players,
       board: state.board,
+      kdstTiming: this.config,
     });
     const entries = tendencies.enrichPanel(panel.entries);
     const panelDoneAt = this.now();
@@ -920,6 +1004,7 @@ export class Orchestrator {
             needVector: userRoster?.needVector ?? NO_NEED_SIGNAL,
             survival,
             valueModel: active.valueModel,
+            flexShare: active.flexShare.share,
             userRemainingPicks,
             futureUserPickNos,
             unfilledK: userRoster?.unfilledStartingSlots.dedicated.K ?? 0,
@@ -965,6 +1050,7 @@ export class Orchestrator {
       candidateList,
       userRoster,
       windowLength: panel.window.picks.length,
+      entries,
     });
   }
 
@@ -983,6 +1069,8 @@ export class Orchestrator {
     candidateList: CandidateListData;
     userRoster: RosterPanelData | null;
     windowLength: number;
+    /** FR-6/FR-7's enriched rows — what the panel predicted for each opponent pick. */
+    entries: readonly OpponentPanelEntry[];
   }): void {
     const finishedAt = this.now();
     const { candidateList } = args;
@@ -1029,6 +1117,19 @@ export class Orchestrator {
               ? null
               : { probability: round3(row.survival.probability), band: row.survival.band },
         })),
+        // The opponent panel's per-pick prediction (added 2026-09-02): the K/DST chance and the
+        // top two skill positions, so a post-draft read can judge the timing model against what
+        // each seat actually did — the same picks `picks-observed` records.
+        window: args.entries.map((entry) => ({
+          pickNo: entry.pickNo,
+          teamId: entry.teamId,
+          remainingPicks: entry.remainingPicks,
+          kdstLikelihood: round3(entry.kdstLikelihood),
+          likely: entry.mostLikelyPositions.slice(0, 2).map(({ position, likelihood }) => ({
+            position,
+            likelihood: round3(likelihood),
+          })),
+        })),
       },
       needVector: args.userRoster?.needVector ?? null,
     });
@@ -1041,6 +1142,7 @@ export class Orchestrator {
     needVector: Parameters<typeof computeCandidateList>[0]['needVector'];
     survival: Parameters<typeof computeCandidateList>[0]['survival'];
     valueModel: Parameters<typeof computeCandidateList>[0]['valueModel'];
+    flexShare?: Parameters<typeof computeCandidateList>[0]['flexShare'];
     userRemainingPicks: number;
     unfilledK: number;
     unfilledDst: number;

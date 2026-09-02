@@ -18,6 +18,11 @@
  * need-derived likelihood be displayed; AC-40 requires the displayed likelihoods be bent by the
  * team's tendency profile. Both are shown — `50% → 60%` — so neither AC is satisfied by quietly
  * replacing the other, and the profile's effect is legible rather than baked in invisibly.
+ *
+ * **K/DST is a chip of its own (2026-09-02).** FR-8 spends a team's last few picks on its kicker
+ * and defense with a modelled chance; the row states that chance beside the skill positions,
+ * whose likelihoods the server has already scaled by the remainder, so a row's chips sum to 1
+ * and "RB 33%" in round 13 is not read as if the team could not be taking a DST.
  */
 import type {
   AttachState,
@@ -64,8 +69,26 @@ const NEED_ADHERENCE_LOW = 0.4;
 const POSITIONAL_LEAN_MIN = 0.1;
 /** A bent likelihood within half a percentage point of the unbent one is not a visible shift. */
 const BEND_VISIBLE_MIN = 0.005;
+/** A K/DST chance under half a percentage point is the middle rounds — nothing to show. */
+const KDST_VISIBLE_MIN = 0.005;
+/** At or above this the pick is, for display purposes, spoken for. */
+const KDST_CERTAIN_MIN = 0.995;
 
 const pct = (value: number): string => `${Math.round(value * 100)}%`;
+
+/**
+ * What a no-need-signal row says (Terms' best-available regime), with FR-8's K/DST timing
+ * folded in: a team out of skill starters in round 13 is more likely reaching for a defense than
+ * for the best available skill player, and the row should say so in the same breath.
+ */
+const bestAvailableNote = (entry: OpponentPanelEntry): string => {
+  const kdst = entry.kdstLikelihood;
+  if (kdst >= KDST_CERTAIN_MIN) return 'Starters full — this pick goes to K/DST.';
+  if (kdst >= KDST_VISIBLE_MIN) {
+    return `Starters full — ${pct(1 - kdst)} best available from ADP order, ${pct(kdst)} K/DST.`;
+  }
+  return 'Starters full — drafting best available from ADP order.';
+};
 
 const windowCaption = (window: DraftWindow, attachStatus: AttachState['status']): string => {
   if (attachStatus === 'needs-manual-slot') {
@@ -196,7 +219,7 @@ function WindowRow({ entry, teamName }: { entry: OpponentPanelEntry; teamName: s
 
       {entry.needDistribution === null && (
         <p aria-label="Need signal" className="text-xs italic text-slate-500">
-          Starters full — drafting best available from ADP order.
+          {bestAvailableNote(entry)}
         </p>
       )}
 
@@ -248,16 +271,24 @@ function UnfilledSlots({ entry }: { entry: OpponentPanelEntry }) {
 }
 
 /**
- * AC-36's likelihoods, bent per AC-40 where FR-7 has a bend to apply. The badge is deliberately
- * solid and high-contrast: this is the high-confidence half of AC-37's distinction.
+ * AC-36's likelihoods, bent per AC-40 where FR-7 has a bend to apply, plus the K/DST chance FR-8
+ * spends the pick with (2026-09-02). The badge is deliberately solid and high-contrast: this is
+ * the high-confidence half of AC-37's distinction.
+ *
+ * The server scales `mostLikelyPositions` by `1 − kdstLikelihood`; the bent distribution is
+ * conditional on a skill pick (it is what FR-8 draws from), so it is scaled here by the same
+ * factor before the two are compared, or every row near a deadline would read as "shifted".
  */
 function LikelyPositions({ entry }: { entry: OpponentPanelEntry }) {
-  if (entry.mostLikelyPositions.length === 0) return null;
+  const kdst = entry.kdstLikelihood;
+  const showKdst = kdst >= KDST_VISIBLE_MIN;
+  if (entry.mostLikelyPositions.length === 0 && !showKdst) return null;
 
   return (
     <ul aria-label="Likely positions" className="flex flex-wrap gap-1">
       {entry.mostLikelyPositions.map(({ position, likelihood }) => {
-        const bent = entry.bentDistribution?.[position];
+        const bentRaw = entry.bentDistribution?.[position];
+        const bent = bentRaw === undefined ? undefined : bentRaw * (1 - kdst);
         const shifted = bent !== undefined && Math.abs(bent - likelihood) >= BEND_VISIBLE_MIN;
         return (
           <li
@@ -275,6 +306,17 @@ function LikelyPositions({ entry }: { entry: OpponentPanelEntry }) {
           </li>
         );
       })}
+      {showKdst && (
+        <li
+          key="K/DST"
+          data-confidence="position"
+          data-position="K/DST"
+          aria-label={`K/DST, ${pct(kdst)} likely — position-level prediction`}
+          className="rounded bg-violet-500/20 px-1.5 py-0.5 text-xs font-semibold text-violet-200 ring-1 ring-violet-400/40"
+        >
+          K/DST {pct(kdst)}
+        </li>
+      )}
     </ul>
   );
 }

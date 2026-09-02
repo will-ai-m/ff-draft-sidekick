@@ -25,6 +25,8 @@
 import { POSITIONS, computeNeedVector, computeUnfilledStartingSlots } from '@sidekick/shared';
 import type {
   FlexEligiblePositions,
+  FlexShare,
+  NeedVectorOptions,
   PickFeedEntry,
   Position,
   RosterPanelData,
@@ -97,26 +99,38 @@ export interface RosterPanelInput {
   pickFeed: readonly PickFeedEntry[];
   /** 🔶 AS-5 `flexEligiblePositions`; callers holding a loaded config pass that config's value. */
   flexEligiblePositions?: FlexEligiblePositions;
+  /**
+   * The league's FLEX share (amended 2026-09-02), derived at attach from its scoring; absent,
+   * the uniform AS-5 split. Decides which surplus absorbs a FLEX slot and how an open one weighs.
+   */
+  flexShare?: FlexShare;
   resolvePosition?: PositionResolver;
 }
+
+const needOptions = (input: {
+  flexEligiblePositions?: FlexEligiblePositions | undefined;
+  flexShare?: FlexShare | undefined;
+}): NeedVectorOptions => ({
+  ...(input.flexEligiblePositions === undefined
+    ? {}
+    : { flexEligiblePositions: input.flexEligiblePositions }),
+  ...(input.flexShare === undefined ? {} : { flexShare: input.flexShare }),
+});
 
 /**
  * One team's roster panel (AC-31): filled starting slots, unfilled starting slots by position
  * (the need vector in count form), and bench count.
  *
  * The fill model is `computeUnfilledStartingSlots`' — dedicated slots fill first, positional
- * surplus at FLEX-eligible positions then absorbs FLEX slots, the remainder is bench — so the
- * panel and the need vector can never disagree about what "filled" means.
+ * surplus at positions that flex then absorbs FLEX slots, the remainder is bench — so the panel
+ * and the need vector can never disagree about what "filled" means.
  *
  * Used for the user (FR-5) and, by the same call, for any opponent seat (FR-6 needs one per team
  * in the window); nothing here is specific to "mine".
  */
 export function computeRosterPanel(input: RosterPanelInput): RosterPanelData {
   const { teamId, slots } = input;
-  const options =
-    input.flexEligiblePositions === undefined
-      ? {}
-      : { flexEligiblePositions: input.flexEligiblePositions };
+  const options = needOptions(input);
 
   const { counts, draftedCount } = countDraftedByPosition(
     input.pickFeed,
@@ -153,6 +167,8 @@ export interface RosterPanelTrackerOptions {
   sync: BoardSync;
   /** 🔶 AS-5 `flexEligiblePositions` from the loaded config. */
   flexEligiblePositions?: FlexEligiblePositions;
+  /** The attached league's FLEX share, derived once at attach (amended 2026-09-02). */
+  flexShare?: FlexShare;
   /** AC-66: where this task records the roster view's own pick-reflection lag. */
   observability?: Observability;
   resolvePosition?: PositionResolver;
@@ -175,6 +191,7 @@ export interface RosterPanelTrackerOptions {
 export class RosterPanelTracker {
   private readonly sync: BoardSync;
   private readonly flexEligiblePositions: FlexEligiblePositions | undefined;
+  private readonly flexShare: FlexShare | undefined;
   private readonly observability: Observability | undefined;
   private readonly resolvePosition: PositionResolver | undefined;
   private readonly now: () => number;
@@ -186,6 +203,7 @@ export class RosterPanelTracker {
   constructor(options: RosterPanelTrackerOptions) {
     this.sync = options.sync;
     this.flexEligiblePositions = options.flexEligiblePositions;
+    this.flexShare = options.flexShare;
     this.observability = options.observability;
     this.resolvePosition = options.resolvePosition;
     this.now = options.now ?? Date.now;
@@ -229,9 +247,10 @@ export class RosterPanelTracker {
       teamId,
       slots: this.sync.state.meta.slots,
       pickFeed: this.sync.state.pickFeed,
-      ...(this.flexEligiblePositions === undefined
-        ? {}
-        : { flexEligiblePositions: this.flexEligiblePositions }),
+      ...needOptions({
+        flexEligiblePositions: this.flexEligiblePositions,
+        flexShare: this.flexShare,
+      }),
       ...(this.resolvePosition === undefined ? {} : { resolvePosition: this.resolvePosition }),
     });
     this.panels.set(teamId, panel);

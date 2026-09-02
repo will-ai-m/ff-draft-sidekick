@@ -14,7 +14,14 @@
  *   never has to reconstruct it.
  */
 import { useState } from 'react';
-import type { AppStateSnapshot, PreDraftCheckData, SnapshotInfo, Team } from '@sidekick/shared';
+import type {
+  AppStateSnapshot,
+  FlexShareSource,
+  PreDraftCheckData,
+  SkillPosition,
+  SnapshotInfo,
+  Team,
+} from '@sidekick/shared';
 
 import {
   postAttach,
@@ -38,6 +45,25 @@ const seatLabel = (team: Team): string =>
 
 const ageLabel = (info: SnapshotInfo): string =>
   info.ageHours === null ? 'age unknown' : `${Math.round(info.ageHours)} h old`;
+
+const FLEX_SHARE_SOURCE_LABEL: Readonly<Record<FlexShareSource, string>> = {
+  'league-scoring': "from this league's scoring",
+  'config-override': 'from config.local.json',
+  'uniform-default': 'uniform default — no game-log cache to derive it from',
+};
+
+/**
+ * "RB 40% · WR 60% · TE 0% (from this league's scoring)" — which positions the engine will treat
+ * as FLEX candidates all draft, stated before the first pick (2026-09-02). A position at 0% is
+ * legally eligible but does not flex in practice, so a surplus player there is a bench pick.
+ */
+const flexShareText = (flexShare: {
+  share: Partial<Record<SkillPosition, number>>;
+  source: FlexShareSource;
+}): string =>
+  `${Object.entries(flexShare.share)
+    .map(([position, share]) => `${position} ${Math.round((share ?? 0) * 100)}%`)
+    .join(' · ')} (${FLEX_SHARE_SOURCE_LABEL[flexShare.source]})`;
 
 export function AttachScreen({ snapshot, onConfirm, onDetach }: AttachScreenProps) {
   const { attach, preDraftCheck } = snapshot;
@@ -312,9 +338,18 @@ function PreDraftCheck({ check }: { check: PreDraftCheckData }) {
         <div>
           <dt className="text-xs uppercase tracking-wide text-slate-500">League settings</dt>
           <dd className="text-sm text-slate-300">
-            {check.leagueSummary === null
-              ? 'Not read yet.'
-              : `${check.leagueSummary.teamCount} teams · ${check.leagueSummary.scoringType} · ${check.leagueSummary.rounds} rounds`}
+            {check.leagueSummary === null ? (
+              'Not read yet.'
+            ) : (
+              <>
+                {`${check.leagueSummary.teamCount} teams · ${check.leagueSummary.scoringType} · ${check.leagueSummary.rounds} rounds`}
+                {check.leagueSummary.flexShare !== null && (
+                  <span aria-label="FLEX demand" className="block text-xs text-slate-500">
+                    FLEX demand: {flexShareText(check.leagueSummary.flexShare)}
+                  </span>
+                )}
+              </>
+            )}
           </dd>
         </div>
       </dl>

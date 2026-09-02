@@ -556,6 +556,68 @@ describe('a team with no need signal drafts best available (PRD §9 Terms)', () 
   });
 });
 
+describe('the K/DST chance per pick (FR-8’s timing, read by the panel — 2026-09-02)', () => {
+  it('is zero through the middle rounds, where rooms build skill depth', () => {
+    // Picks 26–35: every seat has 12–14 picks left and two K/DST slots open, well outside the
+    // last-`unfilled + window` picks the rule covers, so the skill likelihoods are unscaled.
+    for (const entry of panelAt(24)) {
+      expect(entry.kdstLikelihood).toBe(0);
+    }
+    const seat6 = panelAt(24).find((entry) => entry.teamId === 'slot-6')!;
+    expect(seat6.mostLikelyPositions[0]!.likelihood).toBeCloseTo(4 / 15, 10);
+  });
+
+  it('climbs over a team’s last picks, scales the skill chips by the rest, and hits 1 at the deadline', () => {
+    const timing = { kdstEarlyPickWindow: 5, kdstEarlyPickDecay: 0.5 };
+    // slot-1: starters full, both K/DST slots open, two picks left — its deadline.
+    // slot-2: needs an RB, both K/DST slots open, three picks left, and picks twice here.
+    const rosters: Record<string, PickFeedEntry[]> = {
+      'slot-1': feed('slot-1', ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'RB']),
+      'slot-2': feed('slot-2', ['QB', 'RB', 'WR', 'WR', 'TE', 'WR']),
+    };
+    const entries = buildOpponentPanel({
+      window: {
+        picks: [
+          { pickNo: 131, round: 14, teamId: 'slot-1' },
+          { pickNo: 132, round: 14, teamId: 'slot-2' },
+          { pickNo: 133, round: 14, teamId: 'slot-2' },
+        ],
+        userOnTheClock: true,
+        inProgressPickNo: 130,
+        currentUserPickNo: 130,
+        nextUserPickNo: 134,
+      },
+      panelFor: (teamId) =>
+        computeRosterPanel({ teamId, slots: slots(), pickFeed: rosters[teamId] ?? [] }),
+      remainingPicks: new Map([
+        ['slot-1', 2],
+        ['slot-2', 3],
+      ]),
+      players: CANDIDATES,
+      board: emptyBoard,
+      kdstTiming: timing,
+    });
+
+    // Deadline: two slots, two picks — this pick is a kicker or a defense, full stop.
+    expect(entries[0]!.kdstLikelihood).toBe(1);
+    expect(entries[0]!.mostLikelyPositions).toEqual([]);
+
+    // Three picks out with two slots open: weights 1, .5, .25 → 2 × .25 / 1.75.
+    const first = 2 * 0.25 / 1.75;
+    expect(entries[1]!.kdstLikelihood).toBeCloseTo(first, 10);
+    // The RB need is the whole conditional distribution; the chip shows it times the rest.
+    expect(entries[1]!.needDistribution!.RB).toBe(1);
+    expect(entries[1]!.mostLikelyPositions).toEqual([
+      { position: 'RB', likelihood: 1 - first, confidence: 'position' },
+    ]);
+
+    // The same team's second pick carries the first's outcome: one slot left with two picks to
+    // go (1 × .5 / 1.5) if the first went to K/DST, else two slots with two picks — certain.
+    const second = first * (0.5 / 1.5) + (1 - first) * 1;
+    expect(entries[2]!.kdstLikelihood).toBeCloseTo(second, 10);
+  });
+});
+
 describe('position predictions and player examples are separately tagged (AC-37)', () => {
   it('tags every position prediction “position” and every player example “player-example”', () => {
     const entries = panelAt(24);

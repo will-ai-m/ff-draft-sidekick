@@ -56,10 +56,22 @@ export interface ParameterValues {
 
   // ---- Need vectors (FR-5, FR-6) ------------------------------------------------------
   /**
-   * Positions eligible for a FLEX slot. Each unfilled FLEX slot contributes
-   * 1/(this length) to each of these positions. PRD §9 Terms (need vector definition).
+   * Positions legally eligible for a FLEX slot. How an unfilled FLEX slot's need weight splits
+   * across them is the FLEX share (below), uniform 1/(this length) only when no share is known.
+   * PRD §9 Terms (need vector definition).
    */
   flexEligiblePositions: readonly SkillPosition[];
+  /**
+   * Overrides the FLEX demand share the engine derives at attach (amended 2026-09-02) — one
+   * weight per FLEX-eligible position, renormalised to sum 1; a position omitted or at 0 does
+   * not flex. `null` derives the share from the league's own scoring curves
+   * (`roster/flexDemand.ts`: with the 2026 half-PPR curves a 10-team RB2/WR2/TE1/FLEX1 room
+   * comes out RB 0.40 / WR 0.60 / TE 0, matching the FFC market's RB 36 / WR 64 / TE 0), and
+   * falls back to the uniform AS-5 split only when no game-log cache exists. Set it to pin a
+   * split the curves cannot see — `{ "RB": 0.5, "WR": 0.5 }` declares TE bench-only outright;
+   * a TE-premium room the curves under-read can give TE a share here.
+   */
+  flexShareOverride: Readonly<Partial<Record<SkillPosition, number>>> | null;
 
   // ---- Tendency profiles (FR-7) -------------------------------------------------------
   /** Picks a team must make before its profile leaves neutral priors. PRD AS-2 / AC-39. */
@@ -94,12 +106,25 @@ export interface ParameterValues {
   reachAdjustmentPerPick: number;
   /**
    * How many picks before the hard AC-47 deadline a simulated team may start spending picks on
-   * K/DST: within its last `unfilled + this` picks, each simulated pick goes to K/DST with
-   * probability `unfilled / remaining` (1 at the deadline, which is AC-47's original rule).
-   * 0 restores the deadline-only model. PRD AS-5 / FR-8 (amended 2026-08-27: the 08-27 mock
-   * rehearsal showed real rooms drafting K/DST several rounds before they are forced to).
+   * K/DST. Within its last `unfilled + this` picks each simulated pick goes to K/DST with the
+   * back-weighted chance 🔶 `kdstEarlyPickDecay` sets (1 at the deadline, which is AC-47's
+   * original rule); 0 restores the deadline-only model. Default 5 since 2026-09-02 so the
+   * observed tail — a first DST taken seven picks out — is reachable; the decay, not the
+   * window, is what keeps that tail thin. PRD AS-5 / FR-8 (amended 2026-08-27, 2026-09-02).
    */
   kdstEarlyPickWindow: number;
+  /**
+   * How a simulated team's K/DST picks spread over its last `unfilled + kdstEarlyPickWindow`
+   * picks: the pick `r` from its deadline carries weight `this^(r−1)`, and each pick is spent on
+   * K/DST with chance `unfilled × weight(r) / Σ weight(1..r)` (1 at the deadline). 1 restores the
+   * 2026-08-27 uniform placement, which put a third of every team's last six picks on K/DST —
+   * the rooms on record do not: across the 2026-09-02 league draft and two completed bot-room
+   * mocks (30 teams, 57 K/DST picks), 74% of K/DST picks came in the last two rounds and the
+   * middle rounds went to skill depth. Default 0.5: least-squares fit of the per-pick marginals
+   * (SSE 0.036 vs 0.46 uniform); re-fit against `npm run trace:calibrate` after each rehearsal.
+   * PRD AS-5 / FR-8 (amended 2026-09-02).
+   */
+  kdstEarlyPickDecay: number;
   /**
    * Exponent on the player draw's `1 / effectiveRank` weight: `1 / effectiveRank^this`. 1 was
    * the original AC-42 draw and left "likely available" candidates surviving ~69% vs ~0.91
@@ -197,6 +222,7 @@ export const PARAMETER_DEFAULTS: Readonly<ParameterValues> = Object.freeze({
   burstDebounceMs: 400,
 
   flexEligiblePositions: Object.freeze<SkillPosition[]>(['RB', 'WR', 'TE']),
+  flexShareOverride: null,
 
   tendencyColdStartPicks: 3,
   tendencyPositionalNudgeClamp: 0.5,
@@ -204,7 +230,8 @@ export const PARAMETER_DEFAULTS: Readonly<ParameterValues> = Object.freeze({
   simUniverseSize: 40,
   monteCarloRunCount: 2000,
   reachAdjustmentPerPick: 1,
-  kdstEarlyPickWindow: 4,
+  kdstEarlyPickWindow: 5,
+  kdstEarlyPickDecay: 0.5,
   drawSharpness: 1.5,
   opponentNeedBlend: 0.45,
   survivalBandLikelyGoneMax: 0.25,

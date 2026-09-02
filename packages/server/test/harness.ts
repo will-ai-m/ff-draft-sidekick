@@ -62,6 +62,51 @@ export const gameLogCacheFixture = (): GameLogCache => ({
   },
 });
 
+/**
+ * A cache with enough bodies per position to price a positional curve — the Gibbs fixture plus
+ * synthetic finishers whose single-game season totals fall off by rank, shaped like the 2026
+ * half-PPR cache (RB and WR interleave through the FLEX band; TE sits well below both). What the
+ * FLEX share (2026-09-02) needs to say something true; the one-player fixture above prices
+ * every RB at Gibbs's tail and everyone else at 0.
+ */
+export const curveGameLogCacheFixture = (): GameLogCache => {
+  const base = gameLogCacheFixture();
+  const perGame: Record<'QB' | 'RB' | 'WR' | 'TE', (rank: number) => number> = {
+    QB: (rank) => Math.max(0, 24 - 0.5 * (rank - 1)),
+    RB: (rank) => Math.max(0, 21 - 0.35 * (rank - 1)),
+    WR: (rank) => Math.max(0, 19.5 - 0.3 * (rank - 1)),
+    TE: (rank) => Math.max(0, 13 - 0.35 * (rank - 1)),
+  };
+  const depth = { QB: 16, RB: 40, WR: 40, TE: 20 } as const;
+  for (const position of ['QB', 'RB', 'WR', 'TE'] as const) {
+    for (let rank = 1; rank <= depth[position]; rank += 1) {
+      // Half-PPR pays 0.1 per rushing yard, so a one-game season of `points × 17 × 10` yards
+      // scores `points` per game once the store divides the season total by 17.
+      const yds = Math.round(perGame[position](rank) * 170);
+      const playerId = `curve-${position}-${rank}`;
+      base.players[playerId] = {
+        playerId,
+        name: `${position} Finisher ${rank}`,
+        position,
+        team: null,
+        seasons: {
+          '2025': [
+            {
+              week: 1,
+              opponent: 'BYE',
+              rushing: { att: 1, yds, avg: yds, td: 0 },
+              fumbles: 0,
+              fumblesLost: 0,
+              twoPointConversions: { passing: 0, rushing: 0, receiving: 0 },
+            },
+          ],
+        },
+      };
+    }
+  }
+  return base;
+};
+
 export interface HarnessOptions {
   bundle: SleeperFixtureBundle;
   visiblePicks?: number;

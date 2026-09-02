@@ -279,7 +279,8 @@ describe('scoring format (AC-27)', () => {
       config: PARAMETER_DEFAULTS,
       now: NOW,
     });
-    expect(check.leagueSummary).toEqual(league);
+    // The FLEX share rides on the summary (2026-09-02); none was supplied here, so it is null.
+    expect(check.leagueSummary).toEqual({ ...league, flexShare: null });
   });
 });
 

@@ -73,7 +73,7 @@ const REASON_EXPLANATIONS: Readonly<Record<HighlightReasonKind, string>> = {
   'best-available':
     'No plan, open-starter, roster-balance or value rule produced a stronger override, so the recommendation stays with the best available player by raw overall ECR.',
   'too-close-to-call':
-    'The leading choices are inside the configured noise band. Sidekick breaks that tie with FLEX eligibility, an open dedicated starting slot, then better consensus rank.',
+    'The leading choices are inside the configured noise band. Sidekick breaks that tie with depth now while a safe starter waits, then an open starting slot that will not wait, then a position that actually flexes in this league (RB/WR with standard scoring) over a single-slot one, then tier-break risk, then better consensus rank.',
   'lookahead-not-applicable':
     'There are fewer than two of your picks left, so Sidekick cannot compare a pick-now / pick-next plan and falls back to the current board.',
   'endgame-starter':
@@ -85,7 +85,7 @@ const REASON_EXPLANATIONS: Readonly<Record<HighlightReasonKind, string>> = {
 };
 
 const QB_POLICY =
-  'In a 1-QB league, QB2 is blocked until RB, WR and TE each have at least one backup. It may then become eligible as bench insurance, but QB3 and beyond are blocked by the roster cap. Bench value is measured above the league-size replacement line using this league’s scoring, so streamable QBs are discounted.';
+  'In a 1-QB league, QB2 is blocked until the positions whose depth starts games — RB and WR with standard scoring, since TE does not flex in practice — each carry two backups. It may then become eligible as bench insurance, but QB3 and beyond are blocked by the roster cap. Bench value is measured above the league-size replacement line using this league’s scoring, so streamable QBs are discounted.';
 
 const UNCLASSIFIED_EXPLANATION =
   'The recommendation engine supplied the decision shown above, but this snapshot does not carry its structured rule label. The displayed reason and plan totals remain the authoritative explanation.';

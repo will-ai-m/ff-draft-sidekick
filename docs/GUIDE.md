@@ -56,6 +56,10 @@ Before you confirm a draft, the attach screen runs a pre-draft check:
   no ADP entry (sampled by ECR order within position instead).
 - A warning if your league's actual scoring settings diverge from half-PPR — v1's rankings are
   half-PPR only.
+- The league's **FLEX demand split** — which positions the engine will treat as FLEX candidates
+  all draft, derived from your league's own scoring (a 10-team half-PPR room reads RB 40% · WR
+  60% · TE 0%: a second tight end is a bench pick there, never a FLEX play). Pin it with
+  `flexShareOverride` in `config.local.json` if you disagree with the curves.
 
 ## Mock-rehearsal workflow
 

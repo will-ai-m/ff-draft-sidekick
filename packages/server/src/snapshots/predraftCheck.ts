@@ -8,10 +8,12 @@
  */
 import { SCORING_DEFAULTS, scoringFormatFromLabel } from '@sidekick/shared';
 import type {
+  FlexShareSource,
   ParameterValues,
   PreDraftCheckData,
   PreDraftWarning,
   ScoringSettings,
+  SkillPosition,
   SnapshotInfo,
 } from '@sidekick/shared';
 
@@ -91,6 +93,12 @@ export interface LeagueSummary {
    * the documented fallback for exactly that case.
    */
   scoring?: { source: ScoringSource; settings: ScoringSettings };
+  /**
+   * The league's FLEX share and its provenance (amended 2026-09-02), passed through to the
+   * check's league summary so the user sees before the draft which positions the engine will
+   * treat as FLEX candidates. Absent only where a caller has none to give.
+   */
+  flexShare?: { share: Partial<Record<SkillPosition, number>>; source: FlexShareSource };
 }
 
 export interface PreDraftCheckInput {
@@ -240,6 +248,11 @@ export function buildPreDraftCheck(input: PreDraftCheckInput): PreDraftCheckData
     leagueSummary:
       league === null
         ? null
-        : { teamCount: league.teamCount, scoringType: league.scoringType, rounds: league.rounds },
+        : {
+            teamCount: league.teamCount,
+            scoringType: league.scoringType,
+            rounds: league.rounds,
+            flexShare: league.flexShare ?? null,
+          },
   };
 }

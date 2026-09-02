@@ -164,7 +164,12 @@ export const makePreDraftCheck = (
       message: 'This league scores ppr; the rankings are half-PPR.',
     },
   ],
-  leagueSummary: { teamCount: 10, scoringType: 'half_ppr', rounds: 15 },
+  leagueSummary: {
+    teamCount: 10,
+    scoringType: 'half_ppr',
+    rounds: 15,
+    flexShare: { share: { RB: 0.4, WR: 0.6, TE: 0 }, source: 'league-scoring' },
+  },
   ...overrides,
 });
 

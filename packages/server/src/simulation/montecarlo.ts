@@ -14,13 +14,15 @@
  *
  * **What one simulated pick does**, per AC-42, in order:
  *
- *  1. **K/DST placement (AC-47, amended 2026-08-27).** If the team's unfilled K/DST starting
- *     slots have caught up with the picks it has left, this pick consumes no skill player at
- *     all. Within the team's last `unfilled + kdstEarlyPickWindow` picks the same thing happens
- *     *probabilistically*, at `unfilled / remaining` — the 08-27 mock-rehearsal trace showed
- *     real rooms drafting K/DST with five and six picks still in hand, which the deadline-only
- *     rule modelled as skill-player demand and so overstated top-board scarcity. Either way it
- *     is never a draw from a K/DST pool — there is no K/DST simulation universe (🔶 AS-7).
+ *  1. **K/DST placement (AC-47, amended 2026-08-27 and 2026-09-02).** If the team's unfilled
+ *     K/DST starting slots have caught up with the picks it has left, this pick consumes no
+ *     skill player at all. Within the team's last `unfilled + kdstEarlyPickWindow` picks the
+ *     same thing happens *probabilistically*, back-weighted toward the deadline by
+ *     🔶 `kdstEarlyPickDecay` (`kdstTiming.ts`): the rooms on record — the 2026-09-02 league
+ *     draft and two completed bot mocks — spent 74% of their K/DST picks in the last two rounds
+ *     and used the middle rounds for skill depth, where the earlier uniform placement had a
+ *     third of every team's last six picks going to K/DST. Either way it is never a draw from a
+ *     K/DST pool — there is no K/DST simulation universe (🔶 AS-7).
  *  2. **The position.** Drawn from `(1-🔶opponentNeedBlend) * marketShare + 🔶opponentNeedBlend *
  *     bent`, where marketShare is each position's share of the cross-position ADP draw weight
  *     over what is still available in this run, and bent is the team's FR-7 tendency-bent need
@@ -75,6 +77,11 @@ import type {
 } from '@sidekick/shared';
 
 import { assignSamplingRanks } from '../snapshots/match';
+import { kdstPickChance } from './kdstTiming';
+
+// The K/DST timing rule lives in its own module so FR-6's panel can read it as an expectation;
+// re-exported here because it is AC-47's rule and this is AC-47's home.
+export { kdstPickChance } from './kdstTiming';
 
 export type SurvivalConfig = Pick<
   ParameterValues,
@@ -82,6 +89,7 @@ export type SurvivalConfig = Pick<
   | 'monteCarloRunCount'
   | 'reachAdjustmentPerPick'
   | 'kdstEarlyPickWindow'
+  | 'kdstEarlyPickDecay'
   | 'drawSharpness'
   | 'opponentNeedBlend'
   | 'survivalBandLikelyGoneMax'
@@ -268,27 +276,6 @@ export function planKDstSaturation(picks: readonly SimulatedPick[]): boolean[] {
   });
 }
 
-/**
- * The probability one simulated pick is spent on K/DST (AC-47 as amended 2026-08-27).
- *
- * A uniform-placement model: a team that must spend `unfilled` of its `remaining` picks on
- * K/DST, and is inside its last `unfilled + earlyWindow` picks, is treated as placing those
- * K/DST picks uniformly among what it has left — so the chance this particular pick is one of
- * them is `unfilled / remaining`. At the deadline (`remaining <= unfilled`) that reaches 1,
- * which is exactly the original hard saturation rule; outside the window it is 0, so an early-
- * round pick never goes to a kicker. 🔶 `kdstEarlyPickWindow` = 0 restores deadline-only.
- *
- * Calibration evidence for the window's existence: the 2026-08-27 mock trace shows nine seats
- * taking their first DST with four to six picks still in hand, which the deadline-only model
- * scored as skill-player demand — one measured source of the projection's survival pessimism.
- */
-export function kdstPickChance(unfilled: number, remaining: number, earlyWindow: number): number {
-  if (unfilled <= 0) return 0;
-  if (remaining <= unfilled) return 1;
-  if (remaining > unfilled + Math.max(0, earlyWindow)) return 0;
-  return unfilled / remaining;
-}
-
 // ---------------------------------------------------------------------------------------------
 // Randomness
 // ---------------------------------------------------------------------------------------------
@@ -338,7 +325,7 @@ const hashNumber = (hash: number, value: number): number => hashText(hash, `${va
  * board alone, which is worth having when a survival number is ever disputed.
  *
  * Hashed over exactly the inputs the draw consumes — the universe in sampling order, each pick's
- * team/reach/K-DST/remaining-picks and bent weights over the skill positions, and the two config
+ * team/reach/K-DST/remaining-picks and bent weights over the skill positions, and the config
  * values that change a draw. Bands are not hashed: they colour the result, they do not sample it.
  */
 export function deriveSeed(
@@ -349,6 +336,7 @@ export function deriveSeed(
     | 'monteCarloRunCount'
     | 'reachAdjustmentPerPick'
     | 'kdstEarlyPickWindow'
+    | 'kdstEarlyPickDecay'
     | 'drawSharpness'
     | 'opponentNeedBlend'
   >,
@@ -356,6 +344,7 @@ export function deriveSeed(
   let hash = hashNumber(FNV_OFFSET_BASIS, config.monteCarloRunCount);
   hash = hashNumber(hash, config.reachAdjustmentPerPick);
   hash = hashNumber(hash, config.kdstEarlyPickWindow);
+  hash = hashNumber(hash, config.kdstEarlyPickDecay);
   hash = hashNumber(hash, config.drawSharpness);
   hash = hashNumber(hash, config.opponentNeedBlend);
 
@@ -715,7 +704,12 @@ export function simulateSurvival(input: SimulateSurvivalInput): SurvivalProjecti
         const team = teamIndexByStep[step]!;
         const remaining = remainingInRun[team]!;
         remainingInRun[team] = remaining - 1;
-        const chance = kdstPickChance(unfilledInRun[team]!, remaining, earlyWindow);
+        const chance = kdstPickChance(
+          unfilledInRun[team]!,
+          remaining,
+          earlyWindow,
+          config.kdstEarlyPickDecay,
+        );
         if (chance >= 1 || (chance > 0 && random() < chance)) {
           unfilledInRun[team] = unfilledInRun[team]! - 1;
           continue; // Spent on K/DST — no skill player leaves the board (🔶 AS-7).

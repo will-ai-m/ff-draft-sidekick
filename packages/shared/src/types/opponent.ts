@@ -109,9 +109,19 @@ export interface OpponentPanelEntry {
   /** Picks this team still has left in the draft (AC-35). */
   remainingPicks: number;
   /**
+   * The chance this pick is spent on a kicker or defense rather than a skill player — FR-8's
+   * K/DST placement rule (AC-47) read as an expectation, so the panel says what the simulation
+   * samples (added 2026-09-02). 0 through the middle rounds, where rooms build skill depth;
+   * climbing over a team's last few picks; 1 at its deadline. `mostLikelyPositions` is scaled by
+   * `1 − this`, so the skill chips and a K/DST chip together sum to 1; `needDistribution` and
+   * `bentDistribution` stay conditional on a skill pick, since they are what FR-8 draws from.
+   */
+  kdstLikelihood: number;
+  /**
    * The positions this team's need vector gives nonzero weight, ranked by likelihood —
-   * AC-36's "most likely position(s)". A position with zero weight is not likely at all and is
-   * omitted; `needDistribution` still carries the full sum-1 picture.
+   * AC-36's "most likely position(s)", each scaled by the chance the pick is a skill pick at all
+   * (`1 − kdstLikelihood`). A position with zero weight is not likely at all and is omitted;
+   * `needDistribution` still carries the full sum-1 conditional picture.
    */
   mostLikelyPositions: { position: SkillPosition; likelihood: number; confidence: 'position' }[];
   /** Illustrative players for those positions, tagged `'player-example'` (AC-37). */

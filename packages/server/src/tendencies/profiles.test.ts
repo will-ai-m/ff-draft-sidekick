@@ -208,6 +208,28 @@ describe('need-adherence (AC-38)', () => {
     expect(profileOf('slot-6', withFourth).needAdherence).toBeCloseTo(0.75, 12);
   });
 
+  it('does not count a second TE as drafting to need when TE does not flex (2026-09-02)', () => {
+    // TE, TE, RB against 1 TE slot + 1 FLEX. Under the uniform split the second TE fills the
+    // FLEX and reads as need-driven; with the league's share saying the FLEX is an RB/WR seat,
+    // it is a bench pick — which is what a room's second tight end in round 11 actually is.
+    const picks: FixturePick[] = [
+      { pickNo: 6, teamId: 'slot-6', position: 'TE', playerId: 'g1', adp: 10 },
+      { pickNo: 15, teamId: 'slot-6', position: 'TE', playerId: 'g2', adp: 20 },
+      { pickNo: 26, teamId: 'slot-6', position: 'RB', playerId: 'g3', adp: 30 },
+    ];
+    expect(profileOf('slot-6', picks).needAdherence).toBe(1);
+
+    const shareAware = computeTendencyProfile({
+      teamId: 'slot-6',
+      slots: slots(),
+      pickFeed: feedOf(picks),
+      adpFor: adpLookup(picks),
+      coldStartPicks: PARAMETER_DEFAULTS.tendencyColdStartPicks,
+      flexShare: { RB: 0.5, WR: 0.5, TE: 0 },
+    });
+    expect(shareAware.needAdherence).toBeCloseTo(2 / 3, 12);
+  });
+
   it('counts an open K or DST slot as a starting slot a pick can fill (AC-33)', () => {
     const picks: FixturePick[] = [
       { pickNo: 8, teamId: 'slot-8', position: 'K', playerId: 'f1', adp: 150 },

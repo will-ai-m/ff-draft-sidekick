@@ -260,7 +260,7 @@ describe('the highlighted recommendation and its reason line', () => {
     );
 
     expect(recommendation().textContent).toContain(
-      'QB2 is blocked until RB, WR and TE each have at least one backup',
+      'QB2 is blocked until the positions whose depth starts games',
     );
     expect(recommendation().textContent).toContain('QB3 and beyond are blocked by the roster cap');
   });

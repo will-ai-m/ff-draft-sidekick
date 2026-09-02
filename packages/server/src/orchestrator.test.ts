@@ -2,7 +2,7 @@ import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import realBundleJson from '../test/fixtures/sleeper-real-league-draft.json';
-import { createHarness, delay, waitForRecompute } from '../test/harness';
+import { createHarness, curveGameLogCacheFixture, delay, waitForRecompute } from '../test/harness';
 import type { Harness } from '../test/harness';
 import {
   allHandlers,
@@ -150,11 +150,14 @@ describe('attach and the first AppStateSnapshot', () => {
 
     expect(snapshot.preDraftCheck?.ecrSnapshot?.source).toContain('fantasypros.com');
     expect(snapshot.preDraftCheck?.adpSnapshot?.poolDescription).toBeTruthy();
-    expect(snapshot.preDraftCheck?.leagueSummary).toEqual({
+    expect(snapshot.preDraftCheck?.leagueSummary).toMatchObject({
       teamCount: 10,
       scoringType: 'half_ppr',
       rounds: 15,
     });
+    // The FLEX share rides on the summary (2026-09-02). The one-player cache never reaches the
+    // FLEX band, so the engine says so and applies the uniform split rather than a guess.
+    expect(snapshot.preDraftCheck?.leagueSummary?.flexShare?.source).toBe('uniform-default');
     // Chip Trayanum has no Sleeper id in the crosswalk slice — AC-25's excluded list.
     expect(snapshot.preDraftCheck?.unmatchedEntries.map((entry) => entry.name)).toContain(
       'Chip Trayanum',
@@ -172,6 +175,62 @@ describe('attach and the first AppStateSnapshot', () => {
     const harness = await standUp({ gameLogCache: null });
     const codes = harness.orchestrator.snapshot().preDraftCheck?.warnings.map((w) => w.code);
     expect(codes).toContain('gamelog-cache-missing');
+  });
+
+  it('derives the FLEX share from the league’s scoring and hands it to the need vector (2026-09-02)', async () => {
+    const harness = await standUp({ gameLogCache: curveGameLogCacheFixture() });
+    const snapshot = harness.orchestrator.snapshot();
+
+    // A standard 10-team room on curves shaped like the 2026 cache: RB and WR split the FLEX
+    // seats, TE gets none — the pre-draft check says so before the first pick.
+    const flexShare = snapshot.preDraftCheck?.leagueSummary?.flexShare;
+    expect(flexShare?.source).toBe('league-scoring');
+    expect(flexShare?.share.TE).toBe(0);
+    expect(flexShare?.share.RB).toBeGreaterThan(0);
+    expect(flexShare?.share.WR).toBeGreaterThan(0);
+    expect(flexShare!.share.RB! + flexShare!.share.WR!).toBeCloseTo(1, 10);
+
+    // …and the user's own need vector reads that share: the open FLEX weighs on RB and WR only,
+    // so once TE1 is rostered TE need is over — no second tight end "for FLEX".
+    const need = snapshot.userRoster.data?.needVector as Record<string, number>;
+    expect(need.TE).toBe(1);
+    expect(need.RB).toBeCloseTo(2 + flexShare!.share.RB!, 10);
+    expect(need.WR).toBeCloseTo(2 + flexShare!.share.WR!, 10);
+
+    // The opponent panel reads the same share for every seat in the window.
+    for (const entry of snapshot.opponentPanel.data.entries) {
+      const opponentNeed = entry.needVector as Record<string, number>;
+      expect(opponentNeed.TE).toBe(1);
+      expect(opponentNeed.RB).toBeCloseTo(2 + flexShare!.share.RB!, 10);
+    }
+
+    // The trace records the share with the attach, so a post-draft read knows what the engine
+    // treated as a FLEX candidate.
+    const attached = harness.observability
+      .samples()
+      .find((sample) => sample.type === 'app-event' && sample.event === 'attach-succeeded');
+    expect((attached as { data?: { flexShare?: unknown } } | undefined)?.data?.flexShare).toEqual(
+      flexShare,
+    );
+  });
+
+  it('falls back to the uniform FLEX split, and says so, when there is no cache to derive it from', async () => {
+    const harness = await standUp({ gameLogCache: null });
+    const flexShare = harness.orchestrator.snapshot().preDraftCheck?.leagueSummary?.flexShare;
+
+    expect(flexShare?.source).toBe('uniform-default');
+    expect(flexShare?.share.RB).toBeCloseTo(1 / 3, 10);
+    expect(flexShare?.share.TE).toBeCloseTo(1 / 3, 10);
+  });
+
+  it('lets config.local.json pin the FLEX share outright', async () => {
+    const harness = await standUp({
+      gameLogCache: curveGameLogCacheFixture(),
+      config: { flexShareOverride: { RB: 1, WR: 1 } },
+    });
+    const flexShare = harness.orchestrator.snapshot().preDraftCheck?.leagueSummary?.flexShare;
+
+    expect(flexShare).toEqual({ share: { RB: 0.5, WR: 0.5, TE: 0 }, source: 'config-override' });
   });
 
   it('fetches both snapshots exactly once for the attached draft (AC-29)', async () => {

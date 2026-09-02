@@ -291,7 +291,10 @@ describe('the bench phase (FR-9/FR-10 amendment)', () => {
       nextPosition: 'QB',
     });
     expect(list.highlightPlayerId).toBe('rb4');
-    expect(list.reasonKind).not.toBeNull();
+    expect(list.reasonKind).toBe('bench-depth');
+    // With a value model the gate is two backups at each core position, and the curve makes
+    // RB and WR — not TE — the core: the reason says exactly that (2026-09-02).
+    expect(list.reason).toMatch(/a backup QB can wait until RB and WR each carry 2 backups/);
   });
 
   it('prices a backup behind its own position, not behind a raw depth count (rehearsal #9)', () => {
@@ -490,7 +493,34 @@ describe('the bench phase (FR-9/FR-10 amendment)', () => {
     expect(list.highlightPlayerId).toBe('rb1');
     expect(list.reasonKind).toBe('bench-depth');
     expect(list.reason).toMatch(/Brock Purdy \(QB\) leads the board/);
-    expect(list.reason).toMatch(/a backup QB can wait until every FLEX-eligible position has one/);
+    // No value model here, so the gate is one backup at every position that flexes — and with
+    // no FLEX share supplied every eligible position does. Named, not "every FLEX-eligible
+    // position" (2026-09-02): with a share, the same sentence would name RB and WR alone.
+    expect(list.reason).toMatch(/a backup QB can wait until RB, WR and TE each carry a backup/);
+  });
+
+  it('names only the positions that flex in the gate when the league’s FLEX share is known', () => {
+    const list = computeCandidateList({
+      players: BOARD_AT_108,
+      board: { players: {} },
+      window: {
+        picks: [],
+        userOnTheClock: true,
+        inProgressPickNo: 108,
+        currentUserPickNo: 108,
+        nextUserPickNo: null,
+      },
+      needVector: NO_NEED_SIGNAL,
+      survival: null,
+      valueModel: null,
+      userRemainingPicks: 5,
+      config: cfg(),
+      benchPhase: bench({ QB: 1, RB: 2, WR: 4, TE: 1 }),
+      flexShare: { RB: 0.4, WR: 0.6 },
+    });
+
+    expect(list.reasonKind).toBe('bench-depth');
+    expect(list.reason).toMatch(/a backup QB can wait until RB and WR each carry a backup/);
   });
 
   it('uses the thinnest eligible fallback when no scoring model exists', () => {

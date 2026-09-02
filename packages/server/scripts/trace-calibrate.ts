@@ -288,7 +288,7 @@ function main(): void {
   reportView('All recomputes (more samples, serially correlated)', all);
   console.log(
     '\nEach new mock adds samples — re-run after every rehearsal, and tune ' +
-      'reachAdjustmentPerPick / kdstEarlyPickWindow in config.local.json against these numbers.',
+      'reachAdjustmentPerPick / kdstEarlyPickWindow / kdstEarlyPickDecay in config.local.json against these numbers.',
   );
 }
 

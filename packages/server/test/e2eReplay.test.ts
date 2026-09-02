@@ -406,11 +406,14 @@ describe('a full mock draft, replayed through the real orchestrator', () => {
 
   it('kept the pre-draft check the user confirms on, warnings and all (FR-4)', () => {
     const attached = mark(replay, 'attached');
-    expect(attached.preDraftCheck?.leagueSummary).toEqual({
+    expect(attached.preDraftCheck?.leagueSummary).toMatchObject({
       teamCount: e2eBoard.teams,
       scoringType: 'half_ppr',
       rounds: e2eBoard.rounds,
     });
+    // The FLEX share is stated with the summary (2026-09-02); the harness's one-player cache
+    // prices only RBs, so here it is whatever that degenerate curve says — sourced, never blank.
+    expect(attached.preDraftCheck?.leagueSummary?.flexShare?.source).toBeDefined();
     expect(attached.preDraftCheck?.ecrSnapshot?.ageHours ?? 99).toBeLessThan(24);
     expect(attached.preDraftCheck?.warnings.map((warning) => warning.code)).not.toContain(
       'snapshot-stale',

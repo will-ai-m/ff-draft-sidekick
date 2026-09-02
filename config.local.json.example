@@ -29,8 +29,10 @@
   "burstDebounceMs": 400,
 
   "// --- Need vectors ---": "",
-  "// flexEligiblePositions": "[PRD §9 Terms] Positions that may occupy a FLEX slot. Each unfilled FLEX slot contributes 1/(this length) to each listed position.",
+  "// flexEligiblePositions": "[PRD §9 Terms] Positions legally allowed in a FLEX slot. How an open FLEX slot's need weight splits across them is the FLEX share below.",
   "flexEligiblePositions": ["RB", "WR", "TE"],
+  "// flexShareOverride": "[PRD §9 Terms, amended 2026-09-02] Pins the FLEX share — one weight per eligible position, renormalised to sum 1; a position omitted or at 0 does not flex (takes no FLEX need, benches its surplus, banks no starter points past its dedicated slots). null derives it from your league's scoring curves at attach (a 10-team half-PPR RB2/WR2/TE1/FLEX1 room comes out RB 0.40 / WR 0.60 / TE 0, which is also what the FFC market shows) and falls back to an even split only when no game-log cache exists. Example: {\"RB\": 0.5, \"WR\": 0.5} declares TE bench-only outright.",
+  "flexShareOverride": null,
 
   "// --- Opponent tendency profiles ---": "",
   "// tendencyColdStartPicks": "[PRD AS-2 / AC-39] Picks a team must make in this draft before its profile leaves neutral priors.",
@@ -45,8 +47,10 @@
   "monteCarloRunCount": 2000,
   "// reachAdjustmentPerPick": "[added] How far one pick of a team's average reach shifts a player's effective within-position ADP rank when weighting the player draw.",
   "reachAdjustmentPerPick": 1,
-  "// kdstEarlyPickWindow": "[PRD FR-8, amended 2026-08-27] How many picks before the hard K/DST deadline a simulated team may start spending picks on K/DST (probability unfilled/remaining inside the window, 1 at the deadline). 0 restores the deadline-only rule. Tune against `npm run trace:calibrate`.",
-  "kdstEarlyPickWindow": 4,
+  "// kdstEarlyPickWindow": "[PRD FR-8, amended 2026-08-27 and 2026-09-02] How many picks before the hard K/DST deadline a simulated team may start spending picks on K/DST; inside the window the chance is set by kdstEarlyPickDecay (1 at the deadline). 0 restores the deadline-only rule. 5 reaches the observed tail (a first DST seven picks out); the decay keeps that tail thin. Tune against `npm run trace:calibrate`.",
+  "kdstEarlyPickWindow": 5,
+  "// kdstEarlyPickDecay": "[PRD FR-8, amended 2026-09-02] How a team's K/DST picks spread over its last (unfilled + window) picks: the pick r from the deadline carries weight decay^(r-1), and each pick is spent on K/DST with chance unfilled × weight(r) / sum of weights 1..r. 1 is the old uniform placement (a third of every team's last six picks on K/DST); 0.5 fits the recorded rooms, which spent 74% of their K/DST picks in the last two rounds and built skill depth before that. Re-fit against `npm run trace:calibrate` after each rehearsal.",
+  "kdstEarlyPickDecay": 0.5,
   "// drawSharpness": "[added 2026-08-28, calibrated 2026-08-31] Exponent on the simulated player draw's 1/rank weight. 1 was the original draw; 1.5 is the joint MLE with opponentNeedBlend over observed opponent picks from the 10-team rehearsal drafts (real rooms take the top-3 available at a position ~73% of the time). Re-fit against `npm run trace:calibrate` after each rehearsal.",
   "drawSharpness": 1.5,
   "// opponentNeedBlend": "[added 2026-08-31] How much a simulated opponent's position choice leans on roster need vs the market: position ~ (1-this)*marketShare + this*needDist. 0 = pure ADP market, 1 = the old need-proportional draw (which over-drafted TE 3x and QB 4x early). 0.45 is the joint MLE with drawSharpness on the same observed picks.",
@@ -71,7 +75,7 @@
   "lookaheadMaxPicks": 2,
   "// endgameKdstBufferPicks": "[PRD FR-9, amended 2026-08-27] The endgame guard's slack: the highlight moves to the top available K/DST once your remaining picks are at or below your unfilled K/DST starting slots plus this buffer. 0 fills K/DST with exactly the last picks; raise it if you expect to ignore recommendations.",
   "endgameKdstBufferPicks": 0,
-  "// benchPositionHeadroom": "[PRD FR-9/FR-10, amended 2026-08-27] The bench phase's cap for non-FLEX-eligible positions: once your starters are full, such a position stops entering plans or the highlight when you already roster (its starting slots + this) of it — a 1-QB league caps at 2 QBs. FLEX-eligible positions are never capped.",
+  "// benchPositionHeadroom": "[PRD FR-9/FR-10, amended 2026-08-27] The bench phase's cap for positions whose depth does not start games (QB in a 1-QB league; TE in a standard one, since TE does not flex in practice): once your starters are full, such a position stops entering plans or the highlight when you already roster (its starting slots + this) of it — a 1-QB league caps at 2 QBs. Core positions (RB/WR in standard scoring) are never capped.",
   "benchPositionHeadroom": 1,
 
   "// --- Multiple instances and rate limiting ---": "",

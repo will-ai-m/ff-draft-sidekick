@@ -55,8 +55,15 @@ One rule to respect when extending it: a forecast made at `picksMade = pm` proje
 smallest user pick **strictly greater than `pm + 1`** — score against any other horizon and the
 numbers lie (the first analysis of the 08-27 rehearsal did exactly that, and read optimism as
 pessimism). Candidates the user drafted themselves are censored, not scored. Re-run after every
-mock; tune `reachAdjustmentPerPick` and `kdstEarlyPickWindow` in `config.local.json` against the
-result, and treat bot-room numbers as directional only — human rooms are the real target.
+mock; tune `reachAdjustmentPerPick`, `kdstEarlyPickWindow` and `kdstEarlyPickDecay` in
+`config.local.json` against the result, and treat bot-room numbers as directional only — human
+rooms are the real target.
+
+The K/DST timing model has its own quick check that needs no script: every `picks-observed`
+event carries positions, so the round each seat took its kicker and defense in is one `jq` away,
+and each `recompute` event's `output.window` records the K/DST chance the panel showed for every
+upcoming opponent pick. The 2026-09-02 fit (decay 0.5 over a 5-pick window) came from exactly
+that comparison across three completed drafts; repeat it when a new human room is on record.
 
 ## What is recorded
 
@@ -66,8 +73,9 @@ that produced them), `server-stopped`, `process-fault` (uncaught exception / unh
 with stack).
 
 **Sessions** — `attach-requested` / `attach-succeeded` (draft shape, seat, teams, matched-player
-counts, and the full pre-draft check: snapshot ages, sources, every warning) / `attach-failed`
-(classified), `slot-selected`, `detached` (session length, picks seen, recompute count).
+counts, the league's FLEX share and where it came from, and the full pre-draft check: snapshot
+ages, sources, every warning) / `attach-failed` (classified), `slot-selected`, `detached`
+(session length, picks seen, recompute count).
 
 **Board sync** — `poll` (every poll: mode, outcome, new-pick count, duration, effective interval;
 unchanged ones flagged noise), `sync-degraded` / `sync-recovered` (one per episode, with the
@@ -78,8 +86,9 @@ healthy ones as noise).
 **The cascade** — `recompute`, the heart of the record: board version, picks made, total and
 per-phase durations (opponent panel / Monte Carlo simulation / candidate list), simulation
 parameters, and the full output — highlighted player, reason kind, the reason sentence verbatim,
-the winning lookahead plan, the top candidate rows with survival probabilities, and your need
-vector at that moment. Plus the pre-existing latency samples `pick-reflected` (SC-1) and
+the winning lookahead plan, the top candidate rows with survival probabilities, the opponent
+panel's per-pick prediction (each upcoming opponent pick's K/DST chance and top two positions),
+and your need vector at that moment. Plus the pre-existing latency samples `pick-reflected` (SC-1) and
 `burst-refreshed` (SC-2), and `cascade-failed` with stack when a recompute threw and was
 contained.
 

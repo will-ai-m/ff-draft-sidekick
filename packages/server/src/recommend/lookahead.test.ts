@@ -463,6 +463,29 @@ describe('plan scoring and comparison (AC-55, AC-57, AC-58, AC-59)', () => {
     expect(rbDoubleWith(1)?.fillValue).toBe(0);
   });
 
+  it('seats a surplus pick in FLEX only at a position that flexes in this league (2026-09-02)', () => {
+    // One dedicated TE slot and one open FLEX. Under the uniform split a TE-now/TE-next double
+    // seats its second tight end in the FLEX and banks te2's 6; with the league's own share
+    // (RB/WR only) that second pick is a bench pick and prices at 0 — the FLEX seat is not a TE's.
+    const projection = projectionOf([
+      ['te1', 'te2', 'rb2', 'wr2'],
+      ['te1', 'te2', 'rb2', 'wr2'],
+    ]);
+    const teDoubleWith = (flexShare?: { RB: number; WR: number }) =>
+      (
+        compare({
+          projection,
+          needVector: need({ TE: 1 }),
+          unfilledDedicatedSlots: { TE: 1 },
+          unfilledFlexSlots: 1,
+          ...(flexShare === undefined ? {} : { flexShare }),
+        }).contenders ?? []
+      ).find((plan) => plan.nowPosition === 'TE' && plan.nextPosition === 'TE');
+
+    expect(teDoubleWith()?.nextValue).toBe(6);
+    expect(teDoubleWith({ RB: 0.5, WR: 0.5 })?.nextValue).toBe(0);
+  });
+
   it('never lets two different positions bank the same single FLEX seat (rehearsal #8)', () => {
     // The pick-53 regression: no dedicated RB or WR slot left, one open FLEX. Each pick of a
     // WR-now/RB-next plan used to ask "dedicated + openFlex >= 1?" on its own and both said

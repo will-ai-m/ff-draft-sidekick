@@ -36,13 +36,19 @@
  * survival number — but it silently costs AC-49 the survival column on some rows.
  */
 
-import { NO_NEED_SIGNAL, SKILL_POSITIONS, isSkillPosition } from '@sidekick/shared';
+import {
+  NO_NEED_SIGNAL,
+  SKILL_POSITIONS,
+  flexingPositions,
+  isSkillPosition,
+} from '@sidekick/shared';
 import type {
   Board,
   CandidateExplanation,
   CandidateListData,
   CandidateRow,
   DraftWindow,
+  FlexShare,
   HighlightReasonKind,
   NeedVector,
   NoNeedSignal,
@@ -53,6 +59,7 @@ import type {
   Survival,
 } from '@sidekick/shared';
 
+import { allocateFlexDemand } from '../roster/flexDemand';
 import type { SurvivalProjection } from '../simulation/montecarlo';
 import {
   bestAvailableByPosition,
@@ -97,9 +104,11 @@ export interface BenchPhaseInput {
  *
  * Dedicated starters establish each position's initial demand. Every league-wide FLEX starter is
  * then assigned, one at a time, to the eligible position whose next player has the greatest value
- * on this league's scoring curve. That makes ordinary FLEX demand flow mostly to RB/WR without
- * hard-coding that tactic, while TE-premium and QB-eligible FLEX formats can earn a different
- * allocation from their actual scoring. The returned rank is the first player beyond that demand.
+ * on this league's scoring curve (`allocateFlexDemand` — the same allocation that derives the
+ * need vector's FLEX share, so the bench phase and the starter phase read one answer to "who
+ * fills FLEX"). That makes ordinary FLEX demand flow to RB/WR without hard-coding that tactic,
+ * while TE-premium and QB-eligible FLEX formats can earn a different allocation from their
+ * actual scoring. The returned rank is the first player beyond that demand.
  */
 export function benchReplacementRanks(
   bench: BenchPhaseInput,
@@ -107,27 +116,12 @@ export function benchReplacementRanks(
   valueModel: Pick<PlayerValueModel, 'valueAt'>,
 ): Partial<Record<SkillPosition, number>> | undefined {
   if (bench.teamCount === undefined || bench.teamCount <= 0) return undefined;
-  const teamCount = bench.teamCount;
-  const demand: Record<SkillPosition, number> = Object.fromEntries(
-    SKILL_POSITIONS.map((position) => [position, teamCount * bench.slots[position]]),
-  ) as Record<SkillPosition, number>;
-  const eligible = config.flexEligiblePositions.filter((position) =>
-    SKILL_POSITIONS.includes(position),
-  );
-
-  const flexStarters = Math.max(0, Math.trunc(teamCount * bench.slots.FLEX));
-  for (let slot = 0; slot < flexStarters && eligible.length > 0; slot += 1) {
-    let winner = eligible[0]!;
-    let winnerValue = valueModel.valueAt(winner, demand[winner] + 1);
-    for (const position of eligible.slice(1)) {
-      const value = valueModel.valueAt(position, demand[position] + 1);
-      if (value > winnerValue) {
-        winner = position;
-        winnerValue = value;
-      }
-    }
-    demand[winner] += 1;
-  }
+  const { demand } = allocateFlexDemand({
+    slots: bench.slots,
+    teamCount: bench.teamCount,
+    flexEligiblePositions: config.flexEligiblePositions,
+    valueAt: (position, rank) => valueModel.valueAt(position, rank),
+  });
 
   return Object.fromEntries(SKILL_POSITIONS.map((position) => [position, demand[position] + 1]));
 }
@@ -180,27 +174,15 @@ export function benchPositionScarcity(input: {
   if (teamCount === undefined || teamCount <= 0) return undefined;
 
   // League-wide starting demand, with FLEX allocated to whichever eligible position's next
-  // player is worth most — the same allocation `benchReplacementRanks` uses, so a TE-premium or
-  // QB-eligible FLEX format can earn its own share instead of inheriting a hardcoded tactic.
-  const demand: Record<SkillPosition, number> = Object.fromEntries(
-    SKILL_POSITIONS.map((position) => [position, teamCount * bench.slots[position]]),
-  ) as Record<SkillPosition, number>;
-  const eligible = config.flexEligiblePositions.filter((position) =>
-    SKILL_POSITIONS.includes(position),
-  );
-  const flexStarters = Math.max(0, Math.trunc(teamCount * bench.slots.FLEX));
-  for (let slot = 0; slot < flexStarters && eligible.length > 0; slot += 1) {
-    let winner = eligible[0]!;
-    let winnerValue = valueModel.valueAt(winner, demand[winner] + 1);
-    for (const position of eligible.slice(1)) {
-      const value = valueModel.valueAt(position, demand[position] + 1);
-      if (value > winnerValue) {
-        winner = position;
-        winnerValue = value;
-      }
-    }
-    demand[winner] += 1;
-  }
+  // player is worth most — the same allocation `benchReplacementRanks` and the need vector's
+  // FLEX share use, so a TE-premium or QB-eligible FLEX format can earn its own share instead
+  // of inheriting a hardcoded tactic.
+  const { demand } = allocateFlexDemand({
+    slots: bench.slots,
+    teamCount,
+    flexEligiblePositions: config.flexEligiblePositions,
+    valueAt: (position, rank) => valueModel.valueAt(position, rank),
+  });
 
   // How deep each position is actually drafted. ADP is the market's own answer; a position the
   // feed barely covers falls back to "one bench body per team past the starters", which is
@@ -263,30 +245,57 @@ export function benchPlanPositions(
   bench: BenchPhaseInput,
   config: Pick<CandidateListConfig, 'benchPositionHeadroom' | 'flexEligiblePositions'>,
   replacementRanks?: Partial<Record<SkillPosition, number>>,
+  flexShare?: FlexShare,
 ): SkillPosition[] {
   const depth = (position: SkillPosition): number =>
     Math.max(0, (bench.rosterCounts[position] ?? 0) - bench.slots[position]);
+  const gate = benchCoreGate(bench, config, replacementRanks, flexShare);
+  const coreCovered = gate.core.every((position) => depth(position) >= gate.requiredDepth);
+
+  return SKILL_POSITIONS.filter(
+    (position) =>
+      gate.core.includes(position) ||
+      (coreCovered &&
+        (bench.rosterCounts[position] ?? 0) < bench.slots[position] + config.benchPositionHeadroom),
+  );
+}
+
+/**
+ * The bench phase's flex-first gate, stated as data: the **core** positions — those whose depth
+ * starts games, because they hold more than one lineup slot or earn FLEX demand on this league's
+ * curve — and how many backups each must carry before a non-core backup (QB2 in a 1-QB league,
+ * TE2 in a standard one) is worth a bench spot.
+ *
+ * Ordinary single-QB/single-TE backups are insurance, not weekly lineup depth, so with a value
+ * model the gate asks for two usable backups at every core position first; without one it asks
+ * for one backup at every position that flexes (the FLEX share's verdict when a share is known,
+ * the legal list otherwise). Exported so the redirect reason can name exactly this gate rather
+ * than a generic "FLEX-eligible" it no longer means (a standard room's TE is FLEX-eligible and
+ * not core, 2026-09-02).
+ */
+export function benchCoreGate(
+  bench: BenchPhaseInput,
+  config: Pick<CandidateListConfig, 'flexEligiblePositions'>,
+  replacementRanks?: Partial<Record<SkillPosition, number>>,
+  flexShare?: FlexShare,
+): { core: SkillPosition[]; requiredDepth: number } {
   const scoringAware = replacementRanks !== undefined && bench.teamCount !== undefined;
-  const corePositions = SKILL_POSITIONS.filter((position) => {
-    if (!scoringAware) return config.flexEligiblePositions.includes(position);
+  const flexing = flexingPositions(config.flexEligiblePositions, flexShare);
+  const core = SKILL_POSITIONS.filter((position) => {
+    if (!scoringAware) return flexing.includes(position);
     const dedicatedDemand = bench.teamCount! * bench.slots[position];
     const earnedFlexDemand =
       (replacementRanks[position] ?? dedicatedDemand + 1) > dedicatedDemand + 1;
     return bench.slots[position] > 1 || earnedFlexDemand;
   });
-  // Ordinary single-QB/single-TE backups are insurance, not weekly lineup depth. Require two
-  // usable backups at every core position before spending a bench spot on that insurance. A
-  // TE-premium or QB-eligible FLEX curve can make that position core by earning FLEX demand.
-  const requiredCoreDepth = scoringAware ? 2 : 1;
-  const coreCovered = corePositions.every((position) => depth(position) >= requiredCoreDepth);
-
-  return SKILL_POSITIONS.filter(
-    (position) =>
-      corePositions.includes(position) ||
-      (coreCovered &&
-        (bench.rosterCounts[position] ?? 0) < bench.slots[position] + config.benchPositionHeadroom),
-  );
+  return { core, requiredDepth: scoringAware ? 2 : 1 };
 }
+
+/** "RB and WR", "RB, WR and TE" — the gate's core positions, in canonical order, for a reason line. */
+const listPositions = (positions: readonly SkillPosition[]): string =>
+  positions.length <= 1
+    ? (positions[0] ?? '')
+    : `${positions.slice(0, -1).join(', ')} and ${positions[positions.length - 1]}`;
 
 /**
  * The shape of a snapshot player this module needs. Structural and narrow, as every other insight
@@ -491,6 +500,13 @@ export interface ComputeCandidateListInput {
    * (amended 2026-08-31) — see `ComparePlansInput.futureUserPickNos`.
    */
   futureUserPickNos?: readonly number[];
+  /**
+   * The league's FLEX share (amended 2026-09-02) — which eligible positions actually flex. It
+   * decides the near-tie ladder's "keeps the pick FLEX-eligible" rung, the plan cap, the bench
+   * gate's core set and the roster-fit line of every explanation. Absent, every eligible
+   * position flexes (the uniform AS-5 split); production passes the share derived at attach.
+   */
+  flexShare?: FlexShare;
 }
 
 const DISABLED_REASON =
@@ -540,28 +556,25 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
           valueModel: input.valueModel,
         });
   const benchPositions = benchPhaseActive
-    ? benchPlanPositions(input.benchPhase!, config, replacementRanks)
+    ? benchPlanPositions(input.benchPhase!, config, replacementRanks, input.flexShare)
     : null;
   const deferredStarterDepthPositions =
     !benchPhaseActive && input.benchPhase != null && replacementRanks !== undefined
-      ? benchPlanPositions(input.benchPhase, config, replacementRanks).filter(
+      ? benchPlanPositions(input.benchPhase, config, replacementRanks, input.flexShare).filter(
           (position) =>
             input.needVector !== NO_NEED_SIGNAL && input.needVector[position] === 0,
         )
       : undefined;
+  // The flex-first gate the bench pool is built on — kept as data so the redirect reason can
+  // name the positions and depth it actually waits for.
+  const benchGate =
+    input.benchPhase == null
+      ? null
+      : benchCoreGate(input.benchPhase, config, replacementRanks, input.flexShare);
   const coreBenchPositions = new Set(
-    benchPositions === null || input.benchPhase == null
+    benchPositions === null || benchGate === null
       ? []
-      : benchPlanPositions(input.benchPhase, config, replacementRanks).filter((position) => {
-          if (replacementRanks === undefined || input.benchPhase?.teamCount === undefined) {
-            return config.flexEligiblePositions.includes(position);
-          }
-          const dedicatedDemand = input.benchPhase.teamCount * input.benchPhase.slots[position];
-          return (
-            input.benchPhase.slots[position] > 1 ||
-            (replacementRanks[position] ?? dedicatedDemand + 1) > dedicatedDemand + 1
-          );
-        }),
+      : benchPositions.filter((position) => benchGate.core.includes(position)),
   );
   const benchPickCapacity =
     benchPositions === null || input.benchPhase === null || input.benchPhase === undefined
@@ -604,7 +617,13 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
     ...(input.futureUserPickNos === undefined
       ? {}
       : { futureUserPickNos: input.futureUserPickNos }),
+    ...(input.flexShare === undefined ? {} : { flexShare: input.flexShare }),
   });
+  // The positions that actually flex in this league — the near-tie ladder's flexibility rung
+  // and every explanation's roster-fit line read this, never the legal eligibility list.
+  const flexing = new Set<SkillPosition>(
+    flexingPositions(config.flexEligiblePositions, input.flexShare),
+  );
 
   const rawTop = available[0] ?? null;
   // Every bench-eligible position empty on the board is the raw regime again, not a dead end.
@@ -760,20 +779,27 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
       }
     }
   } else if (comparison.winner !== null) {
-    // AC-58 (amended 2026-08-31): totals this close cannot separate the plans, so present-tense
-    // facts do it instead, over **every plan inside the band** — a now-pick at a FLEX-eligible
-    // position beats one at a single-slot position (rehearsal #7: with the totals flat, a
-    // dedicated-slot rule alone promoted Drake Maye at pick 46 — the QB slot was the only
-    // dedicated hole, yet QB is the one position whose pick can never start anywhere else and
-    // whose deferral the flat curve makes cheap), then a now-pick filling an unfilled dedicated
-    // starting slot beats one that only flexes (the round-6 directive), then the better-ECR
-    // player ("take the consensus"). The band matters: rehearsal #6's mid-rounds tied two
-    // flex-RB plans at the top with the WR-need plan 0.1 behind them, invisible to a
-    // top-two-only rule. The shown comparison still reports the real winner.
+    // AC-58 (amended 2026-08-31, reordered 2026-09-02): totals this close cannot separate the
+    // plans, so present-tense facts do it instead, over **every plan inside the band**. Depth
+    // now while a safe starter waits comes first; then a now-pick filling an unfilled dedicated
+    // slot that will *not* wait (its best candidate is not projected to last — the round-6
+    // directive, and the Tyler Warren case where the last Tier-1 TE went the very next pick);
+    // then a now-pick at a position that actually flexes beats one at a single-slot position
+    // (rehearsal #7: with the totals flat, a dedicated-slot rule alone promoted Drake Maye at
+    // pick 46 — the QB slot was the only dedicated hole, yet QB is the one position whose pick
+    // can never start anywhere else and whose deferral the flat curve makes cheap); then tier
+    // risk; then the better-ECR player ("take the consensus"). "Flexes" is the FLEX share's
+    // verdict, not the eligibility list's: the 2026-09-02 league draft's ladder read TE as an
+    // equal FLEX peer of RB/WR and kept the pick "FLEX-eligible" with Tucker Kraft while a TE
+    // already started — a second tight end in a standard room is a bench pick, and RB/WR carry
+    // the upside a FLEX seat is for. Urgent need was moved above flexibility in the same pass:
+    // with TE no longer flexing, an urgent TE hole would otherwise have lost the flex rung to a
+    // spare RB before its urgency was ever consulted. The band matters: rehearsal #6's
+    // mid-rounds tied two flex-RB plans at the top with the WR-need plan 0.1 behind them,
+    // invisible to a top-two-only rule. The shown comparison still reports the real winner.
     let chosen = comparison.winner;
     if (comparison.tooClose && (comparison.contenders?.length ?? 0) > 1) {
-      const flexEligible = (position: SkillPosition): boolean =>
-        config.flexEligiblePositions.includes(position);
+      const flexEligible = (position: SkillPosition): boolean => flexing.has(position);
       const fillsDedicated = (position: SkillPosition): boolean =>
         (input.unfilledDedicatedSlots?.[position] ?? 0) > 0;
       const safelyFillsDedicated = (position: SkillPosition): boolean => {
@@ -825,9 +851,9 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
           (a, b) =>
             Number(addsDeferredDepth(b.plan.nowPosition)) -
               Number(addsDeferredDepth(a.plan.nowPosition)) ||
-            Number(flexEligible(b.plan.nowPosition)) - Number(flexEligible(a.plan.nowPosition)) ||
             Number(fillsUrgentDedicated(b.plan.nowPosition)) -
               Number(fillsUrgentDedicated(a.plan.nowPosition)) ||
+            Number(flexEligible(b.plan.nowPosition)) - Number(flexEligible(a.plan.nowPosition)) ||
             riskOf(b.plan.nowPosition) - riskOf(a.plan.nowPosition) ||
             a.now!.ecrRank - b.now!.ecrRank,
         );
@@ -837,18 +863,19 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
         tieBrokenByDepth =
           addsDeferredDepth(top.plan.nowPosition) &&
           ranked.some((entry) => !addsDeferredDepth(entry.plan.nowPosition));
-        tieBrokenByFlex =
-          !tieBrokenByDepth &&
-          flexEligible(top.plan.nowPosition) &&
-          ranked.some((entry) => !flexEligible(entry.plan.nowPosition));
         tieBrokenByNeed =
-          !tieBrokenByFlex &&
+          !tieBrokenByDepth &&
           fillsUrgentDedicated(top.plan.nowPosition) &&
           ranked.some((entry) => !fillsUrgentDedicated(entry.plan.nowPosition));
+        tieBrokenByFlex =
+          !tieBrokenByDepth &&
+          !tieBrokenByNeed &&
+          flexEligible(top.plan.nowPosition) &&
+          ranked.some((entry) => !flexEligible(entry.plan.nowPosition));
         tieBrokenByTierRisk =
           !tieBrokenByDepth &&
-          !tieBrokenByFlex &&
           !tieBrokenByNeed &&
+          !tieBrokenByFlex &&
           riskOf(top.plan.nowPosition) > 0 &&
           ranked.some((entry) => riskOf(entry.plan.nowPosition) < riskOf(top.plan.nowPosition));
         if (tieBrokenByTierRisk && input.valueModel !== null && survival !== null) {
@@ -883,11 +910,18 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
     const starts = input.benchPhase?.slots[rawTop.position] ?? 0;
     reasonKind = 'bench-depth';
     // Two ways a position leaves the bench pool: it hit its roster cap, or the flex-first gate
-    // holds it back while a FLEX-eligible position still has no backup. Say which.
+    // holds it back while a core position still lacks the depth that starts games. Say which,
+    // naming the gate's actual positions and depth (2026-09-02) — "every FLEX-eligible
+    // position" would count a standard room's TE, which the gate does not.
     const gated = count < starts + config.benchPositionHeadroom;
+    const gateText =
+      benchGate === null || benchGate.core.length === 0
+        ? 'every position that flexes has a backup'
+        : `${listPositions(benchGate.core)} each carry ` +
+          `${benchGate.requiredDepth === 1 ? 'a backup' : `${benchGate.requiredDepth} backups`}`;
     baseClause = gated
       ? `Roster balance: ${rawTop.playerName} (${rawTop.position}) leads the board, but a backup ` +
-        `${rawTop.position} can wait until every FLEX-eligible position has one — ` +
+        `${rawTop.position} can wait until ${gateText} — ` +
         `${highlight.playerName} (${highlight.position}) is the best pick that still adds ` +
         `startable depth.`
       : `Roster balance: ${rawTop.playerName} (${rawTop.position}) leads the board, but you ` +
@@ -988,7 +1022,11 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
     );
   }
 
+  // A bench redirect is the whole story too (2026-09-02): the roster-balance sentence names the
+  // player the user can see leading the board and the gate holding him back, and a plan-tie
+  // clause replacing it would drop exactly that explanation.
   if (
+    !redirected &&
     benchValueChoice === null &&
     benchThinnest === null &&
     comparison.tooClose &&
@@ -1101,8 +1139,13 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
         }
       } else if ((input.unfilledDedicatedSlots?.[position] ?? 0) > 0) {
         factors.push(`Fills one of your open ${position} starting slots.`);
-      } else if (config.flexEligiblePositions.includes(position)) {
+      } else if (flexing.has(position)) {
         factors.push(`Your ${position} starters are set — he would go to a FLEX slot.`);
+      } else if (config.flexEligiblePositions.includes(position)) {
+        factors.push(
+          `Your ${position} starter is set, and ${position} does not flex in practice in this ` +
+            `league — he would be a bench pick.`,
+        );
       } else {
         factors.push(`Your ${position} starting slot is already filled.`);
       }

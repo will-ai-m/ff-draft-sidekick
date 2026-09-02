@@ -42,11 +42,14 @@ import {
   PARAMETER_DEFAULTS,
   SKILL_POSITIONS,
   computeUnfilledStartingSlots,
+  flexingPositions,
   isSkillPosition,
 } from '@sidekick/shared';
 import type {
   Board,
   FlexEligiblePositions,
+  FlexShare,
+  NeedVectorOptions,
   OpponentPanelEntry,
   ParameterValues,
   PickFeedEntry,
@@ -147,6 +150,12 @@ export interface TendencyProfileInput {
   coldStartPicks: number;
   /** 🔶 AS-5 `flexEligiblePositions`; callers holding a loaded config pass that config's value. */
   flexEligiblePositions?: FlexEligiblePositions;
+  /**
+   * The league's FLEX share (amended 2026-09-02): a pick fills the FLEX need only at a position
+   * that flexes in practice, so a second TE in a standard room reads as a bench pick, not as
+   * drafting to need. Absent, the uniform AS-5 split.
+   */
+  flexShare?: FlexShare;
   /** Looks a position up for a pick whose metadata carried none, as FR-5's panel does. */
   resolvePosition?: PositionResolver;
 }
@@ -172,10 +181,13 @@ export interface TendencyProfileInput {
 export function computeTendencyProfile(input: TendencyProfileInput): TendencyProfile {
   const { teamId, slots, coldStartPicks } = input;
   const flexEligible = input.flexEligiblePositions ?? PARAMETER_DEFAULTS.flexEligiblePositions;
-  const options =
-    input.flexEligiblePositions === undefined
+  const flexing = flexingPositions(flexEligible, input.flexShare);
+  const options: NeedVectorOptions = {
+    ...(input.flexEligiblePositions === undefined
       ? {}
-      : { flexEligiblePositions: input.flexEligiblePositions };
+      : { flexEligiblePositions: input.flexEligiblePositions }),
+    ...(input.flexShare === undefined ? {} : { flexShare: input.flexShare }),
+  };
 
   const teamPicks = input.pickFeed
     .filter((pick) => pick.teamId === teamId)
@@ -201,7 +213,7 @@ export function computeTendencyProfile(input: TendencyProfileInput): TendencyPro
     const unfilled = computeUnfilledStartingSlots(slots, counts, options);
     const filledANeed =
       unfilled.dedicated[position] > 0 ||
-      (unfilled.flex > 0 && (flexEligible as readonly Position[]).includes(position));
+      (unfilled.flex > 0 && isSkillPosition(position) && flexing.includes(position));
 
     positionedPicks += 1;
     if (filledANeed) needFittingPicks += 1;
@@ -423,6 +435,8 @@ export interface TendencyProfileTrackerOptions {
   players: readonly BpaCandidate[];
   adpFor: (playerId: string) => number | null;
   config: TendencyTrackerConfig;
+  /** The attached league's FLEX share, derived once at attach (amended 2026-09-02). */
+  flexShare?: FlexShare;
   resolvePosition?: PositionResolver;
 }
 
@@ -446,6 +460,7 @@ export class TendencyProfileTracker {
   private readonly players: readonly BpaCandidate[];
   private readonly adpFor: (playerId: string) => number | null;
   private readonly config: TendencyTrackerConfig;
+  private readonly flexShare: FlexShare | undefined;
   private readonly resolvePosition: PositionResolver | undefined;
 
   private readonly profiles = new Map<string, TendencyProfile>();
@@ -459,6 +474,7 @@ export class TendencyProfileTracker {
     this.players = options.players;
     this.adpFor = options.adpFor;
     this.config = options.config;
+    this.flexShare = options.flexShare;
     this.resolvePosition = options.resolvePosition;
   }
 
@@ -488,6 +504,7 @@ export class TendencyProfileTracker {
       adpFor: this.adpFor,
       coldStartPicks: this.config.tendencyColdStartPicks,
       flexEligiblePositions: this.config.flexEligiblePositions,
+      ...(this.flexShare === undefined ? {} : { flexShare: this.flexShare }),
       ...(this.resolvePosition === undefined ? {} : { resolvePosition: this.resolvePosition }),
     });
     this.profiles.set(teamId, profile);

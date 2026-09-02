@@ -98,6 +98,7 @@ const needyEntry = (pickNo: number): OpponentPanelEntry => ({
   needDistribution: share({ RB: 0.5, WR: 0.5 }),
   bentDistribution: share({ QB: 0.05, RB: 0.6, WR: 0.3, TE: 0.05 }),
   remainingPicks: 13,
+  kdstLikelihood: 0,
   mostLikelyPositions: [
     { position: 'RB', likelihood: 0.5, confidence: 'position' },
     { position: 'WR', likelihood: 0.5, confidence: 'position' },
@@ -131,6 +132,7 @@ const earlyEntry = (): OpponentPanelEntry => ({
   needDistribution: share({ QB: 0.2, RB: 4 / 15, WR: 4 / 15, TE: 4 / 15 }),
   bentDistribution: share({ QB: 0.2, RB: 4 / 15, WR: 4 / 15, TE: 4 / 15 }),
   remainingPicks: 12,
+  kdstLikelihood: 0,
   mostLikelyPositions: [
     { position: 'RB', likelihood: 4 / 15, confidence: 'position' },
     { position: 'WR', likelihood: 4 / 15, confidence: 'position' },
@@ -158,6 +160,7 @@ const bestAvailableEntry = (): OpponentPanelEntry => ({
   needVector: NO_NEED_SIGNAL,
   needDistribution: null,
   remainingPicks: 10,
+  kdstLikelihood: 0,
   mostLikelyPositions: [],
   examplePlayers: [
     {
@@ -369,6 +372,76 @@ describe('OpponentPanel — position likelihoods and example players (AC-36, AC-
     expect(within(row).getByLabelText('Need signal').textContent).toMatch(/best available/i);
     // The examples survive — they are drawn across positions by ADP instead.
     expect(within(row).getAllByRole('listitem', { name: /example/ })).toHaveLength(1);
+  });
+});
+
+describe('OpponentPanel — the K/DST chance (FR-8’s timing on the panel, 2026-09-02)', () => {
+  /** Pick 132 — a team three picks from the end with both K/DST slots open, still needing an RB. */
+  const lateEntry = (): OpponentPanelEntry => ({
+    ...needyEntry(132),
+    round: 14,
+    remainingPicks: 3,
+    unfilledStartingSlots: { dedicated: share({ RB: 1, K: 1, DST: 1 }), flex: 0 },
+    needVector: share({ RB: 1 }),
+    needDistribution: share({ RB: 1 }),
+    bentDistribution: share({ RB: 0.8, WR: 0.2 }),
+    kdstLikelihood: 0.4,
+    // Already scaled by the server: the RB chip is the whole skill share, 60% of the pick.
+    mostLikelyPositions: [{ position: 'RB', likelihood: 0.6, confidence: 'position' }],
+  });
+
+  const lateWindow = (entry: OpponentPanelEntry): OpponentPanelData => ({
+    window: {
+      picks: [{ pickNo: entry.pickNo, round: 14, teamId: entry.teamId }],
+      userOnTheClock: true,
+      inProgressPickNo: 131,
+      currentUserPickNo: 131,
+      nextUserPickNo: 134,
+    },
+    entries: [entry],
+  });
+
+  it('shows the K/DST chance as its own position-level chip beside the scaled skill chips', () => {
+    renderPanel(lateWindow(lateEntry()));
+
+    const badges = within(rowFor(132)).getAllByRole('listitem', { name: /position-level/ });
+    expect(badges.map((badge) => badge.textContent)).toEqual([
+      expect.stringMatching(/^RB 60%/),
+      'K/DST 40%',
+    ]);
+    const kdst = badges[1]!;
+    expect(kdst.getAttribute('data-confidence')).toBe('position');
+    expect(kdst.getAttribute('aria-label')).toMatch(/K\/DST, 40% likely/);
+  });
+
+  it('scales the bent likelihood by the same skill share before calling it a shift', () => {
+    renderPanel(lateWindow(lateEntry()));
+
+    // Bent RB 0.8 of a 60% skill pick is 48%, shown against the 60% need reading.
+    const rb = within(rowFor(132)).getAllByRole('listitem', { name: /^RB, / })[0]!;
+    expect(rb.textContent).toMatch(/60%/);
+    expect(rb.textContent).toMatch(/48%/);
+  });
+
+  it('shows no K/DST chip in the middle rounds, where the chance is zero', () => {
+    renderPanel(fullWindow());
+
+    expect(screen.queryByText(/K\/DST/)).toBeNull();
+  });
+
+  it('says a starters-full team near its deadline is reaching for K/DST, not best available', () => {
+    renderPanel(lateWindow({ ...bestAvailableEntry(), pickNo: 132, kdstLikelihood: 0.5 }));
+    expect(within(rowFor(132)).getByLabelText('Need signal').textContent).toMatch(
+      /50% best available from ADP order, 50% K\/DST/,
+    );
+    expect(within(rowFor(132)).getByText('K/DST 50%')).toBeTruthy();
+  });
+
+  it('says the pick is spoken for at the deadline', () => {
+    renderPanel(lateWindow({ ...bestAvailableEntry(), pickNo: 132, kdstLikelihood: 1 }));
+    expect(within(rowFor(132)).getByLabelText('Need signal').textContent).toMatch(
+      /this pick goes to K\/DST/,
+    );
   });
 });
 

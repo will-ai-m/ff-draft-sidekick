@@ -43,6 +43,12 @@ describe('PARAMETER_DEFAULTS', () => {
       // Both fitted 2026-08-31 by joint MLE on observed rehearsal-draft opponent picks.
       drawSharpness: 1.5,
       opponentNeedBlend: 0.45,
+      // K/DST timing (FR-8 AC-47): the window since 2026-08-27, the back-weighting decay fitted
+      // 2026-09-02 against the recorded rooms (74% of K/DST picks in the last two rounds).
+      kdstEarlyPickWindow: 5,
+      kdstEarlyPickDecay: 0.5,
+      // The FLEX share is derived from league scoring unless pinned here (2026-09-02).
+      flexShareOverride: null,
       burstDebounceMs: 400,
       rateLimitBackoffMaxMs: 10_000,
       tendencyPositionalNudgeClamp: 0.5,

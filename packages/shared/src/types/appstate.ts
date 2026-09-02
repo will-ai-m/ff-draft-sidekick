@@ -1,8 +1,8 @@
-import type { BoardPlayerState, PickFeedEntry, Team } from './board';
+import type { BoardPlayerState, PickFeedEntry, SkillPosition, Team } from './board';
 import type { CandidateListData } from './candidate';
 import type { Insight } from './insight';
 import type { DraftWindow, OpponentPanelEntry } from './opponent';
-import type { RosterPanelData } from './roster';
+import type { FlexShareSource, RosterPanelData } from './roster';
 import type { ParameterValues } from '../config/parameters';
 
 /**
@@ -64,6 +64,12 @@ export interface PreDraftCheckData {
     teamCount: number;
     scoringType: string;
     rounds: number;
+    /**
+     * How this league's FLEX demand splits across the eligible positions, and where the split
+     * came from (amended 2026-09-02) — the number that decides whether a second TE is a FLEX
+     * candidate or a bench pick, stated before the draft so it is never a surprise mid-draft.
+     */
+    flexShare: { share: Partial<Record<SkillPosition, number>>; source: FlexShareSource } | null;
   } | null;
 }
 
