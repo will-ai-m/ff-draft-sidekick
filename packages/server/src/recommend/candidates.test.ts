@@ -333,14 +333,34 @@ describe('the highlight and its one-line reason (AC-51, AC-52, AC-56, AC-58, AC-
   });
 
   it('a plan-totals-too-close pick: it falls back to the better-consensus current pick and says so (AC-58)', () => {
-    // Every RB survives: (RB,RB) 20 + 18 = 38 ties (WR,RB) 18 + 20 = 38. The winner is RB-now by
-    // enumeration order, and its rb1 is also the better consensus pick, so the highlight stays.
-    const list = listOf({ survival: twice(['rb1', 'rb2', 'rb3', 'rb4', 'wr3', 'wr4']) });
-    expect(list.highlightPlayerId).toBe('rb1');
+    // Consensus is the *last* rung, reached only when every rung above it ties. Here RB Tier 1
+    // is off the board, so RB's live tier is {rb3} and WR's is {wr1}; both survive, so neither
+    // position's tier is breaking and tier risk is 0 on both sides. Both are FLEX-eligible and
+    // no dedicated slot picture is supplied, so depth/FLEX/open-slot are silent too.
+    // (RB,WR) 12 + 18 ties (WR,RB) 18 + 12 and (WR,WR) 18 + 12, all at 30; RB-now takes the
+    // enumeration order, and ECR then hands the highlight to the better-consensus wr1.
+    const list = listOf({
+      board: boardOf(['rb1', 'rb2']),
+      survival: twice(['rb3', 'rb4', 'wr1', 'wr4']),
+    });
+    expect(list.highlightPlayerId).toBe('wr1');
     expect(list.reasonKind).toBe('too-close-to-call');
     expect(list.reason).toBe(
-      'Plan totals within 0.75 proj pts (38 vs 38) — too close to separate, taking the better-consensus player now: Bijan Robinson (ECR 1).',
+      "Plan totals within 0.75 proj pts (30 vs 30) — too close to separate, taking the better-consensus player now: Ja'Marr Chase (ECR 2).",
     );
+  });
+
+  it('breaks a near-tie toward the position whose tier is breaking first (AC-58, rehearsal #8)', () => {
+    // Same board as the consensus test above, minus wr1's survival: every RB (and RB Tier 1)
+    // lasts to the next turn while WR Tier 1 does not. The totals still tie, and both positions
+    // are FLEX-eligible with no dedicated slot open, so the rungs above tier risk are silent —
+    // waiting on WR costs its whole tier step, waiting on RB costs nothing. The engine already
+    // computed both facts; before this rule it printed them and let raw ECR decide.
+    const list = listOf({ survival: twice(['rb1', 'rb2', 'rb3', 'rb4', 'wr3', 'wr4']) });
+    expect(list.highlightPlayerId).toBe('wr1');
+    expect(list.reasonKind).toBe('too-close-to-call');
+    expect(list.reason).toContain('taking the position whose tier breaks first');
+    expect(list.reason).toContain('WR Tier 1: 1 of 1 left, 0% chance one lasts to your next pick');
   });
 
   it('the AC-58 fallback moves toward better consensus, never worse (the 08-31 Josh Allen bug)', () => {

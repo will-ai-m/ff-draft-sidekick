@@ -53,7 +53,14 @@ import type {
 } from '@sidekick/shared';
 
 import type { SurvivalProjection } from '../simulation/montecarlo';
-import { bestAvailableByPosition, comparePlans, planPositions, tierFact } from './lookahead';
+import {
+  bestAvailableByPosition,
+  comparePlans,
+  planPositions,
+  tierFact,
+  tierHoldProbability,
+} from './lookahead';
+import { tierOutlook } from './value';
 import type { PlayerValueModel } from './value';
 
 export type CandidateListConfig = Pick<
@@ -493,6 +500,10 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
   let tieBrokenByFlex = false;
   /** AC-58 only: a safe deferred starter let the current pick add replacement-adjusted depth. */
   let tieBrokenByDepth = false;
+  /** AC-58 only: the near-tie was separated by which position's tier breaks first. */
+  let tieBrokenByTierRisk = false;
+  /** The tier fact the tier-risk tiebreak acted on, quoted verbatim in the reason line. */
+  let tierRiskFact = '';
 
   if (allowed !== null && input.benchPhase != null) {
     // With a value model, the league-size/scoring-adjusted plan chooses the position; without
@@ -579,6 +590,34 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
         (input.unfilledDedicatedSlots?.[position] ?? 0) > 0;
       const addsDeferredDepth = (position: SkillPosition): boolean =>
         deferredStarterDepthPositions?.includes(position) === true;
+
+      /**
+       * Expected points/game lost by *waiting* at a position: the chance its current tier is
+       * gone by the user's next turn, times the step down to the next live tier (amended
+       * 2026-09-01). Both halves already exist — FR-8's per-run survivor matrix answers the
+       * first, FR-10's value model the second — but until now the engine only *printed* them.
+       * Rehearsal #8 is why they now decide: with the plan totals inside a point of each other,
+       * the last Tier 1 TE (39% to last) and a stable QB tier were separated by raw ECR, and
+       * the tier about to break lost. 0 whenever there is no projection, no model, or nothing
+       * left at the position — the ladder below then falls through to consensus, as before.
+       */
+      const tierBreakRisk = (position: SkillPosition): number => {
+        if (input.valueModel === null || survival === null || survival.suppressed) return 0;
+        const outlook = tierOutlook(input.valueModel, board, position);
+        if (outlook === null || outlook.dropPerGame <= 0) return 0;
+        const hold = tierHoldProbability(survival, board, input.valueModel, position);
+        if (hold === null) return 0;
+        return (1 - hold) * outlook.dropPerGame;
+      };
+      const riskByPosition = new Map<SkillPosition, number>();
+      const riskOf = (position: SkillPosition): number => {
+        const cached = riskByPosition.get(position);
+        if (cached !== undefined) return cached;
+        const value = tierBreakRisk(position);
+        riskByPosition.set(position, value);
+        return value;
+      };
+
       const ranked = [...(comparison.contenders ?? [])]
         .map((plan) => ({ plan, now: best.get(plan.nowPosition) }))
         .filter((entry) => entry.now !== undefined)
@@ -589,6 +628,7 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
             Number(flexEligible(b.plan.nowPosition)) - Number(flexEligible(a.plan.nowPosition)) ||
             Number(fillsDedicated(b.plan.nowPosition)) -
               Number(fillsDedicated(a.plan.nowPosition)) ||
+            riskOf(b.plan.nowPosition) - riskOf(a.plan.nowPosition) ||
             a.now!.ecrRank - b.now!.ecrRank,
         );
       const top = ranked[0];
@@ -605,6 +645,15 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
           !tieBrokenByFlex &&
           fillsDedicated(top.plan.nowPosition) &&
           ranked.some((entry) => !fillsDedicated(entry.plan.nowPosition));
+        tieBrokenByTierRisk =
+          !tieBrokenByDepth &&
+          !tieBrokenByFlex &&
+          !tieBrokenByNeed &&
+          riskOf(top.plan.nowPosition) > 0 &&
+          ranked.some((entry) => riskOf(entry.plan.nowPosition) < riskOf(top.plan.nowPosition));
+        if (tieBrokenByTierRisk && input.valueModel !== null && survival !== null) {
+          tierRiskFact = tierFact(survival, board, input.valueModel, top.plan.nowPosition);
+        }
       }
     }
     highlight = best.get(chosen.nowPosition) ?? topEcr;
@@ -752,6 +801,8 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
         ? `keeping the pick FLEX-eligible: ${highlight.playerName} (${highlight.position}, ECR ${highlight.ecrRank})`
       : tieBrokenByNeed
         ? `taking the pick that still fills a starting slot: ${highlight.playerName} (${highlight.position}, ECR ${highlight.ecrRank})`
+      : tieBrokenByTierRisk
+        ? `taking the position whose tier breaks first — ${tierRiskFact}: ${highlight.playerName} (${highlight.position}, ECR ${highlight.ecrRank})`
         : `taking the better-consensus player now: ${highlight.playerName} (ECR ${highlight.ecrRank})`;
     tieClauses.push(
       `Plan totals within ${config.planTotalTooClosePoints} proj pts ` +

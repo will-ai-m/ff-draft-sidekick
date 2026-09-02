@@ -87,14 +87,30 @@ const curveAt = (curve: readonly number[], positionalRank: number): number => {
 };
 
 /** Mean of the curve over `[rank, rank + shading]` — the bust-shaded price of the rank-N slot. */
+/**
+ * Mean of the curve over `[rank, rank + shading]`, **clamped to `maxRank`** — the bust-shaded
+ * price of the rank-N slot.
+ *
+ * The clamp is what keeps the shading from importing a cliff into the price of the player
+ * standing on top of it (amended 2026-09-01). Callers pass the player's own tier's last rank:
+ * within a tier consensus calls the members interchangeable, so averaging across them is the
+ * honest bust discount, but averaging *across a tier boundary* prices a tier's last member as
+ * though he were already partly the tier below. On the 2026 TE board that discounted Tyler
+ * Warren — the last Tier 1 TE, sitting above a 1.6 pts/gm drop — from 9.9 to 9.5, erasing a
+ * third of the very cliff the recommendation is supposed to notice (rehearsal #8).
+ */
 const shadedCurveAt = (
   curve: readonly number[],
   positionalRank: number,
   shading: number,
+  maxRank = Number.POSITIVE_INFINITY,
 ): number => {
   if (curve.length === 0) return 0;
+  const span = Math.max(
+    0,
+    Math.min(Math.trunc(shading), Math.max(0, maxRank - positionalRank)),
+  );
   let sum = 0;
-  const span = Math.max(0, Math.trunc(shading));
   for (let offset = 0; offset <= span; offset += 1) {
     sum += curveAt(curve, positionalRank + offset);
   }
@@ -155,7 +171,7 @@ export function buildPlayerValueModel(
       const endRank = end + 1;
       let sum = 0;
       for (let rank = startRank; rank <= endRank; rank += 1) {
-        sum += shadedCurveAt(curve, rank, shading);
+        sum += shadedCurveAt(curve, rank, shading, endRank);
       }
       const group: TierGroup = {
         position,
@@ -169,8 +185,12 @@ export function buildPlayerValueModel(
       tierGroupsByPosition[position].push(group);
       group.memberIds.forEach((member, offset) => {
         tierGroupByPlayerId.set(member, group);
-        // Priced at the member's own shaded rank — never the group mean (see the module header).
-        pointsByPlayerId.set(member, shadedCurveAt(curve, startRank + offset, shading));
+        // Priced at the member's own shaded rank — never the group mean (see the module header),
+        // and never shaded past their own tier's last rank (see `shadedCurveAt`).
+        pointsByPlayerId.set(
+          member,
+          shadedCurveAt(curve, startRank + offset, shading, endRank),
+        );
       });
       index = end + 1;
     }

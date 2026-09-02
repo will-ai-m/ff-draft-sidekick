@@ -41,12 +41,36 @@ describe('pricing — the shaded own-rank curve value (AC-55, amended 2026-08-31
 
   it('prices each player at the mean of the curve over [rank, rank + shading]', () => {
     const model = buildPlayerValueModel(players, CURVES, { rankShadingRanks: 2 });
-    // rb1 spans ranks 1–3: mean(21, 18, 12) = 17. The peak is shaded, not taken at face value —
-    // the bust discount that keeps a thin position's #1 from pricing as its best-ever season.
-    expect(valueOf(model, 'rb1')).toBe(17);
-    // rb2 spans 2–4; rank 4 is past the curve's end and clamps to its last entry (12).
-    expect(valueOf(model, 'rb2')).toBe(14);
+    // rb1 and rb2 share Tier 1 (ranks 1–2), so rb1's window is [1,2]: mean(21, 18) = 19.5. The
+    // peak is still shaded rather than taken at face value — the bust discount that keeps a thin
+    // position's #1 from pricing as its best-ever season — but it stops at the tier boundary.
+    expect(valueOf(model, 'rb1')).toBe(19.5);
+    // rb2 is that tier's last member, so his window is [2,2] — he is not discounted toward the
+    // Tier 2 cliff he sits above (see the tier-boundary test below).
+    expect(valueOf(model, 'rb2')).toBe(18);
+    // rb3 is a Tier 2 singleton: window [3,3], the curve entry itself.
     expect(valueOf(model, 'rb3')).toBe(12);
+  });
+
+  it('never shades a player past their own tier, so a cliff is not priced into its last man', () => {
+    // Rehearsal #8: shading across the boundary discounted the last Tier 1 TE toward Tier 2 and
+    // erased a third of the very cliff the recommendation exists to notice. Same curve, same
+    // shading — the only difference is where the tier ends.
+    const oneTier = buildPlayerValueModel(
+      [player('a1', 'RB', 1, 1), player('a2', 'RB', 2, 1), player('a3', 'RB', 3, 1)],
+      CURVES,
+      { rankShadingRanks: 2 },
+    );
+    const cliffAfterFirst = buildPlayerValueModel(
+      [player('b1', 'RB', 1, 1), player('b2', 'RB', 2, 2), player('b3', 'RB', 3, 2)],
+      CURVES,
+      { rankShadingRanks: 2 },
+    );
+
+    // Tier spans all three ranks: the full [1,3] window applies.
+    expect(valueOf(oneTier, 'a1')).toBe(17);
+    // Tier ends at rank 1: no shading at all, so the tier's last (and only) man keeps his rank.
+    expect(valueOf(cliffAfterFirst, 'b1')).toBe(21);
   });
 
   it('prices at exactly the curve entry with shading 0', () => {
