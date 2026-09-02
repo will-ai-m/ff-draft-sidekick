@@ -1,4 +1,4 @@
-import { PARAMETER_DEFAULTS } from '@sidekick/shared';
+import { NO_NEED_SIGNAL, PARAMETER_DEFAULTS } from '@sidekick/shared';
 import type { Board, DraftWindow, OpponentPanelEntry, Position, SlotConfig } from '@sidekick/shared';
 import { describe, expect, it } from 'vitest';
 
@@ -471,6 +471,26 @@ describe('the position draw (AC-42)', () => {
 
     expectConverged(projection, 'rb1', 0.25);
     expectConverged(projection, 'wr1', 0.75);
+  });
+
+  it('updates consecutive turn picks after the first selection fills one of the team needs', () => {
+    const skillNeed = { QB: 1, RB: 0, WR: 0, TE: 1 };
+    const picks = [
+      simPick({ pickNo: 60, bentDistribution: dist({ QB: 0.5, TE: 0.5 }), skillNeed }),
+      simPick({ pickNo: 61, bentDistribution: dist({ QB: 0.5, TE: 0.5 }), skillNeed }),
+    ];
+    const projection = project({
+      picks,
+      players: [candidate('qb1', 'QB', 1, 1), candidate('te1', 'TE', 2, 2)],
+      config: { monteCarloRunCount: 100 },
+      seed: SEED,
+    });
+
+    // Whichever position goes first is filled and removed from the second pick's need weights,
+    // forcing the other open starter rather than allowing the static mixture to draft QB/QB or
+    // TE/TE. This is the two-picks-at-the-turn tactical-risk regression.
+    expect(percent(projection, 'qb1')).toBe(0);
+    expect(percent(projection, 'te1')).toBe(0);
   });
 
   it('samples straight from ADP order across positions when the team has no need signal', () => {
@@ -1097,6 +1117,7 @@ describe('reading the enriched opponent panel (the FR-7 seam)', () => {
       pickNo: 26,
       teamId: 'slot-2',
       bentDistribution: dist({ QB: 0.2, RB: 0.1, WR: 0.5, TE: 0.2 }),
+      skillNeed: { QB: 1, RB: 0, WR: 2, TE: 1 },
       averageReach: 2.5,
       unfilledKDstSlots: 2,
       remainingPicks: 13,
@@ -1104,7 +1125,9 @@ describe('reading the enriched opponent panel (the FR-7 seam)', () => {
   });
 
   it('leaves the distribution absent for a no-need-signal row, which is the ADP-order regime', () => {
-    const [pick] = toSimulatedPicks([row({ needDistribution: null })]);
+    const [pick] = toSimulatedPicks([
+      row({ needVector: NO_NEED_SIGNAL, needDistribution: null }),
+    ]);
 
     expect(pick?.bentDistribution).toBeUndefined();
     expect(pick?.averageReach).toBe(0);

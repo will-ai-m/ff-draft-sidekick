@@ -393,6 +393,67 @@ describe('the bench phase (FR-9/FR-10 amendment)', () => {
     expect(list.reason).toMatch(/Quentin Johnston .* over Chris Rodriguez Jr\. \(RB\)/);
   });
 
+  it('balances RB/WR depth unless the thicker position has an exceptional scored-value edge', () => {
+    const players = [
+      player('wr-gem', 'Wide Receiver', 'WR', 80, 80),
+      player('rb-depth', 'Running Back', 'RB', 90, 90),
+    ];
+    const universe = players.map((p, index) => ({
+      sleeperPlayerId: p.sleeperPlayerId,
+      position: p.position as 'RB' | 'WR',
+      ecrRank: p.ecrRank!,
+      adp: p.adp,
+      index,
+      samplingRank: index + 1,
+      addedForDisplay: false,
+    }));
+    const survival: SurvivalProjection = {
+      suppressed: false,
+      degraded: false,
+      runCount: 1,
+      universe,
+      survivors: new Uint8Array(universe.length).fill(1),
+      survivalByPlayerId: new Map(
+        players.map((p) => [
+          p.sleeperPlayerId,
+          { probability: 1, band: 'likely-available' as const },
+        ]),
+      ),
+      indexByPlayerId: new Map(players.map((p, index) => [p.sleeperPlayerId, index])),
+    };
+    const computeWithWrValue = (wrValue: number) =>
+      computeCandidateList({
+        players,
+        board: { players: {} },
+        window: {
+          picks: [],
+          userOnTheClock: true,
+          inProgressPickNo: 80,
+          currentUserPickNo: 80,
+          nextUserPickNo: 100,
+        },
+        needVector: NO_NEED_SIGNAL,
+        survival,
+        valueModel: {
+          pointsByPlayerId: new Map([
+            ['wr-gem', wrValue],
+            ['rb-depth', 1],
+          ]),
+          tierGroupByPlayerId: new Map(),
+          tierGroupsByPosition: { QB: [], RB: [], WR: [], TE: [] },
+          valueAt: () => 0,
+        },
+        userRemainingPicks: 5,
+        config: cfg(),
+        // RB has no backup; WR already has two. With this fixture's lineup shares, RB worth is
+        // 4.0 while WR is 5.0 at 2.5 points (a modest edge) and 6.0 at 3.0 (a >1.5 gem edge).
+        benchPhase: bench({ QB: 1, RB: 2, WR: 4, TE: 1 }),
+      });
+
+    expect(computeWithWrValue(2.5).highlightPlayerId).toBe('rb-depth');
+    expect(computeWithWrValue(3).highlightPlayerId).toBe('wr-gem');
+  });
+
   it('redirects off a capped-position board leader and says why — the rehearsal regression', () => {
     // Pick #108 of the 08-27 mock: two QBs already rostered, Purdy leading the board. The old
     // regime highlighted him (QB3); the bench phase must not — and among the eligible

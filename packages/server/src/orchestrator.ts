@@ -915,6 +915,13 @@ export class Orchestrator {
       userRemainingPicks: input.userRemainingPicks,
       unfilledK: input.unfilledK,
       unfilledDst: input.unfilledDst,
+      unfilledSkill: input.unfilledDedicatedSlots,
+      skillRows: {
+        QB: rowsByPosition.QB ?? [],
+        RB: rowsByPosition.RB ?? [],
+        WR: rowsByPosition.WR ?? [],
+        TE: rowsByPosition.TE ?? [],
+      },
       kdstRows: { K: rowsByPosition.K ?? [], DST: rowsByPosition.DST ?? [] },
       config: this.config,
     });

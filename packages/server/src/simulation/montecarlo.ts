@@ -125,6 +125,8 @@ export interface SimulatedPick {
    * is exactly the `NO_NEED_SIGNAL` team, which Terms says drafts best available from ADP order.
    */
   bentDistribution?: Record<Position, number>;
+  /** Current skill-slot demand, consumed inside each run when this team picks consecutively. */
+  skillNeed?: Record<SkillPosition, number>;
   /** FR-7's mean of (ADP − pick number); 0 for a team whose reach was never observed (AC-38). */
   averageReach: number;
   /** Unfilled dedicated K + DST starting slots (AC-47). */
@@ -138,6 +140,7 @@ export interface EnrichedPanelRow {
   pickNo: number;
   teamId: string;
   bentDistribution?: Record<Position, number>;
+  needVector?: Record<Position, number> | string;
   tendencyProfile?: Pick<TendencyProfile, 'averageReach'>;
   unfilledStartingSlots: UnfilledStartingSlots;
   remainingPicks: number;
@@ -151,14 +154,25 @@ export interface EnrichedPanelRow {
  * `tendencyProfile` reads as a neutral prior (reach 0), which is the identity for the draw below.
  */
 export function toSimulatedPicks(rows: readonly EnrichedPanelRow[]): SimulatedPick[] {
-  return rows.map((row) => ({
-    pickNo: row.pickNo,
-    teamId: row.teamId,
-    ...(row.bentDistribution === undefined ? {} : { bentDistribution: row.bentDistribution }),
-    averageReach: row.tendencyProfile?.averageReach ?? 0,
-    unfilledKDstSlots: row.unfilledStartingSlots.dedicated.K + row.unfilledStartingSlots.dedicated.DST,
-    remainingPicks: row.remainingPicks,
-  }));
+  return rows.map((row) => {
+    const needVector = typeof row.needVector === 'object' ? row.needVector : undefined;
+    return {
+      pickNo: row.pickNo,
+      teamId: row.teamId,
+      ...(row.bentDistribution === undefined ? {} : { bentDistribution: row.bentDistribution }),
+      ...(needVector === undefined
+        ? {}
+        : {
+            skillNeed: Object.fromEntries(
+              SKILL_POSITIONS.map((position) => [position, Math.max(0, needVector[position])]),
+            ) as Record<SkillPosition, number>,
+          }),
+      averageReach: row.tendencyProfile?.averageReach ?? 0,
+      unfilledKDstSlots:
+        row.unfilledStartingSlots.dedicated.K + row.unfilledStartingSlots.dedicated.DST,
+      remainingPicks: row.remainingPicks,
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -361,6 +375,12 @@ export function deriveSeed(
     } else {
       for (const position of SKILL_POSITIONS) {
         hash = hashNumber(hash, pick.bentDistribution[position]);
+      }
+      if (pick.skillNeed !== undefined) {
+        hash = hashText(hash, 'stateful-skill-need\0');
+        for (const position of SKILL_POSITIONS) {
+          hash = hashNumber(hash, pick.skillNeed[position]);
+        }
       }
     }
   }
@@ -659,6 +679,15 @@ export function simulateSurvival(input: SimulateSurvivalInput): SurvivalProjecti
   );
   const unfilledInRun = new Int32Array(teamIds.length);
   const remainingInRun = new Int32Array(teamIds.length);
+  const initialSkillNeed = new Float64Array(teamIds.length * SKILL_POSITIONS.length);
+  for (let team = 0; team < teamIds.length; team += 1) {
+    const first = picks.find((pick) => pick.teamId === teamIds[team]);
+    for (let p = 0; p < SKILL_POSITIONS.length; p += 1) {
+      initialSkillNeed[team * SKILL_POSITIONS.length + p] =
+        first?.skillNeed?.[SKILL_POSITIONS[p]!] ?? 0;
+    }
+  }
+  const skillNeedInRun = new Float64Array(initialSkillNeed.length);
 
   // The board seeds itself unless a caller overrides it — see `deriveSeed` for why that is the
   // simulation's contract with SC-2 rather than a testing convenience.
@@ -677,6 +706,7 @@ export function simulateSurvival(input: SimulateSurvivalInput): SurvivalProjecti
     }
     unfilledInRun.set(initialUnfilled);
     remainingInRun.set(initialRemaining);
+    skillNeedInRun.set(initialSkillNeed);
 
     for (let step = 0; step < picks.length && poolLeft > 0; step += 1) {
       if (saturatedPlan !== null) {
@@ -697,8 +727,18 @@ export function simulateSurvival(input: SimulateSurvivalInput): SurvivalProjecti
 
       let chosen = -1;
       if (pick.bentDistribution !== undefined) {
+        const team = teamIndexByStep[step]!;
+        const statefulBent: Record<Position, number> = { ...pick.bentDistribution };
+        if (pick.skillNeed !== undefined) {
+          for (let p = 0; p < SKILL_POSITIONS.length; p += 1) {
+            const position = SKILL_POSITIONS[p]!;
+            const initial = initialSkillNeed[team * SKILL_POSITIONS.length + p]!;
+            const remaining = skillNeedInRun[team * SKILL_POSITIONS.length + p]!;
+            statefulBent[position] *= initial > 0 ? remaining / initial : 0;
+          }
+        }
         const weights = blendedPositionWeights(
-          pick.bentDistribution,
+          statefulBent,
           allPool,
           positionByIndex,
           availableInRun,
@@ -725,7 +765,14 @@ export function simulateSurvival(input: SimulateSurvivalInput): SurvivalProjecti
       if (chosen < 0) break;
 
       availableInRun[chosen] = 0;
-      availableByPosition[positionByIndex[chosen]!] -= 1;
+      const chosenPosition = positionByIndex[chosen]!;
+      availableByPosition[chosenPosition] -= 1;
+      if (pick.skillNeed !== undefined) {
+        const team = teamIndexByStep[step]!;
+        const positionIndex = SKILL_POSITIONS.indexOf(chosenPosition);
+        const offset = team * SKILL_POSITIONS.length + positionIndex;
+        skillNeedInRun[offset] = Math.max(0, skillNeedInRun[offset]! - 1);
+      }
       poolLeft -= 1;
     }
 

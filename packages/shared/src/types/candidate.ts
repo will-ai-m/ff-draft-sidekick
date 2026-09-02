@@ -67,6 +67,8 @@ export type HighlightReasonKind =
   | 'best-available'
   | 'too-close-to-call'
   | 'lookahead-not-applicable'
+  /** A required skill-position starter must be filled before the remaining K/DST picks. */
+  | 'endgame-starter'
   /**
    * FR-9's endgame guard (added 2026-08-27): the user's remaining picks have caught up with
    * their unfilled K/DST starting slots, so the highlight is the top available K/DST.

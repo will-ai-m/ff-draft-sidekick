@@ -273,6 +273,30 @@ describe('the highlight and its one-line reason (AC-51, AC-52, AC-56, AC-58, AC-
     expect(list.reason).toContain('adding depth now while the missing starter is projected to last');
   });
 
+  it('does not promote a safely-deferred TE solely because its dedicated slot is empty', () => {
+    const safe = projectionOf([
+      ['wr1', 'te2'],
+      ['wr1', 'te2'],
+    ]);
+    const list = listOf({
+      board: boardOf(['rb1', 'rb2', 'rb3', 'rb4', 'wr2', 'wr3', 'wr4', 'te1']),
+      needVector: need({ WR: 1 / 3, TE: 1 + 1 / 3 }),
+      survival: safe,
+      unfilledDedicatedSlots: { QB: 0, RB: 0, WR: 0, TE: 1 },
+      unfilledFlexSlots: 1,
+      config: config({ planTotalTooClosePoints: 100 }),
+    });
+
+    expect(list.planComparison?.contenders).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ nowPosition: 'WR' }),
+        expect.objectContaining({ nowPosition: 'TE' }),
+      ]),
+    );
+    expect(list.highlightPlayerId).toBe('wr1');
+    expect(list.reason).not.toContain('fills a starting slot');
+  });
+
   it('a value-driven pick: the top-ECR candidate whose ADP is ≥10 picks earlier than this pick', () => {
     // Every RB is gone by the next turn, so (RB,WR) at 20 + 18 = 38 wins and rb1 stays highlighted.
     const list = listOf({ survival: RB_GONE_WR_SAFE, window: windowAt(12, 20) });

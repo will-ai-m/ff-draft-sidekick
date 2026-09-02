@@ -53,6 +53,51 @@ const kdstRows = () => ({
 const config = PARAMETER_DEFAULTS; // endgameKdstBufferPicks: 1
 
 describe('the endgame K/DST guard (FR-9 amendment)', () => {
+  it('fills an open QB before reserving the final K and DST picks', () => {
+    const list: CandidateListData = {
+      ...skillList(),
+      rows: [
+        row('wr-depth', 'Depth Receiver', 'WR', { ecrRank: 80, adp: 85 }),
+        row('qb1', 'Bo Nix', 'QB', { ecrRank: 96, adp: 113 }),
+      ],
+      highlightPlayerId: 'wr-depth',
+      reason: 'Depth is valuable while QB can wait.',
+      reasonKind: 'too-close-to-call',
+    };
+    const result = applyEndgameKdstOverride({
+      list,
+      userRemainingPicks: 3,
+      unfilledK: 1,
+      unfilledDst: 1,
+      unfilledSkill: { QB: 1 },
+      skillRows: { QB: [row('qb1', 'Bo Nix', 'QB', { ecrRank: 96, adp: 113 })] },
+      kdstRows: kdstRows(),
+      config,
+    });
+
+    expect(result.highlightPlayerId).toBe('qb1');
+    expect(result.reasonKind).toBe('endgame-starter');
+    expect(result.reason).toMatch(/3 picks left for 3 required roster slots/);
+    expect(result.reason).toMatch(/fill QB before K\/DST: Bo Nix/);
+    expect(result.planComparison).toBeNull();
+  });
+
+  it('still compares QB tier value against depth before the hard roster deadline', () => {
+    const list = skillList();
+    expect(
+      applyEndgameKdstOverride({
+        list,
+        userRemainingPicks: 4,
+        unfilledK: 1,
+        unfilledDst: 1,
+        unfilledSkill: { QB: 1 },
+        skillRows: { QB: list.rows },
+        kdstRows: kdstRows(),
+        config,
+      }),
+    ).toBe(list);
+  });
+
   it('fires exactly at remaining = unfilled + buffer, not one pick earlier', () => {
     const base = {
       list: skillList(),

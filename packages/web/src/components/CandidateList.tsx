@@ -76,6 +76,8 @@ const REASON_EXPLANATIONS: Readonly<Record<HighlightReasonKind, string>> = {
     'The leading choices are inside the configured noise band. Sidekick breaks that tie with FLEX eligibility, an open dedicated starting slot, then better consensus rank.',
   'lookahead-not-applicable':
     'There are fewer than two of your picks left, so Sidekick cannot compare a pick-now / pick-next plan and falls back to the current board.',
+  'endgame-starter':
+    'The value and tier comparison supported waiting, but there are now only enough picks left to fill the remaining required starters plus K/DST. A skill-position starter is filled first.',
   'endgame-kdst':
     'Your remaining picks have caught up with your unfilled kicker or defense slots, so the endgame guard reserves this pick before the draft ends.',
   'bench-depth':

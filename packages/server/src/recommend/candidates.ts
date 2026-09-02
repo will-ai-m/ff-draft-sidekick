@@ -659,7 +659,8 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
     // that position fills. Depth survives only as the tiebreak between equal worths, and as the
     // whole rule when no value model exists to price anything.
     const balancedPosition = comparison.tooClose
-      ? (benchPositions ?? [])
+      ? (() => {
+          const choices = (benchPositions ?? [])
           .filter((position) => best.has(position))
           .map((position) => {
             const player = best.get(position)!;
@@ -681,13 +682,42 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
                     ),
               player,
             };
-          })
-          .sort(
+          });
+          const byWorth = [...choices].sort(
             (a, b) =>
               (b.worth ?? 0) - (a.worth ?? 0) ||
               a.depth - b.depth ||
               a.player.ecrRank - b.player.ecrRank,
-          )[0]
+          );
+          const valueLeader = byWorth[0];
+
+          // RB and WR are the ordinary resilience pool: before freely chasing value, keep their
+          // backup counts within one another. This is deliberately a soft guard. A materially
+          // better player may still win when his league-scored, replacement-adjusted bench
+          // value clears the best player at the thinner position by more than twice the normal
+          // plan-noise band. Because `worth` already includes lineup share, scoring and the
+          // league-size waiver line, true gems and unusual formats can earn the exception.
+          const core = choices.filter(
+            (choice) => choice.position === 'RB' || choice.position === 'WR',
+          );
+          const minCoreDepth = Math.min(...core.map((choice) => choice.depth));
+          const thinnerCore = core
+            .filter((choice) => choice.depth === minCoreDepth)
+            .sort(
+              (a, b) =>
+                (b.worth ?? 0) - (a.worth ?? 0) || a.player.ecrRank - b.player.ecrRank,
+            )[0];
+          if (
+            valueLeader === undefined ||
+            thinnerCore === undefined ||
+            valueLeader.depth === minCoreDepth ||
+            ((valueLeader.worth ?? 0) - (thinnerCore.worth ?? 0) >
+              config.planTotalTooClosePoints * 2)
+          ) {
+            return valueLeader;
+          }
+          return thinnerCore;
+        })()
       : undefined;
     const plannedPosition = balancedPosition?.position ?? rawPlannedPosition;
     const plannedPlayer = plannedPosition === undefined ? undefined : best.get(plannedPosition);
@@ -746,6 +776,18 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
         config.flexEligiblePositions.includes(position);
       const fillsDedicated = (position: SkillPosition): boolean =>
         (input.unfilledDedicatedSlots?.[position] ?? 0) > 0;
+      const safelyFillsDedicated = (position: SkillPosition): boolean => {
+        if ((position !== 'QB' && position !== 'TE') || !fillsDedicated(position)) return false;
+        const candidate = best.get(position);
+        return candidate !== undefined && survivalOf(survival, candidate)?.band === 'likely-available';
+      };
+      // An empty dedicated slot is urgent only when its best current candidate is not projected
+      // to survive. Otherwise the lookahead has already told us that waiting is cheap, and the
+      // near-tie resolver must not throw that information away merely because (for example) TE
+      // is still blank. This is especially important at the turn, where opponents that already
+      // filled QB/TE make those positions highly likely to remain available.
+      const fillsUrgentDedicated = (position: SkillPosition): boolean =>
+        fillsDedicated(position) && !safelyFillsDedicated(position);
       const addsDeferredDepth = (position: SkillPosition): boolean =>
         deferredStarterDepthPositions?.includes(position) === true;
 
@@ -784,8 +826,8 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
             Number(addsDeferredDepth(b.plan.nowPosition)) -
               Number(addsDeferredDepth(a.plan.nowPosition)) ||
             Number(flexEligible(b.plan.nowPosition)) - Number(flexEligible(a.plan.nowPosition)) ||
-            Number(fillsDedicated(b.plan.nowPosition)) -
-              Number(fillsDedicated(a.plan.nowPosition)) ||
+            Number(fillsUrgentDedicated(b.plan.nowPosition)) -
+              Number(fillsUrgentDedicated(a.plan.nowPosition)) ||
             riskOf(b.plan.nowPosition) - riskOf(a.plan.nowPosition) ||
             a.now!.ecrRank - b.now!.ecrRank,
         );
@@ -801,8 +843,8 @@ export function computeCandidateList(input: ComputeCandidateListInput): Candidat
           ranked.some((entry) => !flexEligible(entry.plan.nowPosition));
         tieBrokenByNeed =
           !tieBrokenByFlex &&
-          fillsDedicated(top.plan.nowPosition) &&
-          ranked.some((entry) => !fillsDedicated(entry.plan.nowPosition));
+          fillsUrgentDedicated(top.plan.nowPosition) &&
+          ranked.some((entry) => !fillsUrgentDedicated(entry.plan.nowPosition));
         tieBrokenByTierRisk =
           !tieBrokenByDepth &&
           !tieBrokenByFlex &&
@@ -1130,6 +1172,10 @@ export interface EndgameKdstOverrideInput {
   /** The user's unfilled dedicated K / DST starting slots (FR-5's roster arithmetic). */
   unfilledK: number;
   unfilledDst: number;
+  /** Open required skill-position starters, checked before K/DST at the roster deadline. */
+  unfilledSkill?: Partial<Record<SkillPosition, number>>;
+  /** Available rows at those positions, in the same order shown by each position filter. */
+  skillRows?: Partial<Record<SkillPosition, readonly CandidateRow[]>>;
   /**
    * AC-50's per-position row sets for K and DST — positional ECR order, ADP order when the
    * snapshot ranks neither (AC-23's degenerate case). The guard highlights the head of one of
@@ -1159,9 +1205,49 @@ export function applyEndgameKdstOverride(input: EndgameKdstOverrideInput): Candi
 
   const unfilledK = Math.max(0, input.unfilledK);
   const unfilledDst = Math.max(0, input.unfilledDst);
-  const unfilled = unfilledK + unfilledDst;
-  if (unfilled === 0 || input.userRemainingPicks <= 0) return list;
-  if (input.userRemainingPicks > unfilled + config.endgameKdstBufferPicks) return list;
+  const unfilledSkill = Object.fromEntries(
+    SKILL_POSITIONS.map((position) => [position, Math.max(0, input.unfilledSkill?.[position] ?? 0)]),
+  ) as Record<SkillPosition, number>;
+  const unfilledSkillCount = SKILL_POSITIONS.reduce(
+    (sum, position) => sum + unfilledSkill[position],
+    0,
+  );
+  const unfilledKdst = unfilledK + unfilledDst;
+  const mandatoryUnfilled = unfilledSkillCount + unfilledKdst;
+  if (mandatoryUnfilled === 0 || input.userRemainingPicks <= 0) return list;
+  if (input.userRemainingPicks > mandatoryUnfilled + config.endgameKdstBufferPicks) return list;
+
+  // Required skill starters always come before K/DST once the roster reaches its hard deadline.
+  // Before this point the ordinary plan remains free to compare QB tiers against RB/WR depth;
+  // this guard says only that "wait on QB" cannot become "draft no QB".
+  const starterCandidates = SKILL_POSITIONS.flatMap((position) =>
+    unfilledSkill[position] > 0 ? [...(input.skillRows?.[position] ?? []).slice(0, 1)] : [],
+  );
+  if (unfilledSkillCount > 0 && starterCandidates.length > 0) {
+    const target = starterCandidates.sort(
+      (a, b) =>
+        (a.ecrRank ?? Infinity) - (b.ecrRank ?? Infinity) ||
+        (a.adp ?? Infinity) - (b.adp ?? Infinity),
+    )[0]!;
+    const picks = input.userRemainingPicks;
+    const reason =
+      `Starter deadline: ${picks} pick${picks === 1 ? '' : 's'} left for ` +
+      `${mandatoryUnfilled} required roster slot${mandatoryUnfilled === 1 ? '' : 's'} — ` +
+      `fill ${target.position} before K/DST: ${target.playerName}.`;
+    const rows = list.rows.some((row) => row.playerId === target.playerId)
+      ? list.rows
+      : [...list.rows, { ...target, addedForHighlight: true }];
+    return {
+      ...list,
+      rows,
+      highlightPlayerId: target.playerId,
+      reason,
+      reasonKind: 'endgame-starter',
+      planComparison: null,
+    };
+  }
+
+  if (unfilledKdst === 0) return list;
 
   // The best row per open position, then the better of the two by ADP (the market's order is
   // the only cross-position signal K/DST have — 🔶 AS-7 gives them no other number), falling
@@ -1185,7 +1271,7 @@ export function applyEndgameKdstOverride(input: EndgameKdstOverrideInput): Candi
   const picks = input.userRemainingPicks;
   const reason =
     `Endgame: ${picks} pick${picks === 1 ? '' : 's'} left and your ${openSlots} ` +
-    `slot${unfilled === 1 ? ' is' : 's are'} still open — ` +
+    `slot${unfilledKdst === 1 ? ' is' : 's are'} still open — ` +
     `${target.playerName} is the top ${target.position} on the board.`;
 
   const rows = list.rows.some((row) => row.playerId === target.playerId)
