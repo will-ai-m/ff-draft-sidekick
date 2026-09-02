@@ -161,6 +161,11 @@ function PositionFilter({ active, onChange }: PositionFilterProps) {
  * absolutely-positioned card would be cut off by whichever edge the row sits near. Fixed
  * coordinates escape both, and the card is clamped so it never runs off the right edge.
  *
+ * The background is **solid**, never a translucent tint: the card floats over the panel's own
+ * dark surface and over its own rows, and any alpha at all makes the text unreadable against
+ * them. A `bg-slate-900/98` shipped here once — 98 is not a value in Tailwind's opacity scale,
+ * so the class generated nothing and the card rendered with no background whatsoever.
+ *
  * Content is the server's, rendered verbatim — the same rule the highlight's reason line follows.
  */
 function ExplanationCard({
@@ -188,7 +193,7 @@ function ExplanationCard({
         width: WIDTH,
         ...(flip ? { bottom: window.innerHeight - anchor.top + 8 } : { top: below }),
       }}
-      className="pointer-events-none z-50 rounded-md border border-slate-700 bg-slate-900/98 p-3 text-xs shadow-2xl"
+      className="pointer-events-none z-50 rounded-md border border-slate-600 bg-slate-900 p-3 text-xs shadow-2xl ring-1 ring-black/40"
     >
       <p className="font-semibold text-slate-100">{explanation.headline}</p>
       <ul className="mt-2 flex flex-col gap-1.5 text-slate-300">
