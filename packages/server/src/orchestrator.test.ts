@@ -371,7 +371,7 @@ describe('AC-50 — the K/DST filter when the ECR snapshot ranks no K or DST', (
   });
 });
 
-describe('AC-27 — the scoring warning reads the league\'s settings, not its label', () => {
+describe("AC-27 — the scoring warning reads the league's settings, not its label", () => {
   const HALF_PPR_DICT = {
     pass_yd: 0.04,
     pass_td: 4,
@@ -440,6 +440,93 @@ describe('AC-27 — the scoring warning reads the league\'s settings, not its la
     });
 
     expect(scoringWarning(harness)).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Question-time counterfactuals — consequences the chat explains instead of re-reading the card
+// ---------------------------------------------------------------------------------------------
+
+describe('draft chat decision support', () => {
+  it('reruns both draft orders for a named alternative and exposes reciprocal survival outcomes', async () => {
+    const harness = await standUp();
+    const rows = harness.orchestrator.snapshot().candidateList.data.rows;
+    const recommendedId = harness.orchestrator.snapshot().candidateList.data.highlightPlayerId;
+    const recommended = rows.find((row) => row.playerId === recommendedId)!;
+    const alternative = rows.find(
+      (row) => row.playerId !== recommended.playerId && row.position !== recommended.position,
+    )!;
+
+    const context = harness.orchestrator.draftChatContext(
+      `Why ${recommended.playerName} over ${alternative.playerName}?`,
+    ) as {
+      counterfactualDecisionSupport: {
+        method: string;
+        simulationsPerScenario: number;
+        scenarios: {
+          takeNow: { player: string; rosterEffect: string; baselineChanceLostIfUserWaits: number };
+          pairwiseOutcomes: {
+            waitFor: string;
+            probabilityStillAvailableNextTurn: number;
+          }[];
+          nextTurnByPosition: Record<string, { probabilityAtLeastOneTopFallbackSurvives: number }>;
+          opponentPickForecast: {
+            pickNo: number;
+            team: string;
+            likelyPlayers: { player: string; probability: number }[];
+          }[];
+          opponentTeamForecast: {
+            team: string;
+            picksBeforeNextTurn: number;
+            probabilityTeamSelectsPlayerInAnyPick: { player: string; probability: number }[];
+          }[];
+        }[];
+      };
+    };
+    const support = context.counterfactualDecisionSupport;
+    const recommendedFirst = support.scenarios.find(
+      (scenario) => scenario.takeNow.player === recommended.playerName,
+    );
+    const alternativeFirst = support.scenarios.find(
+      (scenario) => scenario.takeNow.player === alternative.playerName,
+    );
+
+    expect(support.method).toContain('removes that player from the pool');
+    expect(support.simulationsPerScenario).toBeGreaterThan(0);
+    expect(recommendedFirst?.pairwiseOutcomes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          waitFor: alternative.playerName,
+          probabilityStillAvailableNextTurn: expect.any(Number),
+        }),
+      ]),
+    );
+    expect(alternativeFirst?.pairwiseOutcomes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          waitFor: recommended.playerName,
+          probabilityStillAvailableNextTurn: expect.any(Number),
+        }),
+      ]),
+    );
+    expect(recommendedFirst?.nextTurnByPosition.QB).toMatchObject({
+      probabilityAtLeastOneTopFallbackSurvives: expect.any(Number),
+    });
+    expect(recommendedFirst?.opponentPickForecast).toHaveLength(
+      harness.orchestrator.snapshot().opponentPanel.data.window.picks.length,
+    );
+    expect(recommendedFirst?.opponentPickForecast[0]).toMatchObject({
+      pickNo: expect.any(Number),
+      team: expect.any(String),
+      likelyPlayers: expect.arrayContaining([
+        expect.objectContaining({ player: expect.any(String), probability: expect.any(Number) }),
+      ]),
+    });
+    expect(recommendedFirst?.opponentTeamForecast[0]).toMatchObject({
+      team: expect.any(String),
+      picksBeforeNextTurn: expect.any(Number),
+      probabilityTeamSelectsPlayerInAnyPick: expect.any(Array),
+    });
   });
 });
 

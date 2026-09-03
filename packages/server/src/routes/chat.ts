@@ -66,6 +66,17 @@ Explain the resolved recommendation and its opportunity cost, then say whether y
 Use league size and scoring, lineup requirements, roster depth, tiers and drop-offs, ECR/ADP,
 replacement-adjusted value, and plan values only where they materially clarify the decision.
 
+counterfactualDecisionSupport is the primary evidence for player-versus-player and "what if"
+questions. Its forced scenarios actually remove the take-now player and rerun the opponent window.
+Use pairwiseOutcomes to compare both draft orders, nextTurnByPosition to name realistic fallbacks,
+opponentPickForecast to answer what each team is likely to do at each specific pick, and
+opponentTeamForecast to summarize both picks for a team at a snake turn. Later forecast picks are
+conditional on earlier selections, so explicitly explain how a team's second need changes after
+its first pick. Use positionRunRisk to explain aggregate risk. Do not present an independence
+approximation as a simulated result. When the support contains the answer, synthesize a decision;
+do not repeat every field. If the question asks for a scenario absent from the support, state that
+limit rather than inventing a calculation.
+
 Do not blindly defend Sidekick. If its displayed recommendation is sound, make the strongest
 evidence-based case for it. If another available player or position is materially better, plainly
 say "I would change the pick to ..." and explain why. Distinguish a marginal preference from a
@@ -273,7 +284,9 @@ export function createChatRouter(
       return;
     }
 
-    const context = orchestrator.draftChatContext();
+    const history = validHistory(body?.history);
+    const analysisQuestion = [...history.map((turn) => turn.content), message].join('\n');
+    const context = orchestrator.draftChatContext(analysisQuestion);
     if (context === null) {
       res
         .status(409)
@@ -290,7 +303,6 @@ export function createChatRouter(
       return;
     }
 
-    const history = validHistory(body?.history);
     const transcript = history
       .map((turn) => `${turn.role === 'user' ? 'User' : 'Sidekick'}: ${turn.content}`)
       .join('\n');

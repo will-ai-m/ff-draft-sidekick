@@ -43,6 +43,7 @@ import type {
   SkillPosition,
 } from '@sidekick/shared';
 
+import { buildDecisionSupport } from './chat/decisionSupport';
 import type { SidekickConfig } from './config/loadConfig';
 import type { GameLogStore } from './gamelogs/store';
 import { Observability } from './observability';
@@ -384,7 +385,7 @@ export class Orchestrator {
    * draft decision signal. The route serializes this once per question, so every answer is tied
    * to one explicit board version even if a pick lands while the model is responding.
    */
-  draftChatContext(): Record<string, unknown> | null {
+  draftChatContext(question = ''): Record<string, unknown> | null {
     const active = this.active;
     if (active === null) return null;
 
@@ -460,6 +461,25 @@ export class Orchestrator {
         })),
       });
     }
+    const teamNames = Object.fromEntries(
+      Object.entries(teamRosters).map(([teamId, roster]) => [
+        teamId,
+        (roster as { name: string }).name,
+      ]),
+    );
+    const decisionSupport = buildDecisionSupport({
+      question,
+      recommendation,
+      players: active.players,
+      board: snapshot.board,
+      entries: snapshot.opponentPanel.data.entries,
+      window: snapshot.opponentPanel.data.window,
+      config: this.config,
+      degraded: snapshot.sync.status === 'degraded',
+      roster: snapshot.userRoster.data,
+      flexShare: active.flexShare.share,
+      teamNames,
+    });
 
     return {
       capturedAt: new Date(this.now()).toISOString(),
@@ -512,6 +532,7 @@ export class Orchestrator {
             ? 'The raw plan scores are inside the configured near-tie band. The displayed recommendation may therefore come from a final roster, flexibility, urgency, tier-risk, or consensus tie-break. Explain the resolved displayed plan, while labeling the raw winner separately.'
             : 'The displayed recommendation follows the scored plan unless its stated reason identifies a later guard.',
       },
+      counterfactualDecisionSupport: decisionSupport,
       userRoster: snapshot.userRoster.data,
       userPicks: snapshot.pickFeed.filter((pick) => pick.isUserPick),
       upcomingOpponentPicks: snapshot.opponentPanel.data,
@@ -685,7 +706,11 @@ export class Orchestrator {
     });
 
     this.teardown('rankings-format-switch');
-    const outcome = await this.attach({ ...active.attachRequest, input: draftId, rankingsFormat: format });
+    const outcome = await this.attach({
+      ...active.attachRequest,
+      input: draftId,
+      rankingsFormat: format,
+    });
     if (
       outcome.ok &&
       userSlot !== null &&

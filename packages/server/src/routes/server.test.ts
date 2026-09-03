@@ -206,7 +206,10 @@ describe('REST endpoints', () => {
   it('POST /api/attach rejects an unknown rankingsFormat with 400, whichever half it accompanies', async () => {
     const { origin } = await start({ attach: false });
 
-    for (const body of [{ rankingsFormat: 'standard' }, { input: DRAFT_ID, rankingsFormat: 'full' }]) {
+    for (const body of [
+      { rankingsFormat: 'standard' },
+      { input: DRAFT_ID, rankingsFormat: 'full' },
+    ]) {
       const response = await fetch(`${origin}/api/attach`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -338,10 +341,16 @@ describe('REST endpoints', () => {
     expect(body.input).toContain('"teamRosters"');
     expect(body.input).toContain('"decisionInterpretation"');
     expect(body.input).toContain('"tacticalOpponentSummary"');
+    expect(body.input).toContain('"counterfactualDecisionSupport"');
+    expect(body.input).toContain('"pairwiseOutcomes"');
+    expect(body.input).toContain('"opponentPickForecast"');
+    expect(body.input).toContain('"opponentTeamForecast"');
     expect(body.input).toContain('"highProbabilityMeaning"');
     expect(body.instructions).toMatch(/A HIGH survival\s+probability supports WAITING/);
     expect(body.instructions).toMatch(/name the actual\s+teams or slots/);
     expect(body.instructions).toContain('not a reader narrating a table');
+    expect(body.instructions).toContain('counterfactualDecisionSupport is the primary evidence');
+    expect(body.instructions).toContain('conditional on earlier selections');
   });
 
   it('POST /api/chat explains how to configure chat without affecting the draft', async () => {

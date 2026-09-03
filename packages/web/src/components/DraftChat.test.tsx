@@ -65,7 +65,7 @@ describe('DraftChat', () => {
     );
     const { rerender } = render(<DraftChat draftId="draft-1" boardVersion={4} />);
     await screen.findByText(/using your OpenAI tokens/i);
-    fireEvent.click(screen.getByRole('button', { name: /biggest tactical risk/i }));
+    fireEvent.click(screen.getByRole('button', { name: /who could take this position/i }));
     await screen.findByText('Wait on TE.');
 
     rerender(<DraftChat draftId="draft-1" boardVersion={5} />);

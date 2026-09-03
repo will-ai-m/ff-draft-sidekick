@@ -225,8 +225,7 @@ export function buildSimulationUniverse(input: BuildSimulationUniverseInput): Un
 
   return ranked
     .filter(
-      (player) =>
-        withinCutoff.has(player.sleeperPlayerId) || required.has(player.sleeperPlayerId),
+      (player) => withinCutoff.has(player.sleeperPlayerId) || required.has(player.sleeperPlayerId),
     )
     .map((player, index) => ({
       sleeperPlayerId: player.sleeperPlayerId,
@@ -466,6 +465,22 @@ export interface SimulateSurvivalInput {
   seed?: number;
   /** A generator to use outright; takes precedence over `seed`. Tests inject determinism with it. */
   random?: () => number;
+  /**
+   * Optional read-only observation seam for question-time explanations. Called once for every
+   * simulated window pick, including K/DST selections. It cannot influence the draw and is unused
+   * by the live recommendation cascade, so retaining pick forecasts costs nothing there.
+   */
+  onSelection?: (selection: SimulationSelection) => void;
+}
+
+export interface SimulationSelection {
+  run: number;
+  step: number;
+  pickNo: number;
+  teamId: string;
+  kind: 'skill-player' | 'kdst';
+  playerId: string | null;
+  position: Position | 'K/DST';
 }
 
 const suppressedProjection = (degraded: boolean): SurvivalProjection => ({
@@ -617,7 +632,7 @@ export function simulateSurvival(input: SimulateSurvivalInput): SurvivalProjecti
   if (picks.length !== input.window.picks.length) {
     throw new Error(
       `simulateSurvival: ${picks.length} simulated picks for a window of ${input.window.picks.length} — ` +
-        'the picks must be this window\'s own rows, in order',
+        "the picks must be this window's own rows, in order",
     );
   }
   // Nothing to survive to: AC-45 suppresses rather than reporting zeroes.
@@ -699,7 +714,19 @@ export function simulateSurvival(input: SimulateSurvivalInput): SurvivalProjecti
 
     for (let step = 0; step < picks.length && poolLeft > 0; step += 1) {
       if (saturatedPlan !== null) {
-        if (saturatedPlan[step] === true) continue;
+        if (saturatedPlan[step] === true) {
+          const pick = picks[step]!;
+          input.onSelection?.({
+            run,
+            step,
+            pickNo: pick.pickNo,
+            teamId: pick.teamId,
+            kind: 'kdst',
+            playerId: null,
+            position: 'K/DST',
+          });
+          continue;
+        }
       } else {
         const team = teamIndexByStep[step]!;
         const remaining = remainingInRun[team]!;
@@ -712,6 +739,16 @@ export function simulateSurvival(input: SimulateSurvivalInput): SurvivalProjecti
         );
         if (chance >= 1 || (chance > 0 && random() < chance)) {
           unfilledInRun[team] = unfilledInRun[team]! - 1;
+          const pick = picks[step]!;
+          input.onSelection?.({
+            run,
+            step,
+            pickNo: pick.pickNo,
+            teamId: pick.teamId,
+            kind: 'kdst',
+            playerId: null,
+            position: 'K/DST',
+          });
           continue; // Spent on K/DST — no skill player leaves the board (🔶 AS-7).
         }
       }
@@ -760,6 +797,16 @@ export function simulateSurvival(input: SimulateSurvivalInput): SurvivalProjecti
 
       availableInRun[chosen] = 0;
       const chosenPosition = positionByIndex[chosen]!;
+      const chosenPlayer = universe[chosen]!;
+      input.onSelection?.({
+        run,
+        step,
+        pickNo: pick.pickNo,
+        teamId: pick.teamId,
+        kind: 'skill-player',
+        playerId: chosenPlayer.sleeperPlayerId,
+        position: chosenPosition,
+      });
       availableByPosition[chosenPosition] -= 1;
       if (pick.skillNeed !== undefined) {
         const team = teamIndexByStep[step]!;

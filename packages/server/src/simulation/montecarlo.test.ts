@@ -1,5 +1,11 @@
 import { NO_NEED_SIGNAL, PARAMETER_DEFAULTS } from '@sidekick/shared';
-import type { Board, DraftWindow, OpponentPanelEntry, Position, SlotConfig } from '@sidekick/shared';
+import type {
+  Board,
+  DraftWindow,
+  OpponentPanelEntry,
+  Position,
+  SlotConfig,
+} from '@sidekick/shared';
 import { describe, expect, it } from 'vitest';
 
 import windowBundleJson from '../../test/fixtures/sleeper-window-traded-draft.json';
@@ -9,7 +15,11 @@ import type { ExampleCandidate } from '../opponent/window';
 import { computeRosterPanel } from '../roster/needvectors';
 import { buildPickOwnerResolver, deriveDraftState } from '../sleeper/sync';
 import type { SleeperIngest } from '../sleeper/sync';
-import { applyTendencyProfiles, computeBpaDistribution, computeTendencyProfile } from '../tendencies/profiles';
+import {
+  applyTendencyProfiles,
+  computeBpaDistribution,
+  computeTendencyProfile,
+} from '../tendencies/profiles';
 import {
   buildSimulationUniverse,
   createSeededRandom,
@@ -22,7 +32,13 @@ import {
   survivedInRun,
   toSimulatedPicks,
 } from './montecarlo';
-import type { SimulatedPick, SimulationCandidate, SurvivalConfig, SurvivalProjection } from './montecarlo';
+import type {
+  SimulatedPick,
+  SimulationCandidate,
+  SimulationSelection,
+  SurvivalConfig,
+  SurvivalProjection,
+} from './montecarlo';
 
 // ---------------------------------------------------------------------------------------------
 // Helpers. Every expected number in this file is hand-computed from the 1/rank weighting FR-8
@@ -79,7 +95,10 @@ const simPick = (overrides: Partial<SimulatedPick> = {}): SimulatedPick => ({
   ...overrides,
 });
 
-const windowFor = (picks: readonly SimulatedPick[], nextUserPickNo: number | null): DraftWindow => ({
+const windowFor = (
+  picks: readonly SimulatedPick[],
+  nextUserPickNo: number | null,
+): DraftWindow => ({
   picks: picks.map((pick) => ({ pickNo: pick.pickNo, round: 1, teamId: pick.teamId })),
   userOnTheClock: true,
   inProgressPickNo: 1,
@@ -97,6 +116,7 @@ interface ProjectOptions {
   degraded?: boolean;
   seed?: number;
   random?: () => number;
+  onSelection?: (selection: SimulationSelection) => void;
 }
 
 const project = (options: ProjectOptions): SurvivalProjection =>
@@ -113,6 +133,7 @@ const project = (options: ProjectOptions): SurvivalProjection =>
     degraded: options.degraded,
     seed: options.seed,
     random: options.random,
+    onSelection: options.onSelection,
   });
 
 const percent = (projection: SurvivalProjection, playerId: string): number =>
@@ -254,9 +275,7 @@ describe('the simulation universe (AC-42)', () => {
   });
 
   it('reads its size from config, never an inline 40', () => {
-    const many = Array.from({ length: 60 }, (_, i) =>
-      candidate(`p${i + 1}`, 'RB', i + 1, i + 1),
-    );
+    const many = Array.from({ length: 60 }, (_, i) => candidate(`p${i + 1}`, 'RB', i + 1, i + 1));
 
     expect(buildSimulationUniverse({ players: many, board: boardOf(), size: 40 })).toHaveLength(40);
     expect(buildSimulationUniverse({ players: many, board: boardOf(), size: 7 })).toHaveLength(7);
@@ -341,9 +360,7 @@ describe('the K/DST saturation rule (AC-47)', () => {
       // K/DST slots open. The deadline-only model spends this pick on a skill player every run
       // (5 > 2); the placement window says 2-in-5 runs go to K/DST — the exact behaviour nine
       // seats showed in the 2026-08-27 mock trace, taking DSTs with 4-6 picks in hand.
-      const players = Array.from({ length: 8 }, (_, i) =>
-        candidate(`rb${i}`, 'RB', i + 1, i + 1),
-      );
+      const players = Array.from({ length: 8 }, (_, i) => candidate(`rb${i}`, 'RB', i + 1, i + 1));
       const picks = [simPick({ unfilledKDstSlots: 2, remainingPicks: 5 })];
       const totalSurvival = (earlyWindow: number): number => {
         const projection = project({
@@ -421,9 +438,7 @@ describe('the K/DST saturation rule (AC-47)', () => {
       // A team six picks from the end with both slots open. Uniform placement sends a third of
       // such picks to K/DST; the fitted decay sends about 3%, which is what the recorded rooms
       // did with those rounds — they drafted skill depth and left K/DST for the last two.
-      const players = Array.from({ length: 8 }, (_, i) =>
-        candidate(`rb${i}`, 'RB', i + 1, i + 1),
-      );
+      const players = Array.from({ length: 8 }, (_, i) => candidate(`rb${i}`, 'RB', i + 1, i + 1));
       const picks = [simPick({ unfilledKDstSlots: 2, remainingPicks: 6 })];
       const spentOnKdst = (decay: number): number => {
         const projection = project({
@@ -448,9 +463,7 @@ describe('the K/DST saturation rule (AC-47)', () => {
       // Two picks by one team, remaining 3 with 2 K/DST slots open: chance 2/3 then, if K/DST
       // was taken, 1/2 — and if not, the second pick sits at the 2>=2 deadline and saturates.
       // Either path spends at most one skill pick, so at least 7 of 8 always survive.
-      const players = Array.from({ length: 8 }, (_, i) =>
-        candidate(`wr${i}`, 'WR', i + 1, i + 1),
-      );
+      const players = Array.from({ length: 8 }, (_, i) => candidate(`wr${i}`, 'WR', i + 1, i + 1));
       const picks = [
         simPick({ pickNo: 5, unfilledKDstSlots: 2, remainingPicks: 3 }),
         simPick({ pickNo: 15, unfilledKDstSlots: 2, remainingPicks: 3 }),
@@ -499,7 +512,11 @@ describe('the position draw (AC-42)', () => {
   it('draws the position from the team’s tendency-bent distribution', () => {
     const projection = project({
       picks: [simPick({ bentDistribution: dist({ RB: 1 }) })],
-      players: [candidate('rb1', 'RB', 1, 1), candidate('wr1', 'WR', 2, 2), candidate('wr2', 'WR', 3, 3)],
+      players: [
+        candidate('rb1', 'RB', 1, 1),
+        candidate('wr1', 'WR', 2, 2),
+        candidate('wr2', 'WR', 3, 3),
+      ],
       config: { monteCarloRunCount: 500 },
       seed: SEED,
     });
@@ -600,7 +617,9 @@ describe('the position draw (AC-42)', () => {
 
     // K/DST carry no mass (🔶 AS-7), so the pick falls through to best available among the RBs.
     expect(survivalFor(projection, 'k1')).toBeNull();
-    expect(percent(projection, 'rb1') + percent(projection, 'rb2') + percent(projection, 'rb3')).toBeCloseTo(2, 5);
+    expect(
+      percent(projection, 'rb1') + percent(projection, 'rb2') + percent(projection, 'rb3'),
+    ).toBeCloseTo(2, 5);
   });
 });
 
@@ -812,6 +831,22 @@ describe('per-run survivor sets (AC-43)', () => {
     }
     expect(percent(projection, 'rb1')).toBe(0);
     expect(percent(projection, 'rb3')).toBe(1);
+  });
+
+  it('optionally reports the player selected at each stateful opponent pick', () => {
+    const selections: SimulationSelection[] = [];
+    project({
+      picks,
+      players,
+      config: { monteCarloRunCount: 1 },
+      random: () => 0,
+      onSelection: (selection) => selections.push(selection),
+    });
+
+    expect(selections).toEqual([
+      expect.objectContaining({ run: 0, step: 0, playerId: 'rb1', position: 'RB' }),
+      expect.objectContaining({ run: 0, step: 1, playerId: 'rb2', position: 'RB' }),
+    ]);
   });
 
   it('answers `survivedInRun` false for a player outside the universe, never throws', () => {
@@ -1177,9 +1212,7 @@ describe('reading the enriched opponent panel (the FR-7 seam)', () => {
   });
 
   it('leaves the distribution absent for a no-need-signal row, which is the ADP-order regime', () => {
-    const [pick] = toSimulatedPicks([
-      row({ needVector: NO_NEED_SIGNAL, needDistribution: null }),
-    ]);
+    const [pick] = toSimulatedPicks([row({ needVector: NO_NEED_SIGNAL, needDistribution: null })]);
 
     expect(pick?.bentDistribution).toBeUndefined();
     expect(pick?.averageReach).toBe(0);
@@ -1197,17 +1230,59 @@ describe('composed against the live board (AC-42, AC-47)', () => {
   const CANDIDATES: ExampleCandidate[] = [
     { sleeperPlayerId: '9509', playerName: 'Bijan Robinson', position: 'RB', ecrRank: 1, adp: 1.2 },
     { sleeperPlayerId: '7564', playerName: "Ja'Marr Chase", position: 'WR', ecrRank: 2, adp: 1.8 },
-    { sleeperPlayerId: '9226', playerName: "De'Von Achane", position: 'RB', ecrRank: 10, adp: 11.1 },
-    { sleeperPlayerId: '12527', playerName: 'Ashton Jeanty', position: 'RB', ecrRank: 12, adp: 15.4 },
-    { sleeperPlayerId: '11584', playerName: 'Bucky Irving', position: 'RB', ecrRank: 18, adp: null },
+    {
+      sleeperPlayerId: '9226',
+      playerName: "De'Von Achane",
+      position: 'RB',
+      ecrRank: 10,
+      adp: 11.1,
+    },
+    {
+      sleeperPlayerId: '12527',
+      playerName: 'Ashton Jeanty',
+      position: 'RB',
+      ecrRank: 12,
+      adp: 15.4,
+    },
+    {
+      sleeperPlayerId: '11584',
+      playerName: 'Bucky Irving',
+      position: 'RB',
+      ecrRank: 18,
+      adp: null,
+    },
     { sleeperPlayerId: '9224', playerName: 'Chase Brown', position: 'RB', ecrRank: 22, adp: 20.6 },
     { sleeperPlayerId: '8112', playerName: 'Drake London', position: 'WR', ecrRank: 14, adp: 13.0 },
-    { sleeperPlayerId: '8146', playerName: 'Garrett Wilson', position: 'WR', ecrRank: 16, adp: 19.9 },
+    {
+      sleeperPlayerId: '8146',
+      playerName: 'Garrett Wilson',
+      position: 'WR',
+      ecrRank: 16,
+      adp: 19.9,
+    },
     { sleeperPlayerId: '6801', playerName: 'Tee Higgins', position: 'WR', ecrRank: 20, adp: 17.2 },
-    { sleeperPlayerId: '11635', playerName: 'Ladd McConkey', position: 'WR', ecrRank: 24, adp: 26.0 },
+    {
+      sleeperPlayerId: '11635',
+      playerName: 'Ladd McConkey',
+      position: 'WR',
+      ecrRank: 24,
+      adp: 26.0,
+    },
     { sleeperPlayerId: '6904', playerName: 'Jalen Hurts', position: 'QB', ecrRank: 28, adp: 35.0 },
-    { sleeperPlayerId: '4046', playerName: 'Patrick Mahomes', position: 'QB', ecrRank: 34, adp: 31.5 },
-    { sleeperPlayerId: '4217', playerName: 'George Kittle', position: 'TE', ecrRank: 30, adp: 33.5 },
+    {
+      sleeperPlayerId: '4046',
+      playerName: 'Patrick Mahomes',
+      position: 'QB',
+      ecrRank: 34,
+      adp: 31.5,
+    },
+    {
+      sleeperPlayerId: '4217',
+      playerName: 'George Kittle',
+      position: 'TE',
+      ecrRank: 30,
+      adp: 33.5,
+    },
     { sleeperPlayerId: '5012', playerName: 'Mark Andrews', position: 'TE', ecrRank: 44, adp: 41.0 },
   ];
 

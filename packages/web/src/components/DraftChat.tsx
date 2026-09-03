@@ -1,10 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-import type {
-  DraftChatMessage,
-  DraftChatProvider,
-  DraftChatSessionStatus,
-} from '@sidekick/shared';
+import type { DraftChatMessage, DraftChatProvider, DraftChatSessionStatus } from '@sidekick/shared';
 
 import {
   connectDraftChatKey,
@@ -25,9 +21,9 @@ interface DisplayMessage extends DraftChatMessage {
 }
 
 const STARTERS = [
-  'Why this player over the closest alternative?',
+  'Compare both draft orders with the closest alternative.',
   "Shouldn't I draft a different position here?",
-  'What is the biggest tactical risk if I wait?',
+  'Who could take this position, and what is my fallback if I wait?',
 ];
 
 const EMPTY_SESSION: DraftChatSessionStatus = {
@@ -220,100 +216,107 @@ export function DraftChat({ draftId, boardVersion }: DraftChatProps) {
 
         {session?.configured === true && (
           <>
-        {messages.length === 0 && (
-          <div>
-            <p className="mb-2 text-slate-300">
-              Challenge the pick, compare players, or ask what position your roster needs.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {STARTERS.map((starter) => (
-                <button
-                  key={starter}
-                  type="button"
-                  onClick={() => {
-                    void ask(starter);
-                  }}
-                  className="rounded-full border border-slate-700 bg-slate-800 px-3 py-1.5 text-left text-xs text-slate-300 hover:border-emerald-600 hover:text-emerald-200"
-                >
-                  {starter}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {messages.length > 0 && (
-          <div aria-live="polite" className="max-h-72 space-y-3 overflow-y-auto pr-1">
-            {messages.map((message, index) => (
-              <div
-                key={`${message.role}-${index}`}
-                className={
-                  message.role === 'user'
-                    ? 'ml-8 rounded-lg bg-slate-800 px-3 py-2 text-slate-200'
-                    : 'mr-4 rounded-lg border border-emerald-900/70 bg-emerald-950/20 px-3 py-2 text-slate-200'
-                }
-              >
-                <p className="mb-1 text-[0.65rem] font-semibold uppercase tracking-wide text-slate-500">
-                  {message.role === 'user' ? 'You' : 'Sidekick'}
+            {messages.length === 0 && (
+              <div>
+                <p className="mb-2 text-slate-300">
+                  Challenge the pick, compare players, or ask what position your roster needs.
                 </p>
-                <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
-                {message.role === 'assistant' &&
-                  message.boardVersion !== undefined &&
-                  message.boardVersion !== boardVersion && (
-                    <p className="mt-2 text-xs text-amber-300">
-                      The board moved after this answer (version {message.boardVersion} → {boardVersion}).
-                    </p>
-                  )}
+                <div className="flex flex-wrap gap-2">
+                  {STARTERS.map((starter) => (
+                    <button
+                      key={starter}
+                      type="button"
+                      onClick={() => {
+                        void ask(starter);
+                      }}
+                      className="rounded-full border border-slate-700 bg-slate-800 px-3 py-1.5 text-left text-xs text-slate-300 hover:border-emerald-600 hover:text-emerald-200"
+                    >
+                      {starter}
+                    </button>
+                  ))}
+                </div>
               </div>
-            ))}
-            {pending && <p className="text-sm text-emerald-300">Sidekick is checking the board…</p>}
-            <div ref={endRef} />
-          </div>
-        )}
+            )}
 
-        {error !== null && (
-          <p role="alert" className="rounded-md border border-rose-900 bg-rose-950/40 px-3 py-2 text-sm text-rose-200">
-            {error}
-          </p>
-        )}
+            {messages.length > 0 && (
+              <div aria-live="polite" className="max-h-72 space-y-3 overflow-y-auto pr-1">
+                {messages.map((message, index) => (
+                  <div
+                    key={`${message.role}-${index}`}
+                    className={
+                      message.role === 'user'
+                        ? 'ml-8 rounded-lg bg-slate-800 px-3 py-2 text-slate-200'
+                        : 'mr-4 rounded-lg border border-emerald-900/70 bg-emerald-950/20 px-3 py-2 text-slate-200'
+                    }
+                  >
+                    <p className="mb-1 text-[0.65rem] font-semibold uppercase tracking-wide text-slate-500">
+                      {message.role === 'user' ? 'You' : 'Sidekick'}
+                    </p>
+                    <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                    {message.role === 'assistant' &&
+                      message.boardVersion !== undefined &&
+                      message.boardVersion !== boardVersion && (
+                        <p className="mt-2 text-xs text-amber-300">
+                          The board moved after this answer (version {message.boardVersion} →{' '}
+                          {boardVersion}).
+                        </p>
+                      )}
+                  </div>
+                ))}
+                {pending && (
+                  <p className="text-sm text-emerald-300">Sidekick is checking the board…</p>
+                )}
+                <div ref={endRef} />
+              </div>
+            )}
 
-        <form
-          className="mt-auto flex gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void ask(question);
-          }}
-        >
-          <label htmlFor="draft-chat-question" className="sr-only">
-            Ask Sidekick about this pick
-          </label>
-          <textarea
-            id="draft-chat-question"
-            rows={2}
-            value={question}
-            maxLength={2_000}
-            disabled={pending}
-            onChange={(event) => setQuestion(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
+            {error !== null && (
+              <p
+                role="alert"
+                className="rounded-md border border-rose-900 bg-rose-950/40 px-3 py-2 text-sm text-rose-200"
+              >
+                {error}
+              </p>
+            )}
+
+            <form
+              className="mt-auto flex gap-2"
+              onSubmit={(event) => {
                 event.preventDefault();
                 void ask(question);
-              }
-            }}
-            placeholder='Ask “Why this RB over the available WR?”'
-            className="min-w-0 flex-1 resize-none rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-emerald-500 disabled:opacity-60"
-          />
-          <button
-            type="submit"
-            disabled={pending || question.trim() === ''}
-            className="self-end rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Ask
-          </button>
-        </form>
-        <p className="text-xs text-slate-600">
-          Enter sends · Shift+Enter adds a line. Advice is read-only; picks stay in Sleeper.
-        </p>
+              }}
+            >
+              <label htmlFor="draft-chat-question" className="sr-only">
+                Ask Sidekick about this pick
+              </label>
+              <textarea
+                id="draft-chat-question"
+                rows={2}
+                value={question}
+                maxLength={2_000}
+                disabled={pending}
+                onChange={(event) => setQuestion(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    void ask(question);
+                  }
+                }}
+                placeholder="Ask “What happens if I take Caleb instead?”"
+                className="min-w-0 flex-1 resize-none rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-emerald-500 disabled:opacity-60"
+              />
+              <button
+                type="submit"
+                disabled={pending || question.trim() === ''}
+                className="self-end rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Ask
+              </button>
+            </form>
+            <p className="text-xs text-slate-600">
+              Try player-vs-player, positional-run, or “what if I wait?” questions. Enter sends ·
+              Shift+Enter adds a line. Advice is read-only; picks stay in Sleeper.
+            </p>
           </>
         )}
       </div>

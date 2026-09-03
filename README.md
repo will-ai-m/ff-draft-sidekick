@@ -12,6 +12,9 @@ Prerequisite: Node.js ≥ 20 (with npm). Sleeper draft data needs no login or ke
 the draft screen to use your own provider tokens. The raw key is held only in server memory behind
 an HttpOnly session cookie—never local/browser storage, logs, config, or the repository—and is
 erased on detach, explicit removal, server restart, page exit, or 30 minutes of inactivity.
+For player-versus-player questions, the adviser removes each proposed pick from the board and
+reruns the opponent window, so its two-pick strategy, fallback options and positional-run risk are
+calculated by Sidekick rather than guessed by the language model.
 
 ```bash
 git clone git@github.com:will-ai-m/zesty-fantasy.git
