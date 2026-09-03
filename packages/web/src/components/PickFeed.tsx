@@ -44,7 +44,7 @@ const unmatchedWarning = (entry: PickFeedEntry): string =>
   `excluded from the candidate list and simulation.`;
 
 /** Feed rows shown by default; the rest stay one click away (user request, 2026-08-23). */
-const PICK_FEED_VISIBLE_COUNT = 10;
+const PICK_FEED_VISIBLE_COUNT = 5;
 
 export function PickFeed({ pickFeed, teams }: PickFeedProps) {
   const labelFor = useMemo(() => makeTeamLabeller(teams), [teams]);

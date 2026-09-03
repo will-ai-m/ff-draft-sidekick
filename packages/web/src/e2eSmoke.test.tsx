@@ -113,11 +113,11 @@ describe('the frontend against the end-to-end fixture’s final snapshot', () =>
 
   // 2026-08-23: the feed now defaults to the latest 10 rows with a Show-all toggle (user
   // request); these two tests were updated from the original render-all contract.
-  it('renders the latest 10 picks by default and the whole 150-pick feed on Show all', () => {
+  it('renders the latest 5 picks by default and the whole 150-pick feed on Show all', () => {
     renderConfirmed();
 
     const feed = screen.getByRole('list', { name: /picks, most recent first/i });
-    expect(feed.querySelectorAll('li')).toHaveLength(10);
+    expect(feed.querySelectorAll('li')).toHaveLength(5);
 
     fireEvent.click(
       screen.getByRole('button', {

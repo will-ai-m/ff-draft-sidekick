@@ -234,104 +234,98 @@ function RowsTable({
   const show = (playerId: string, element: HTMLElement): void => {
     setHovered({ playerId, anchor: element.getBoundingClientRect() });
   };
-  const hoveredExplanation =
-    hovered === null ? undefined : explanations?.[hovered.playerId];
+  const hoveredExplanation = hovered === null ? undefined : explanations?.[hovered.playerId];
 
   return (
     <>
-    <table
-      aria-label="Candidate rows"
-      aria-busy={recomputing}
-      className={`w-full border-collapse text-left ${recomputing ? 'opacity-60' : ''}`}
-    >
-      <thead>
-        <tr className="text-xs uppercase tracking-wide text-slate-500">
-          <th scope="col" className="py-1 pr-3 font-medium">
-            ECR
-          </th>
-          <th scope="col" className="py-1 pr-3 font-medium">
-            Pos
-          </th>
-          <th scope="col" className="py-1 pr-3 font-medium">
-            Player
-          </th>
-          <th scope="col" className="py-1 pr-3 font-medium">
-            ADP
-          </th>
-          {showSurvival && (
-            <th scope="col" className="py-1 font-medium">
-              {/* Survival is always "to the user's next turn" — naming the pick number is what
-                  stops a 27% from reading as this-pick availability. */}
-              {nextUserPickNo === null ? 'Survival' : `Lasts to #${nextUserPickNo}`}
+      <table
+        aria-label="Candidate rows"
+        aria-busy={recomputing}
+        className={`w-full border-collapse text-left ${recomputing ? 'opacity-60' : ''}`}
+      >
+        <thead>
+          <tr className="text-xs uppercase tracking-wide text-slate-500">
+            <th scope="col" className="py-1 pr-3 font-medium">
+              ECR
             </th>
-          )}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => {
-          const highlighted = row.playerId === highlightPlayerId;
-          return (
-            <tr
-              key={row.playerId}
-              data-player-id={row.playerId}
-              aria-current={highlighted ? 'true' : undefined}
-              className={
-                highlighted
-                  ? 'bg-emerald-500/10 ring-1 ring-inset ring-emerald-500/40'
-                  : 'border-t border-slate-800/70'
-              }
-            >
-              <td className="py-1 pr-3 tabular-nums text-slate-400">{row.ecrRank ?? DASH}</td>
-              <td className="py-1 pr-3 text-slate-400">{positionalLabel(row)}</td>
-              <td className="py-1 pr-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    openPlayerCard(row.playerId);
-                  }}
-                  aria-describedby={
-                    hovered?.playerId === row.playerId && hoveredExplanation !== undefined
-                      ? `why-${row.playerId}`
-                      : undefined
-                  }
-                  onMouseEnter={(event) => {
-                    show(row.playerId, event.currentTarget);
-                  }}
-                  onMouseLeave={() => {
-                    setHovered(null);
-                  }}
-                  onFocus={(event) => {
-                    show(row.playerId, event.currentTarget);
-                  }}
-                  onBlur={() => {
-                    setHovered(null);
-                  }}
-                  className="rounded-sm text-left font-medium text-slate-100 underline decoration-slate-600 decoration-dotted underline-offset-4 hover:decoration-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
-                >
-                  {row.playerName}
-                </button>
-                {row.team !== null && (
-                  <span className="ml-1.5 text-xs text-slate-500">{row.team}</span>
-                )}
-                {highlighted && (
-                  <span className="ml-2 rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-emerald-300">
-                    Recommended
-                  </span>
-                )}
-              </td>
-              <td className="py-1 pr-3 tabular-nums text-slate-400">
-                {row.adp === null ? DASH : formatNumber(row.adp)}
-              </td>
-              {showSurvival && (
-                <td className="py-1">
-                  <SurvivalReading survival={row.survival} />
+            <th scope="col" className="py-1 pr-3 font-medium">
+              Pos
+            </th>
+            <th scope="col" className="py-1 pr-3 font-medium">
+              Player
+            </th>
+            <th scope="col" className="py-1 pr-3 font-medium">
+              ADP
+            </th>
+            {showSurvival && (
+              <th scope="col" className="py-1 font-medium">
+                {/* Survival is always "to the user's next turn" — naming the pick number is what
+                  stops a 27% from reading as this-pick availability. */}
+                {nextUserPickNo === null ? 'Survival' : `Lasts to #${nextUserPickNo}`}
+              </th>
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const highlighted = row.playerId === highlightPlayerId;
+            return (
+              <tr
+                key={row.playerId}
+                data-player-id={row.playerId}
+                aria-current={highlighted ? 'true' : undefined}
+                className={
+                  highlighted
+                    ? 'bg-emerald-500/10 ring-1 ring-inset ring-emerald-500/40'
+                    : 'border-t border-slate-800/70'
+                }
+              >
+                <td className="py-1 pr-3 tabular-nums text-slate-400">{row.ecrRank ?? DASH}</td>
+                <td className="py-1 pr-3 text-slate-400">{positionalLabel(row)}</td>
+                <td className="py-1 pr-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      openPlayerCard(row.playerId);
+                    }}
+                    aria-describedby={
+                      hovered?.playerId === row.playerId && hoveredExplanation !== undefined
+                        ? `why-${row.playerId}`
+                        : undefined
+                    }
+                    onMouseEnter={(event) => {
+                      show(row.playerId, event.currentTarget);
+                    }}
+                    onMouseLeave={() => {
+                      setHovered(null);
+                    }}
+                    onFocus={(event) => {
+                      show(row.playerId, event.currentTarget);
+                    }}
+                    onBlur={() => {
+                      setHovered(null);
+                    }}
+                    className="rounded-sm text-left font-medium text-slate-100 underline decoration-slate-600 decoration-dotted underline-offset-4 hover:decoration-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
+                  >
+                    {row.playerName}
+                  </button>
+                  {row.team !== null && (
+                    <span className="ml-1.5 text-xs text-slate-500">{row.team}</span>
+                  )}
                 </td>
-              )}
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+                <td className="py-1 pr-3 tabular-nums text-slate-400">
+                  {row.adp === null ? DASH : formatNumber(row.adp)}
+                </td>
+                {showSurvival && (
+                  <td className="py-1">
+                    <SurvivalReading survival={row.survival} />
+                  </td>
+                )}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
       {hovered !== null && hoveredExplanation !== undefined && (
         <ExplanationCard
           explanation={hoveredExplanation}
@@ -410,9 +404,9 @@ function Recommendation({ data }: { data: CandidateListData }) {
       )}
 
       {reason !== null && (
-        <details open className="mt-2 border-t border-emerald-500/20 pt-2 text-xs">
+        <details className="mt-2 border-t border-emerald-500/20 pt-2 text-xs">
           <summary className="cursor-pointer font-medium text-emerald-200">
-            Why did Sidekick choose this?
+            Why did Sidekick choose this? · Show calculation
           </summary>
           <div className="mt-2 space-y-2 text-slate-300">
             {auditedPlans.length > 0 ? (
@@ -480,12 +474,6 @@ function Recommendation({ data }: { data: CandidateListData }) {
                 {QB_POLICY}
               </p>
             )}
-            <ol className="list-decimal space-y-1 pl-4 text-slate-400">
-              <li>Apply phase and roster-eligibility gates.</li>
-              <li>Compare pick-now / pick-next plans when at least two picks remain.</li>
-              <li>Choose the decisive need, value, survival or ECR rule.</li>
-              <li>Apply near-tie rules, then the final K/DST guard.</li>
-            </ol>
           </div>
         </details>
       )}

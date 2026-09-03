@@ -52,15 +52,16 @@ describe('DraftChat', () => {
   it('marks an answer stale when the board advances', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (url: string) =>
-        new Response(
-          JSON.stringify(
-            url === '/api/chat/session'
-              ? configured
-              : { answer: 'Wait on TE.', provider: 'openai', model: 'test', boardVersion: 4 },
+      vi.fn(
+        async (url: string) =>
+          new Response(
+            JSON.stringify(
+              url === '/api/chat/session'
+                ? configured
+                : { answer: 'Wait on TE.', provider: 'openai', model: 'test', boardVersion: 4 },
+            ),
+            { status: 200, headers: { 'content-type': 'application/json' } },
           ),
-          { status: 200, headers: { 'content-type': 'application/json' } },
-        ),
       ),
     );
     const { rerender } = render(<DraftChat draftId="draft-1" boardVersion={4} />);
@@ -103,6 +104,8 @@ describe('DraftChat', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<DraftChat draftId="draft-1" boardVersion={1} />);
 
+    await screen.findByRole('button', { name: /connect ai/i });
+    fireEvent.click(screen.getByRole('button', { name: /connect ai/i }));
     await screen.findByRole('form', { name: /connect an AI provider/i });
     fireEvent.click(screen.getByRole('button', { name: /anthropic \/ claude/i }));
     fireEvent.change(screen.getByLabelText(/^api key$/i), {
@@ -121,13 +124,10 @@ describe('DraftChat', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: /forget key/i }));
-    await waitFor(() =>
-      expect(screen.getByRole('form', { name: /connect an AI provider/i })).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByRole('button', { name: /connect ai/i })).toBeTruthy());
     expect(
       fetchMock.mock.calls.some(
-        (call) =>
-          call[0] === '/api/chat/session' && (call[1] as RequestInit)?.method === 'DELETE',
+        (call) => call[0] === '/api/chat/session' && (call[1] as RequestInit)?.method === 'DELETE',
       ),
     ).toBe(true);
   });

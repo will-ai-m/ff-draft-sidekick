@@ -242,11 +242,10 @@ describe('the highlighted recommendation and its reason line', () => {
 
     const explanation = screen.getByText(/why did sidekick choose this/i);
     expect(explanation).toBeTruthy();
-    expect(explanation.closest('details')?.open).toBe(true);
+    expect(explanation.closest('details')?.open).toBe(false);
     expect(recommendation().textContent).toContain(
       'No plan, open-starter, roster-balance or value rule produced a stronger override',
     );
-    expect(recommendation().textContent).toContain('Apply phase and roster-eligibility gates');
   });
 
   it('explains the backup-QB gate when the recommendation is a quarterback', () => {
@@ -269,7 +268,7 @@ describe('the highlighted recommendation and its reason line', () => {
     renderList(data({ reasonKind: null, reason: 'Best available: Bijan Robinson (ECR 1).' }));
 
     const explanation = screen.getByText(/why did sidekick choose this/i);
-    expect(explanation.closest('details')?.open).toBe(true);
+    expect(explanation.closest('details')?.open).toBe(false);
     expect(recommendation().textContent).toContain(
       'this snapshot does not carry its structured rule label',
     );
@@ -475,7 +474,10 @@ describe('the per-player explanation card (FR-9)', () => {
         },
         wr1: {
           headline: 'Passed over: RB fills no open starting slot.',
-          factors: ['RB Tier 1: 2 of 4 still on the board.', '39% chance he lasts to your next pick (a coin flip).'],
+          factors: [
+            'RB Tier 1: 2 of 4 still on the board.',
+            '39% chance he lasts to your next pick (a coin flip).',
+          ],
         },
       },
     });

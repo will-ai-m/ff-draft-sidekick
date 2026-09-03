@@ -199,12 +199,13 @@ export function AttachScreen({ snapshot, onConfirm, onDetach }: AttachScreenProp
           <RankingsFormatToggle value={rankingsFormat} onChange={chooseFormat} disabled={pending} />
           <p className="text-xs text-slate-500">
             {isAttached
-              ? `Attached on the ${RANKINGS_FORMAT_LABELS[rankingsFormat]} board. Switching re-fetches this draft's FantasyPros rankings and positional tiers and its FFC ADP pool in the other format; your seat is kept. Fixed once you start drafting.`
-              : `Which FantasyPros rankings and positional tiers, and which FFC ADP pool, the attach fetches. Every survival percentage, tier fact and plan score is computed from that board. Set it before you start drafting.`}
+              ? `Using the ${RANKINGS_FORMAT_LABELS[rankingsFormat]} board. You can switch until drafting begins.`
+              : 'Used for rankings, tiers and availability estimates. Fixed after drafting begins.'}
           </p>
           {switching !== null && (
             <p className="text-sm text-slate-400" role="status">
-              Switching to {RANKINGS_FORMAT_LABELS[switching]} — re-fetching rankings, tiers and ADP…
+              Switching to {RANKINGS_FORMAT_LABELS[switching]} — re-fetching rankings, tiers and
+              ADP…
             </p>
           )}
         </div>
@@ -267,6 +268,16 @@ export function AttachScreen({ snapshot, onConfirm, onDetach }: AttachScreenProp
               {attach.rankingsFormat !== undefined &&
                 ` · ${RANKINGS_FORMAT_LABELS[attach.rankingsFormat]} rankings`}
             </p>
+            {needsSlot && (
+              <div
+                role="region"
+                aria-label="Your draft slot"
+                className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
+              >
+                We couldn&apos;t identify your seat. Select <strong>This is me</strong> beside your
+                team below. Recommendations and survival estimates remain paused until then.
+              </div>
+            )}
             <ul className="mt-3 grid gap-2 sm:grid-cols-2">
               {snapshot.board.teams.map((team) => (
                 <li
@@ -298,23 +309,6 @@ export function AttachScreen({ snapshot, onConfirm, onDetach }: AttachScreenProp
               ))}
             </ul>
           </section>
-
-          {needsSlot && (
-            <section
-              aria-label="Your draft slot"
-              className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-5"
-            >
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-amber-200">
-                Your draft slot
-              </h2>
-              <p className="mt-1 text-sm text-amber-100">
-                Sidekick could not find your Sleeper user id in this draft&apos;s order.
-                Mine-vs-opponent, next-pick and survival output stay blocked until you pick your
-                seat — click <span className="font-semibold">This is me</span> next to your seat in
-                the list above.
-              </p>
-            </section>
-          )}
 
           {/* Action row sits ABOVE the pre-draft check: the check's unmatched/warning lists can
               run long, and the primary action must not require scrolling past them (user request,
@@ -370,8 +364,8 @@ function PreDraftCheck({
             <dd className="text-sm text-slate-300">
               {RANKINGS_FORMAT_LABELS[rankingsFormat]}
               <span className="block text-xs text-slate-500">
-                FantasyPros {RANKINGS_FORMAT_LABELS[rankingsFormat]} ECR and positional tiers ·
-                FFC {RANKINGS_FORMAT_LABELS[rankingsFormat]} ADP pool
+                FantasyPros {RANKINGS_FORMAT_LABELS[rankingsFormat]} ECR and positional tiers · FFC{' '}
+                {RANKINGS_FORMAT_LABELS[rankingsFormat]} ADP pool
               </span>
             </dd>
           </div>

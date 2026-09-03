@@ -42,6 +42,7 @@ export function DraftChat({ draftId, boardVersion }: DraftChatProps) {
   const [provider, setProvider] = useState<DraftChatProvider>('openai');
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('');
+  const [showSetup, setShowSetup] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -112,7 +113,20 @@ export function DraftChat({ draftId, boardVersion }: DraftChatProps) {
       <div className="flex h-full min-h-[8rem] flex-col gap-3">
         {session === null && <p className="text-slate-500">Checking chat session…</p>}
 
-        {session?.configured === false && (
+        {session?.configured === false && !showSetup && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-slate-800 bg-slate-950/40 px-3 py-2">
+            <p className="text-sm text-slate-400">AI chat is optional and is not connected.</p>
+            <button
+              type="button"
+              onClick={() => setShowSetup(true)}
+              className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700"
+            >
+              Connect AI
+            </button>
+          </div>
+        )}
+
+        {session?.configured === false && showSetup && (
           <form
             aria-label="Connect an AI provider"
             className="space-y-3 rounded-md border border-slate-700 bg-slate-950/60 p-3"
@@ -128,6 +142,7 @@ export function DraftChat({ draftId, boardVersion }: DraftChatProps) {
                 if (result.ok) {
                   setSession(result.status);
                   setApiKey('');
+                  setShowSetup(false);
                 } else {
                   setError(result.error);
                 }
@@ -190,12 +205,19 @@ export function DraftChat({ draftId, boardVersion }: DraftChatProps) {
               saved in browser storage or logs, and is erased on detach, removal, server restart,
               page exit, or after {session.expiresAfterMinutes} minutes of inactivity.
             </p>
+            <button
+              type="button"
+              onClick={() => setShowSetup(false)}
+              className="text-xs font-medium text-slate-500 hover:text-slate-300"
+            >
+              Cancel
+            </button>
           </form>
         )}
 
         {session?.configured === true && (
-          <div className="flex items-center justify-between gap-3 rounded-md border border-emerald-900/70 bg-emerald-950/20 px-3 py-2 text-xs">
-            <p className="text-emerald-200">
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <p className="text-slate-500">
               Using your {session.provider === 'openai' ? 'OpenAI' : 'Anthropic'} tokens · key kept
               in memory only
             </p>
@@ -205,6 +227,7 @@ export function DraftChat({ draftId, boardVersion }: DraftChatProps) {
                 void forgetDraftChatKey().finally(() => {
                   setSession(EMPTY_SESSION);
                   setMessages([]);
+                  setShowSetup(false);
                 });
               }}
               className="rounded border border-slate-700 px-2 py-1 text-slate-300 hover:bg-slate-800"
@@ -218,9 +241,6 @@ export function DraftChat({ draftId, boardVersion }: DraftChatProps) {
           <>
             {messages.length === 0 && (
               <div>
-                <p className="mb-2 text-slate-300">
-                  Challenge the pick, compare players, or ask what position your roster needs.
-                </p>
                 <div className="flex flex-wrap gap-2">
                   {STARTERS.map((starter) => (
                     <button

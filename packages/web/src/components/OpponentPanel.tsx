@@ -215,26 +215,35 @@ function WindowRow({ entry, teamName }: { entry: OpponentPanelEntry; teamName: s
 
       <UnfilledSlots entry={entry} />
       <LikelyPositions entry={entry} />
-      <ExamplePlayers examples={entry.examplePlayers} />
+      {(entry.examplePlayers.length > 0 ||
+        entry.needDistribution === null ||
+        entry.tendencyProfile !== undefined) && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-slate-500 hover:text-slate-300">
+            More context
+          </summary>
+          <div className="mt-1.5 space-y-1">
+            <ExamplePlayers examples={entry.examplePlayers} />
 
-      {entry.needDistribution === null && (
-        <p aria-label="Need signal" className="text-xs italic text-slate-500">
-          {bestAvailableNote(entry)}
-        </p>
-      )}
+            {entry.needDistribution === null && (
+              <p aria-label="Need signal" className="italic text-slate-500">
+                {bestAvailableNote(entry)}
+              </p>
+            )}
 
-      {entry.tendencyProfile !== undefined && (
-        <p
-          aria-label="Tendency profile"
-          data-confidence={entry.tendencyProfile.confidence}
-          className={
-            entry.tendencyProfile.confidence === 'early'
-              ? 'text-xs text-slate-600'
-              : 'text-xs text-slate-400'
-          }
-        >
-          {profileSummary(entry.tendencyProfile)}
-        </p>
+            {entry.tendencyProfile !== undefined && (
+              <p
+                aria-label="Tendency profile"
+                data-confidence={entry.tendencyProfile.confidence}
+                className={
+                  entry.tendencyProfile.confidence === 'early' ? 'text-slate-600' : 'text-slate-400'
+                }
+              >
+                {profileSummary(entry.tendencyProfile)}
+              </p>
+            )}
+          </div>
+        </details>
       )}
     </li>
   );

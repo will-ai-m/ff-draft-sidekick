@@ -73,13 +73,13 @@ export function DraftScreen({ snapshot, onDetach }: DraftScreenProps) {
           <PickFeed pickFeed={snapshot.pickFeed} teams={snapshot.board.teams} />
         </div>
         <div className="flex min-h-0 flex-col gap-4">
-          <DraftChat
-            draftId={snapshot.attach.draftId ?? 'attached-draft'}
-            boardVersion={snapshot.sync.boardVersion}
-          />
           <CandidateList
             candidateList={snapshot.candidateList}
             nextUserPickNo={snapshot.opponentPanel.data.window.nextUserPickNo}
+          />
+          <DraftChat
+            draftId={snapshot.attach.draftId ?? 'attached-draft'}
+            boardVersion={snapshot.sync.boardVersion}
           />
         </div>
         <OpponentPanel
