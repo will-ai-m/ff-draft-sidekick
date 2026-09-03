@@ -1,4 +1,4 @@
-# ff-draft-sidekick
+# zesty-fantasy
 
 Draft Sidekick — a local, free-to-run Sleeper draft assistant. This README is just the steps to
 get it running; everything else is in [docs/GUIDE.md](docs/GUIDE.md) (usage, pre-draft ritual,
@@ -14,8 +14,8 @@ an HttpOnly session cookie—never local/browser storage, logs, config, or the r
 erased on detach, explicit removal, server restart, page exit, or 30 minutes of inactivity.
 
 ```bash
-git clone git@github.com:will-ai-m/ff-draft-sidekick.git
-cd ff-draft-sidekick
+git clone git@github.com:will-ai-m/zesty-fantasy.git
+cd zesty-fantasy
 scripts/start-app.sh
 ```
 
