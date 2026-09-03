@@ -1,12 +1,15 @@
 /**
  * `POST /api/attach` (FR-1) and `POST /api/detach`.
  *
- * One route carries both halves of attaching, as design.md §T10 specifies: a body with `input` is
- * the paste, a body with `draftSlot` is AC-5's manual-slot follow-up on the draft just attached.
+ * One route carries every half of attaching, as design.md §T10 specifies: a body with `input` is
+ * the paste (optionally with the `rankingsFormat` to draft on), a body with `draftSlot` is AC-5's
+ * manual-slot follow-up on the draft just attached, and a body with only `rankingsFormat` switches
+ * the attached draft onto the other format's board, tiers and ADP (2026-09-02).
  * A failure answers 4xx with the *classified* failure and the user's input echoed back verbatim,
  * because AC-7 requires the screen to say which failure occurred and to retry without discarding
  * what was typed — the server therefore never swallows the input on the way to an error.
  */
+import { RANKINGS_FORMATS, isRankingsFormat } from '@sidekick/shared';
 import { Router } from 'express';
 
 import type { Orchestrator } from '../orchestrator';
@@ -34,6 +37,7 @@ interface AttachBody {
   sleeperUserId?: unknown;
   sleeperUsername?: unknown;
   draftSlot?: unknown;
+  rankingsFormat?: unknown;
 }
 
 const asString = (value: unknown): string | null => (typeof value === 'string' ? value : null);
@@ -48,10 +52,35 @@ export function createAttachRouter(orchestrator: Orchestrator): Router {
     void (async () => {
       const body = (req.body ?? {}) as AttachBody;
 
+      // A format is validated up front whichever half of the route it accompanies: an unknown
+      // string must never become a silent fall-through to the default board.
+      if (body.rankingsFormat !== undefined && !isRankingsFormat(body.rankingsFormat)) {
+        res.status(400).json({
+          failure: {
+            kind: 'invalid-input',
+            message: `rankingsFormat must be one of ${RANKINGS_FORMATS.join(', ')}.`,
+            input: asString(body.input) ?? String(body.rankingsFormat),
+          },
+        });
+        return;
+      }
+      const rankingsFormat = isRankingsFormat(body.rankingsFormat) ? body.rankingsFormat : null;
+
       // AC-5's follow-up: a slot with no pasted input is a choice about the current attach.
       if (body.input === undefined && body.draftSlot !== undefined) {
         const draftSlot = Number(body.draftSlot);
         const outcome = orchestrator.selectSlot(draftSlot);
+        if (!outcome.ok) {
+          res.status(STATUS_BY_FAILURE[outcome.failure.kind]).json({ failure: outcome.failure });
+          return;
+        }
+        res.json(outcome.snapshot);
+        return;
+      }
+
+      // The format switch: a format with no pasted input re-attaches the current draft on it.
+      if (body.input === undefined && rankingsFormat !== null) {
+        const outcome = await orchestrator.switchRankingsFormat(rankingsFormat);
         if (!outcome.ok) {
           res.status(STATUS_BY_FAILURE[outcome.failure.kind]).json({ failure: outcome.failure });
           return;
@@ -65,7 +94,9 @@ export function createAttachRouter(orchestrator: Orchestrator): Router {
         res.status(400).json({
           failure: {
             kind: 'invalid-input',
-            message: 'Paste a Sleeper draft URL or id, or send a draftSlot to resolve your seat.',
+            message:
+              'Paste a Sleeper draft URL or id, send a draftSlot to resolve your seat, or a ' +
+              'rankingsFormat to switch the attached draft onto.',
             input: '',
           },
         });
@@ -76,6 +107,7 @@ export function createAttachRouter(orchestrator: Orchestrator): Router {
         input,
         sleeperUserId: asString(body.sleeperUserId),
         sleeperUsername: asString(body.sleeperUsername),
+        rankingsFormat,
       });
 
       if (!outcome.ok) {

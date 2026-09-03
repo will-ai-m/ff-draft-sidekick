@@ -8,7 +8,7 @@ import {
   makeUnattachedSnapshot,
 } from '../test/fixtures';
 import { AttachScreen } from './AttachScreen';
-import { STORED_USERNAME_KEY } from '../state/api';
+import { STORED_RANKINGS_FORMAT_KEY, STORED_USERNAME_KEY } from '../state/api';
 
 const jsonResponse = (body: unknown, init: { ok?: boolean; status?: number } = {}) => ({
   ok: init.ok ?? true,
@@ -69,7 +69,66 @@ describe('AttachScreen — paste (FR-1)', () => {
     expect(JSON.parse((attachCall?.[1] as RequestInit).body as string)).toEqual({
       input: 'https://sleeper.com/draft/nfl/1234567890',
       sleeperUsername: 'willyu',
+      // The server default, since nothing was chosen in this browser yet (2026-09-02).
+      rankingsFormat: 'half_ppr',
     });
+  });
+
+  it('attaches in the rankings format chosen on the toggle, and remembers it', async () => {
+    const fetchMock = stubFetch(() => jsonResponse(makeSnapshot()));
+
+    render(<AttachScreen snapshot={makeUnattachedSnapshot()} onConfirm={vi.fn()} onDetach={vi.fn()} />);
+    const toggle = screen.getByRole('radiogroup', { name: /rankings format/i });
+    expect(within(toggle).getByRole('radio', { name: /half ppr/i }).getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(within(toggle).getByRole('radio', { name: /full ppr/i }));
+    expect(within(toggle).getByRole('radio', { name: /full ppr/i }).getAttribute('aria-checked')).toBe('true');
+    // Not attached: choosing a format sends nothing — it waits for the attach.
+    expect(fetchMock.mock.calls.some((call) => call[0] === '/api/attach')).toBe(false);
+
+    fireEvent.change(screen.getByLabelText(/sleeper draft url or id/i), {
+      target: { value: '1234567890' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^attach$/i }));
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((call) => call[0] === '/api/attach')).toBe(true);
+    });
+    const attachCall = fetchMock.mock.calls.find((call) => call[0] === '/api/attach');
+    expect(JSON.parse((attachCall?.[1] as RequestInit).body as string)).toMatchObject({
+      input: '1234567890',
+      rankingsFormat: 'ppr',
+    });
+    expect(window.localStorage.getItem(STORED_RANKINGS_FORMAT_KEY)).toBe('ppr');
+  });
+
+  it('opens the toggle on the format last chosen in this browser', () => {
+    window.localStorage.setItem(STORED_RANKINGS_FORMAT_KEY, 'ppr');
+    stubFetch(() => jsonResponse({}));
+
+    render(<AttachScreen snapshot={makeUnattachedSnapshot()} onConfirm={vi.fn()} onDetach={vi.fn()} />);
+
+    const toggle = screen.getByRole('radiogroup', { name: /rankings format/i });
+    expect(within(toggle).getByRole('radio', { name: /full ppr/i }).getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('switches an attached draft by posting only the new format (2026-09-02)', async () => {
+    const fetchMock = stubFetch(() =>
+      jsonResponse(makeSnapshot({ attach: { ...makeSnapshot().attach, rankingsFormat: 'ppr' } })),
+    );
+
+    render(<AttachScreen snapshot={makeSnapshot()} onConfirm={vi.fn()} onDetach={vi.fn()} />);
+    const toggle = screen.getByRole('radiogroup', { name: /rankings format/i });
+    // Attached: the server's answer, not local storage, says which format is on.
+    expect(within(toggle).getByRole('radio', { name: /half ppr/i }).getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByRole('region', { name: /pre-draft check/i }).textContent).toMatch(/Half PPR/);
+
+    fireEvent.click(within(toggle).getByRole('radio', { name: /full ppr/i }));
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((call) => call[0] === '/api/attach')).toBe(true);
+    });
+    const call = fetchMock.mock.calls.find((c) => c[0] === '/api/attach');
+    expect(JSON.parse((call?.[1] as RequestInit).body as string)).toEqual({ rankingsFormat: 'ppr' });
   });
 
   it('states which failure occurred and keeps what the user entered (AC-7)', async () => {

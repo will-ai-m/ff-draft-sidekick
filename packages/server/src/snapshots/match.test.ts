@@ -18,10 +18,12 @@ import {
 } from './match';
 import type { SleeperPlayerRecord } from './types';
 
-const ecr = () => parseEcrHtml(ecrFixtureHtml());
+const ECR_SOURCE = 'https://www.fantasypros.com/nfl/rankings/half-point-ppr-cheatsheets.php';
+const ecr = () => parseEcrHtml(ecrFixtureHtml(), ECR_SOURCE);
 const adp = () =>
   parseAdpResponse(ffcFixture(), {
     source: 'ffc',
+    format: 'half_ppr',
     teamCountRequested: 10,
     teamCountUsed: 10,
     exactPool: true,
@@ -175,7 +177,7 @@ describe('matchSnapshots — DST by team abbreviation (AC-25)', () => {
 
   it('matches a DST across a team-abbreviation spelling difference between feeds', () => {
     const dump = sleeper();
-    const source = parseEcrHtml(ecrFixtureHtml());
+    const source = parseEcrHtml(ecrFixtureHtml(), ECR_SOURCE);
     const jacksonville = {
       ...source.entries.find((e) => e.position === 'DST')!,
       fantasyProsId: 8121,

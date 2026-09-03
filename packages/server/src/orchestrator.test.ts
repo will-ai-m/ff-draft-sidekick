@@ -50,6 +50,8 @@ interface StandUpOptions {
   /** Serve a different ECR / ADP payload — AC-23's degenerate snapshot and its ADP fallback. */
   ecrData?: Record<string, unknown>;
   adpData?: Record<string, unknown>;
+  /** The rankings format to attach in (2026-09-02); the config default when absent. */
+  rankingsFormat?: 'half_ppr' | 'ppr';
 }
 
 /** Attaches a harness to the real-league fixture and returns it, ready to poll. */
@@ -79,6 +81,7 @@ const standUp = async (options: StandUpOptions = {}): Promise<Harness> => {
     const result = await harness.orchestrator.attach({
       input: `https://sleeper.com/draft/nfl/${DRAFT_ID}`,
       sleeperUserId: options.userId === undefined ? USER_ID : options.userId,
+      ...(options.rankingsFormat === undefined ? {} : { rankingsFormat: options.rankingsFormat }),
     });
     expect(result.ok, JSON.stringify(result)).toBe(true);
   }
@@ -428,6 +431,122 @@ describe('AC-27 — the scoring warning reads the league\'s settings, not its la
     const harness = await standUp({ bundle: withLeagueScoring(HALF_PPR_DICT) });
 
     expect(scoringWarning(harness)).toBeUndefined();
+  });
+
+  it('compares against the PPR table when attached in ppr format (2026-09-02)', async () => {
+    const harness = await standUp({
+      bundle: withLeagueScoring({ ...HALF_PPR_DICT, rec: 1 }),
+      rankingsFormat: 'ppr',
+    });
+
+    expect(scoringWarning(harness)).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Rankings format (2026-09-02) — which board, tiers and ADP an attach drafts on
+// ---------------------------------------------------------------------------------------------
+
+describe('rankings format', () => {
+  const sources = (harness: Harness) => {
+    const check = harness.orchestrator.snapshot().preDraftCheck;
+    return { ecr: check?.ecrSnapshot?.source ?? null, adp: check?.adpSnapshot?.source ?? null };
+  };
+
+  it('attaches on the config default when the request names no format', async () => {
+    const harness = await standUp();
+
+    expect(harness.orchestrator.snapshot().attach.rankingsFormat).toBe('half_ppr');
+    expect(sources(harness).ecr).toContain('half-point-ppr-cheatsheets');
+    expect(sources(harness).adp).toContain('/adp/half-ppr?');
+  });
+
+  it('honours a config default of ppr', async () => {
+    const harness = await standUp({ config: { defaultRankingsFormat: 'ppr' } });
+
+    expect(harness.orchestrator.snapshot().attach.rankingsFormat).toBe('ppr');
+    expect(sources(harness).ecr).toContain('/ppr-cheatsheets.php');
+  });
+
+  it('fetches every source in the requested format and reports it on the attach state', async () => {
+    const harness = await standUp({ rankingsFormat: 'ppr' });
+    const snapshot = harness.orchestrator.snapshot();
+
+    expect(snapshot.attach.rankingsFormat).toBe('ppr');
+    expect(sources(harness).ecr).toContain('/ppr-cheatsheets.php');
+    expect(sources(harness).adp).toContain('/adp/ppr?');
+    // The PPR tier fixture shifts skill tiers up by one: the value model saw the PPR pages.
+    const gibbs = snapshot.candidateList.data.rows.find((row) => row.playerName === 'Jahmyr Gibbs');
+    expect(gibbs?.tier).toBe(2);
+    // The adviser is told which board it is reading.
+    expect(harness.orchestrator.draftChatContext()).toMatchObject({
+      league: { rankingsFormat: 'ppr' },
+    });
+  });
+
+  it('switches format by re-attaching the same draft, keeping the seat, in one visible step', async () => {
+    const counts = createRequestCounts();
+    const harness = await standUp({ counts });
+    const before = harness.orchestrator.snapshot();
+    expect(before.attach.rankingsFormat).toBe('half_ppr');
+    const ecrFetchesBefore = counts.ecr;
+
+    const published: string[] = [];
+    const unsubscribe = harness.orchestrator.subscribe((snapshot) => {
+      published.push(`${snapshot.attach.status}:${snapshot.attach.rankingsFormat ?? '-'}`);
+    });
+    const outcome = await harness.orchestrator.switchRankingsFormat('ppr');
+    unsubscribe();
+
+    expect(outcome.ok).toBe(true);
+    const after = harness.orchestrator.snapshot();
+    expect(after.attach.status).toBe('attached');
+    expect(after.attach.rankingsFormat).toBe('ppr');
+    expect(after.attach.userTeamId).toBe(before.attach.userTeamId);
+    expect(after.attach.draftId).toBe(before.attach.draftId);
+    expect(sources(harness).ecr).toContain('/ppr-cheatsheets.php');
+    expect(sources(harness).adp).toContain('/adp/ppr?');
+    // A real re-fetch (AC-29 forbids swapping a board under live insights without one)…
+    expect(counts.ecr).toBe(ecrFetchesBefore + 1);
+    // …but no intermediate not-attached state on the wire: the browser stays on its screen.
+    expect(published).not.toContain('not-attached:-');
+    expect(published.at(-1)).toBe('attached:ppr');
+  });
+
+  it('re-selects a manually chosen seat after the switch', async () => {
+    const harness = await standUp({ userId: null });
+    expect(harness.orchestrator.snapshot().attach.status).toBe('needs-manual-slot');
+    const chosen = harness.orchestrator.selectSlot(3);
+    expect(chosen.ok).toBe(true);
+    const seat = harness.orchestrator.snapshot().attach.userTeamId;
+
+    const outcome = await harness.orchestrator.switchRankingsFormat('ppr');
+
+    expect(outcome.ok).toBe(true);
+    const after = harness.orchestrator.snapshot();
+    expect(after.attach.status).toBe('attached');
+    expect(after.attach.userTeamId).toBe(seat);
+    expect(after.attach.rankingsFormat).toBe('ppr');
+  });
+
+  it('is a no-op for the format already attached', async () => {
+    const counts = createRequestCounts();
+    const harness = await standUp({ counts });
+    const fetches = counts.ecr;
+
+    const outcome = await harness.orchestrator.switchRankingsFormat('half_ppr');
+
+    expect(outcome.ok).toBe(true);
+    expect(counts.ecr).toBe(fetches);
+  });
+
+  it('refuses to switch when nothing is attached', async () => {
+    const harness = await standUp({ attach: false });
+
+    const outcome = await harness.orchestrator.switchRankingsFormat('ppr');
+
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.failure.kind).toBe('invalid-input');
   });
 });
 

@@ -53,6 +53,14 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ configPath: configPath() })).toThrow(/pollIntervalMs/);
   });
 
+  it('accepts either rankings format and rejects anything else (2026-09-02)', () => {
+    writeConfig(JSON.stringify({ defaultRankingsFormat: 'ppr' }));
+    expect(loadConfig({ configPath: configPath() }).defaultRankingsFormat).toBe('ppr');
+
+    writeConfig(JSON.stringify({ defaultRankingsFormat: 'standard' }));
+    expect(() => loadConfig({ configPath: configPath() })).toThrow(/defaultRankingsFormat.*half_ppr/);
+  });
+
   it('fails loudly on malformed JSON rather than falling back to defaults', () => {
     writeConfig('{ not json');
 

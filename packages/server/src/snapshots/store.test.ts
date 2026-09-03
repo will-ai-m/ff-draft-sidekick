@@ -24,7 +24,8 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(cacheDir, { recursive: true, force: true }));
 
-const input = () => ({
+const input = (rankingsFormat: 'half_ppr' | 'ppr' = 'half_ppr') => ({
+  rankingsFormat,
   leagueTeamCount: 10,
   season: 2026,
   sleeperPlayers: sleeperPlayersFixture() as unknown as Record<string, SleeperPlayerRecord>,
@@ -103,6 +104,40 @@ describe('SnapshotStore — positional tiers (amended 2026-09-01)', () => {
     expect(bundle.matching.players.every((p) => p.tier === null)).toBe(true);
     expect(Object.keys(bundle.positionalTierErrors).sort()).toEqual(['QB', 'RB', 'TE', 'WR']);
     expect(bundle.positionalTierErrors.QB).toMatch(/502/);
+  });
+});
+
+describe('SnapshotStore — rankings format (2026-09-02)', () => {
+  it('fetches every source in the requested format, and the bundle says which', async () => {
+    const store = new SnapshotStore();
+    const bundle = await store.load(input('ppr'));
+
+    expect(bundle.rankingsFormat).toBe('ppr');
+    expect(bundle.ecr?.source).toContain('/ppr-cheatsheets.php');
+    expect(bundle.ecr?.scoring).toBe('PPR');
+    expect(bundle.adp?.source).toContain('/adp/ppr?');
+    expect(bundle.adp?.scoring).toBe('PPR');
+    expect(bundle.adp?.poolDescription).toContain('Full PPR');
+  });
+
+  it('joins the PPR positional tiers, not the half-PPR ones, in ppr format', async () => {
+    const half = await new SnapshotStore().load(input('half_ppr'));
+    const ppr = await new SnapshotStore().load(input('ppr'));
+    // The PPR tier fixture shifts every RB/WR/TE tier up by one; QB is shared and unchanged.
+    const gibbsHalf = half.matching.players.find((p) => p.playerName === 'Jahmyr Gibbs');
+    const gibbsPpr = ppr.matching.players.find((p) => p.playerName === 'Jahmyr Gibbs');
+    expect(gibbsHalf?.tier).toBe(1);
+    expect(gibbsPpr?.tier).toBe(2);
+    const allenHalf = half.matching.players.find((p) => p.playerName === 'Josh Allen');
+    const allenPpr = ppr.matching.players.find((p) => p.playerName === 'Josh Allen');
+    expect(allenPpr?.tier).toBe(allenHalf?.tier);
+  });
+
+  it('carries the format on a degraded bundle too, so the check still knows what was asked', async () => {
+    server.use(...snapshotHandlers({ ecrStatus: 503 }));
+    const bundle = await new SnapshotStore().load(input('ppr'));
+    expect(bundle.ecr).toBeNull();
+    expect(bundle.rankingsFormat).toBe('ppr');
   });
 });
 

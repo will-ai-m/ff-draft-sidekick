@@ -11,9 +11,12 @@ import { fileURLToPath } from 'node:url';
 
 import { delay, http, HttpResponse } from 'msw';
 
+import { RANKINGS_FORMATS } from '@sidekick/shared';
+import type { RankingsFormat } from '@sidekick/shared';
+
 import { CROSSWALK_URL } from '../../src/snapshots/crosswalk';
 import {
-  FANTASYPROS_HALF_PPR_URL,
+  FANTASYPROS_ECR_URLS,
   FANTASYPROS_POSITIONAL_TIER_URLS,
 } from '../../src/snapshots/fantasypros';
 import { FFC_ADP_BASE_URL } from '../../src/snapshots/ffc';
@@ -25,6 +28,25 @@ const read = (name: string): string => readFileSync(resolve(FIXTURES, name), 'ut
 /** The FantasyPros half-PPR cheat-sheet slice: 10 real rows spanning QB/RB/WR/TE/K/DST. */
 export const ecrFixture = (): Record<string, unknown> =>
   JSON.parse(read('ecrData-slice.json')) as Record<string, unknown>;
+
+/** FantasyPros' own `scoring` stamp per format, as the live pages report it (2026-09-02). */
+const ECR_SCORING_STAMP: Readonly<Record<RankingsFormat, string>> = { half_ppr: 'HALF', ppr: 'PPR' };
+
+/**
+ * The same slice as a PPR board (2026-09-02): the two full-PPR pages differ from half-PPR in
+ * order and tiers, so this fixture moves the WRs up one ECR rank each and stamps `scoring: PPR`
+ * — enough for a test to tell which board answered, without inventing a second real slice.
+ */
+export const ecrFixtureFor = (format: RankingsFormat): Record<string, unknown> => {
+  const base = ecrFixture();
+  if (format === 'half_ppr') return base;
+  const players = (base['players'] as Record<string, unknown>[]).map((player) =>
+    player['player_position_id'] === 'WR'
+      ? { ...player, rank_ecr: Math.max(1, Number(player['rank_ecr']) - 1) }
+      : player,
+  );
+  return { ...base, scoring: ECR_SCORING_STAMP[format], players };
+};
 
 /** The same slice wrapped in the `var ecrData = {...};` embed the real page ships. */
 export const ecrFixtureHtml = (data: unknown = ecrFixture()): string =>
@@ -51,17 +73,30 @@ export const positionalTiersFixture: Readonly<Record<'QB' | 'RB' | 'WR' | 'TE', 
   TE: { '22955': 1, '22936': 1, '23982': 3 },
 };
 
-/** One positional cheat-sheet page: the slice's players of that position, positionally tiered. */
-export const positionalTierPageHtml = (position: 'QB' | 'RB' | 'WR' | 'TE'): string => {
+/**
+ * One positional cheat-sheet page: the slice's players of that position, positionally tiered.
+ * A PPR page shifts every tier up by one so a test can tell the two formats' tiers apart.
+ */
+export const positionalTierPageHtml = (
+  position: 'QB' | 'RB' | 'WR' | 'TE',
+  format: RankingsFormat = 'half_ppr',
+): string => {
+  const tierShift = format === 'ppr' && position !== 'QB' ? 1 : 0;
   const players = (ecrFixture()['players'] as Record<string, unknown>[])
     .filter((player) => player['player_position_id'] === position)
-    .map((player, index) => ({
-      ...player,
-      rank_ecr: index + 1,
-      pos_rank: `${position}${index + 1}`,
-      tier: positionalTiersFixture[position][String(player['player_id'])] ?? null,
-    }));
-  return ecrFixtureHtml({ scoring: position === 'QB' ? 'STD' : 'HALF', players });
+    .map((player, index) => {
+      const tier = positionalTiersFixture[position][String(player['player_id'])];
+      return {
+        ...player,
+        rank_ecr: index + 1,
+        pos_rank: `${position}${index + 1}`,
+        tier: tier === undefined ? null : tier + tierShift,
+      };
+    });
+  return ecrFixtureHtml({
+    scoring: position === 'QB' ? 'STD' : ECR_SCORING_STAMP[format],
+    players,
+  });
 };
 
 /** The Fantasy Football Calculator half-PPR ADP slice (10-team pool). */
@@ -112,19 +147,29 @@ export interface SnapshotHandlerOptions {
   positionalTierStatus?: number;
 }
 
+/** FFC's `meta.type` stamp per pool, as the live API reports it. */
+const FFC_TYPE_STAMP: Readonly<Record<string, string>> = { 'half-ppr': 'Half-PPR', ppr: 'PPR' };
+
+/**
+ * Serves both formats' pages (2026-09-02): the half-PPR fixture verbatim, and the PPR variants
+ * of {@link ecrFixtureFor} / {@link positionalTierPageHtml} at the PPR URLs, so a test attaching
+ * in either format finds a board — and can tell which one it got.
+ */
 export const snapshotHandlers = (options: SnapshotHandlerOptions = {}) => {
   const counts = options.counts ?? createRequestCounts();
   return [
-    http.get(FANTASYPROS_HALF_PPR_URL, async () => {
-      counts.ecr += 1;
-      if (options.ecrDelayMs) await delay(options.ecrDelayMs);
-      if (options.ecrStatus && options.ecrStatus !== 200) {
-        return new HttpResponse(null, { status: options.ecrStatus });
-      }
-      const html = options.ecrHtml ?? ecrFixtureHtml(options.ecrData ?? ecrFixture());
-      return HttpResponse.text(html);
-    }),
-    http.get(`${FFC_ADP_BASE_URL}/:format`, async ({ request }) => {
+    ...RANKINGS_FORMATS.map((format) =>
+      http.get(FANTASYPROS_ECR_URLS[format], async () => {
+        counts.ecr += 1;
+        if (options.ecrDelayMs) await delay(options.ecrDelayMs);
+        if (options.ecrStatus && options.ecrStatus !== 200) {
+          return new HttpResponse(null, { status: options.ecrStatus });
+        }
+        const html = options.ecrHtml ?? ecrFixtureHtml(options.ecrData ?? ecrFixtureFor(format));
+        return HttpResponse.text(html);
+      }),
+    ),
+    http.get(`${FFC_ADP_BASE_URL}/:format`, async ({ request, params }) => {
       counts.adp += 1;
       if (options.adpDelayMs) await delay(options.adpDelayMs);
       if (options.adpStatus && options.adpStatus !== 200) {
@@ -136,16 +181,22 @@ export const snapshotHandlers = (options: SnapshotHandlerOptions = {}) => {
         return HttpResponse.json({ status: 'Error', errors: ['Invalid teams'] });
       }
       const body = (options.adpData ?? ffcFixture()) as { meta: Record<string, unknown> };
-      return HttpResponse.json({ ...body, meta: { ...body.meta, teams } });
+      const type = FFC_TYPE_STAMP[String(params['format'])] ?? body.meta['type'];
+      return HttpResponse.json({ ...body, meta: { ...body.meta, teams, type } });
     }),
-    ...(['QB', 'RB', 'WR', 'TE'] as const).map((position) =>
-      http.get(FANTASYPROS_POSITIONAL_TIER_URLS[position], () => {
-        counts.positionalTiers += 1;
-        if (options.positionalTierStatus && options.positionalTierStatus !== 200) {
-          return new HttpResponse(null, { status: options.positionalTierStatus });
-        }
-        return HttpResponse.text(positionalTierPageHtml(position));
-      }),
+    ...RANKINGS_FORMATS.flatMap((format) =>
+      (['QB', 'RB', 'WR', 'TE'] as const)
+        // Both formats share the QB page; register it once so msw does not see a duplicate.
+        .filter((position) => format === 'half_ppr' || position !== 'QB')
+        .map((position) =>
+          http.get(FANTASYPROS_POSITIONAL_TIER_URLS[format][position], () => {
+            counts.positionalTiers += 1;
+            if (options.positionalTierStatus && options.positionalTierStatus !== 200) {
+              return new HttpResponse(null, { status: options.positionalTierStatus });
+            }
+            return HttpResponse.text(positionalTierPageHtml(position, format));
+          }),
+        ),
     ),
     http.get(CROSSWALK_URL, async () => {
       counts.crosswalk += 1;

@@ -1,3 +1,4 @@
+import type { RankingsFormat } from './rankingsFormat';
 import type { SkillPosition } from '../types/board';
 
 /**
@@ -29,6 +30,15 @@ export interface ParameterValues {
   resyncTimeoutMs: number;
 
   // ---- Snapshots (FR-4) ---------------------------------------------------------------
+  /**
+   * The rankings format an attach uses when the request names none (2026-09-02): which
+   * FantasyPros ECR board and positional tier pages, which FFC ADP pool, and which scoring table
+   * a mock's value curves and the pre-draft scoring comparison assume. The attach screen's
+   * toggle overrides this per attach, before the draft starts; this is only where that toggle
+   * starts. `half_ppr` or `ppr`.
+   * **architect-added** — PRD §10 shipped v1 half-PPR only; full PPR is the first second format.
+   */
+  defaultRankingsFormat: RankingsFormat;
   /** Age past which the pre-draft check warns an ECR/ADP snapshot is stale. PRD AS-5 / AC-22. */
   snapshotStalenessWarningHours: number;
   /** FFC's supported team-count buckets; nearest match wins, ties toward the larger. PRD AS-6 / AC-24. */
@@ -214,6 +224,7 @@ export const PARAMETER_DEFAULTS: Readonly<ParameterValues> = Object.freeze({
   pickReflectionLatencyMs: 3000,
   resyncTimeoutMs: 5000,
 
+  defaultRankingsFormat: 'half_ppr',
   snapshotStalenessWarningHours: 24,
   adpPoolTeamSizes: Object.freeze([8, 10, 12, 14]),
   snapshotFetchTimeoutMs: 15_000,

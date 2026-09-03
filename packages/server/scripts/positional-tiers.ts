@@ -1,11 +1,15 @@
 /**
- * FantasyPros tier pull — `npm run ecr:tiers`.
+ * FantasyPros tier pull — `npm run tiers:positional [-- --format ppr]`.
  *
- * Fetches the overall half-PPR cheat sheet plus the six positional cheat sheets and writes their
- * tier structure to `research/fantasypros-tiers-<date>.md`, with a digest on stdout. The
- * positional pages carry **positional** tiers (verified 2026-09-01: e.g. TE Tier 1 =
+ * Fetches the six positional cheat sheets of one rankings format and writes their tier
+ * structure to `research/fantasypros-positional-tiers[-ppr]-<date>.md`, with a digest on
+ * stdout. The positional pages carry **positional** tiers (verified 2026-09-01: e.g. TE Tier 1 =
  * Bowers/McBride/Loveland/Warren, where the overall board splits them 2/3/3/4), which is the
  * grouping a human reads for "when does the run at this position pause".
+ *
+ * The RB/WR/TE pages are the same URLs the app ingests at attach for that format (the URL table
+ * is imported, never restated here), so a report always describes the board the engine would
+ * draft on. QB, DST and K pages are scoring-independent.
  *
  * Read-only research tooling: it shares FR-4's parser but never touches the app. An attached
  * draft's snapshot stays whatever it was at attach time (AC-29) — re-attach to pick up a newer
@@ -15,21 +19,46 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { fetchEcrSnapshot } from '../src/snapshots/fantasypros';
+import { RANKINGS_FORMATS, RANKINGS_FORMAT_LABELS, isRankingsFormat } from '@sidekick/shared';
+import type { RankingsFormat } from '@sidekick/shared';
+
+import {
+  FANTASYPROS_KDST_TIER_URLS,
+  FANTASYPROS_POSITIONAL_TIER_URLS,
+  fetchEcrSnapshot,
+} from '../src/snapshots/fantasypros';
 import type { EcrSnapshot } from '../src/snapshots/types';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const RESEARCH_DIR = join(REPO_ROOT, 'research');
 
-const BASE = 'https://www.fantasypros.com/nfl/rankings';
-const PAGES = [
-  { key: 'QB', label: 'QB', url: `${BASE}/qb-cheatsheets.php` },
-  { key: 'RB', label: 'RB (half-PPR)', url: `${BASE}/half-point-ppr-rb-cheatsheets.php` },
-  { key: 'WR', label: 'WR (half-PPR)', url: `${BASE}/half-point-ppr-wr-cheatsheets.php` },
-  { key: 'TE', label: 'TE (half-PPR)', url: `${BASE}/half-point-ppr-te-cheatsheets.php` },
-  { key: 'DST', label: 'DST', url: `${BASE}/dst-cheatsheets.php` },
-  { key: 'K', label: 'K', url: `${BASE}/k-cheatsheets.php` },
-] as const;
+/** `--format ppr` / `--format=ppr`; half-PPR when absent, matching the app's own default. */
+function parseFormat(argv: readonly string[]): RankingsFormat {
+  let raw: string | undefined;
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i]!;
+    if (arg === '--format') raw = argv[i + 1];
+    else if (arg.startsWith('--format=')) raw = arg.slice('--format='.length);
+  }
+  if (raw === undefined) return 'half_ppr';
+  if (!isRankingsFormat(raw)) {
+    throw new Error(`--format must be one of ${RANKINGS_FORMATS.join(', ')}; got "${raw}".`);
+  }
+  return raw;
+}
+
+const pagesFor = (format: RankingsFormat) => {
+  const skill = FANTASYPROS_POSITIONAL_TIER_URLS[format];
+  const label = RANKINGS_FORMAT_LABELS[format];
+  return [
+    { key: 'QB', label: 'QB', url: skill.QB },
+    { key: 'RB', label: `RB (${label})`, url: skill.RB },
+    { key: 'WR', label: `WR (${label})`, url: skill.WR },
+    { key: 'TE', label: `TE (${label})`, url: skill.TE },
+    { key: 'DST', label: 'DST', url: FANTASYPROS_KDST_TIER_URLS.DST },
+    { key: 'K', label: 'K', url: FANTASYPROS_KDST_TIER_URLS.K },
+  ] as const;
+};
 
 /** Ranks past this are waiver-wire depth; sections stop at the tier containing it. */
 const POSITIONAL_RANK_DEPTH = 60;
@@ -83,8 +112,13 @@ function section(label: string, url: string, snapshot: EcrSnapshot, rankDepth: n
 }
 
 async function main(): Promise<void> {
+  const format = parseFormat(process.argv.slice(2));
+  const formatLabel = RANKINGS_FORMAT_LABELS[format];
   const snapshots = await Promise.all(
-    PAGES.map(async (page) => ({ page, snapshot: await fetchEcrSnapshot({ url: page.url }) })),
+    pagesFor(format).map(async (page) => ({
+      page,
+      snapshot: await fetchEcrSnapshot({ url: page.url }),
+    })),
   );
 
   const newest = snapshots
@@ -93,13 +127,16 @@ async function main(): Promise<void> {
     .sort()
     .at(-1);
   const date = (newest ?? new Date().toISOString()).slice(0, 10);
-  const outPath = join(RESEARCH_DIR, `fantasypros-positional-tiers-${date}.md`);
+  // Half-PPR keeps the original file name so its dated reports stay comparable across days.
+  const suffix = format === 'half_ppr' ? '' : `-${format}`;
+  const outPath = join(RESEARCH_DIR, `fantasypros-positional-tiers${suffix}-${date}.md`);
+  const command = format === 'half_ppr' ? 'npm run tiers:positional' : `npm run tiers:positional -- --format ${format}`;
 
   const body = [
-    `# FantasyPros positional tiers — ${date}`,
-    `Pulled ${new Date().toISOString()} by \`npm run tiers:positional\`. Each position page's ` +
+    `# FantasyPros positional tiers (${formatLabel}) — ${date}`,
+    `Pulled ${new Date().toISOString()} by \`${command}\`. Each position page's ` +
       "own **positional** tiers — the grouping that says where the run at that position pauses. " +
-      'The QB/RB/WR/TE pages are the same ones the app ingests at attach for tier urgency; an ' +
+      `The QB/RB/WR/TE pages are the same ones the app ingests at attach for tier urgency in ${formatLabel} mode; an ` +
       'attached draft keeps its attach-time snapshot (AC-29), so detach → re-attach to draft on ' +
       'a newer board.',
     ...snapshots.map(({ page, snapshot }) =>
@@ -111,7 +148,7 @@ async function main(): Promise<void> {
   writeFileSync(outPath, `${body}\n`);
 
   // The stdout digest: capture freshness plus each position's top two tiers.
-  console.log(`Wrote ${outPath}`);
+  console.log(`Wrote ${outPath} (${formatLabel})`);
   for (const { page, snapshot } of snapshots) {
     console.log(`\n${page.label} — ${ageHours(snapshot.capturedAt)}`);
     for (const row of tierRows(snapshot, POSITIONAL_RANK_DEPTH).slice(0, 2)) {
@@ -123,6 +160,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error(`ecr:tiers failed: ${(error as Error).message}`);
+  console.error(`tiers:positional failed: ${(error as Error).message}`);
   process.exit(1);
 });

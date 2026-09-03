@@ -38,7 +38,7 @@ import type { HttpHandler } from 'msw';
 import type { AppStateSnapshot, ParameterValues } from '@sidekick/shared';
 
 import { CROSSWALK_URL } from '../src/snapshots/crosswalk';
-import { FANTASYPROS_HALF_PPR_URL } from '../src/snapshots/fantasypros';
+import { FANTASYPROS_ECR_URLS } from '../src/snapshots/fantasypros';
 import { FFC_ADP_BASE_URL } from '../src/snapshots/ffc';
 import { createHarness, delay, waitForRecompute } from './harness';
 import type { Harness } from './harness';
@@ -66,7 +66,7 @@ import type { SleeperFixtureBundle } from './msw/sleeperHandlers';
 
 /** FR-4's three sources, answering from the e2e board rather than T3's ten-row slice. */
 export const e2eSnapshotHandlers = (): HttpHandler[] => [
-  http.get(FANTASYPROS_HALF_PPR_URL, () => HttpResponse.text(e2eEcrHtml())),
+  http.get(FANTASYPROS_ECR_URLS.half_ppr, () => HttpResponse.text(e2eEcrHtml())),
   http.get(`${FFC_ADP_BASE_URL}/:format`, ({ request }) => {
     const teams = Number(new URL(request.url).searchParams.get('teams'));
     return HttpResponse.json(e2eFfcAdp(Number.isFinite(teams) ? teams : e2eBoard.teams));

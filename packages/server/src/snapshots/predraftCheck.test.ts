@@ -23,11 +23,14 @@ const STALE = new Date('2026-08-20T12:00:00.000Z').toISOString(); // 54 h old
 const league: LeagueSummary = { teamCount: 10, scoringType: 'half_ppr', rounds: 15 };
 const HALF_PPR_SETTINGS: Record<string, number> = { ...SCORING_DEFAULTS.half_ppr };
 
+const ECR_SOURCE = 'https://www.fantasypros.com/nfl/rankings/half-point-ppr-cheatsheets.php';
+
 const makeBundle = (overrides: Partial<SnapshotBundle> = {}): SnapshotBundle => {
-  const ecr: EcrSnapshot = { ...parseEcrHtml(ecrFixtureHtml()), capturedAt: FRESH };
+  const ecr: EcrSnapshot = { ...parseEcrHtml(ecrFixtureHtml(), ECR_SOURCE), capturedAt: FRESH };
   const adp: AdpSnapshot = {
     ...parseAdpResponse(ffcFixture(), {
       source: 'https://fantasyfootballcalculator.com/api/v1/adp/half-ppr?teams=10&year=2026',
+      format: 'half_ppr',
       teamCountRequested: 10,
       teamCountUsed: 10,
       exactPool: true,
@@ -36,6 +39,7 @@ const makeBundle = (overrides: Partial<SnapshotBundle> = {}): SnapshotBundle => 
   };
   const crosswalk = parseCrosswalkCsv(crosswalkFixtureCsv());
   const base: SnapshotBundle = {
+    rankingsFormat: 'half_ppr',
     ecr,
     ecrError: null,
     positionalTierErrors: {},
@@ -72,6 +76,7 @@ const skillOnlyEcr = (): EcrSnapshot => {
         (p) => p.player_position_id !== 'K' && p.player_position_id !== 'DST',
       ),
     }),
+    ECR_SOURCE,
   );
   return { ...parsed, capturedAt: FRESH };
 };
@@ -220,6 +225,14 @@ describe('scoring format (AC-27)', () => {
     expect(warning?.message).toContain('rec 1 vs 0.5');
     // The label the user recognises is still in the text (it is what Sleeper shows them).
     expect(warning?.message).toContain('half_ppr');
+    // The league is exactly full PPR, which Sidekick can draft on: the remedy is named.
+    expect(warning?.message).toMatch(/switch the rankings format to Full PPR/i);
+  });
+
+  it('names no switch when the league is neither format (2026-09-02)', () => {
+    const warning = warningFor(leagueScoring({ ...HALF_PPR_SETTINGS, rec: 1, pass_td: 6 }));
+    expect(warning?.message).toContain('rec 1 vs 0.5');
+    expect(warning?.message).not.toMatch(/switch the rankings format/i);
   });
 
   it('warns for the live counterexample: 6-point passing TDs under a conventional label', () => {
@@ -250,6 +263,8 @@ describe('scoring format (AC-27)', () => {
   it('falls back to the coarse label when there is no dict to read (a mock)', () => {
     // A mock has `league_id: null`, so nothing granular exists; the label is all there is.
     expect(warningFor({ ...league, scoringType: 'ppr' })?.message).toContain('ppr');
+    expect(warningFor({ ...league, scoringType: 'ppr' })?.message).toMatch(/switch the rankings format to Full PPR/i);
+    expect(warningFor({ ...league, scoringType: 'standard' })?.message).not.toMatch(/switch/i);
     expect(warningFor({ ...league, scoringType: 'half_ppr' })).toBeUndefined();
     // Sleeper qualifies the label for non-redraft formats; "half" still means half-PPR.
     expect(warningFor({ ...league, scoringType: 'dynasty_half_ppr' })).toBeUndefined();
@@ -270,6 +285,44 @@ describe('scoring format (AC-27)', () => {
     // The label, not the table, is what carries the news here.
     expect(warning?.message).toContain('"ppr"');
     expect(warning?.message).not.toContain('rec 1 vs 0.5');
+  });
+
+  describe('in ppr mode (2026-09-02)', () => {
+    const pprBundle = () => makeBundle({ rankingsFormat: 'ppr' });
+    const pprWarningFor = (summary: LeagueSummary) =>
+      buildPreDraftCheck({ bundle: pprBundle(), league: summary, config: PARAMETER_DEFAULTS, now: NOW })
+        .warnings.find((w) => w.code === 'scoring-format-mismatch');
+
+    it('compares the league against the PPR table, so a full-PPR league is silent', () => {
+      expect(pprWarningFor(leagueScoring({ ...HALF_PPR_SETTINGS, rec: 1 }))).toBeUndefined();
+      expect(pprWarningFor({ ...league, scoringType: 'ppr' })).toBeUndefined();
+    });
+
+    it('warns that the sources are Full PPR when the league pays half a point', () => {
+      const warning = pprWarningFor(leagueScoring({ ...HALF_PPR_SETTINGS }));
+      expect(warning?.message).toContain('rec 0.5 vs 1');
+      expect(warning?.message).toContain('Full PPR');
+      expect(warning?.message).toMatch(/switch the rankings format to Half PPR/i);
+    });
+
+    it('warns on the label alone for a half_ppr mock', () => {
+      const warning = pprWarningFor({ ...league, scoringType: 'half_ppr' });
+      expect(warning?.message).toContain('Full PPR');
+      expect(warning?.message).toMatch(/switch the rankings format to Half PPR/i);
+    });
+
+    it('names the format in the substituted-pool warning', () => {
+      const bundle = pprBundle();
+      const adp = { ...bundle.adp!, teamCountRequested: 11, teamCountUsed: 12, exactPool: false };
+      const check = buildPreDraftCheck({
+        bundle: { ...bundle, adp },
+        league,
+        config: PARAMETER_DEFAULTS,
+        now: NOW,
+      });
+      const warning = check.warnings.find((w) => w.code === 'adp-pool-substituted');
+      expect(warning?.message).toContain('Full PPR');
+    });
   });
 
   it('echoes the league summary read from the draft API, without the scoring dict', () => {

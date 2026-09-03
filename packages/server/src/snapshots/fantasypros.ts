@@ -1,35 +1,65 @@
 /**
- * FR-4 — the FantasyPros half-PPR ECR snapshot (AC-23).
+ * FR-4 — the FantasyPros ECR snapshot (AC-23), in the attached draft's rankings format.
  *
  * The cheat-sheet page is plain HTML with no auth, and embeds the whole ranking set as a
  * `var ecrData = {...};` literal. There is no free JSON endpoint for it, so the embed *is*
  * the feed: extract it, validate it, and surface `rank_ecr` untouched (🔶 AS-8 — Sidekick
  * never re-sorts or blends FantasyPros' ordering).
+ *
+ * Half-PPR and full-PPR are different boards (2026-09-02), not one board re-labelled: the PPR
+ * pages rank and tier the same players differently (receiving-heavy RBs and target-hog WRs
+ * move up), and the embed's own `scoring` field says which one answered. Every URL below is
+ * keyed by {@link RankingsFormat} so no caller can reach one board's page from the other's name.
  */
 import { SKILL_POSITIONS } from '@sidekick/shared';
-import type { SkillPosition } from '@sidekick/shared';
+import type { RankingsFormat, SkillPosition } from '@sidekick/shared';
 import { z } from 'zod';
 
 import { normalizePosition, normalizeTeam } from './match';
 import type { EcrEntry, EcrSnapshot } from './types';
 
-export const FANTASYPROS_HALF_PPR_URL =
-  'https://www.fantasypros.com/nfl/rankings/half-point-ppr-cheatsheets.php';
+const FANTASYPROS_RANKINGS_BASE = 'https://www.fantasypros.com/nfl/rankings';
+
+/** The overall cheat sheet per rankings format — the board the candidate list follows. */
+export const FANTASYPROS_ECR_URLS: Readonly<Record<RankingsFormat, string>> = Object.freeze({
+  half_ppr: `${FANTASYPROS_RANKINGS_BASE}/half-point-ppr-cheatsheets.php`,
+  ppr: `${FANTASYPROS_RANKINGS_BASE}/ppr-cheatsheets.php`,
+});
 
 /**
  * The per-position cheat sheets whose `tier` field is the **positional** tiering — "where does
  * the run at this position pause" (amended 2026-09-01: the user draft-preps on positional tiers,
  * and the overall board's cross-position tiers slice the same players differently — the 2026 TE
  * board reads Bowers/McBride/Loveland/Warren as one positional Tier 1 where the overall board
- * splits them 2/3/3/4). QB pages are scoring-independent; RB/WR/TE take the half-PPR variant.
- * K/DST are absent by design: 🔶 AS-7 keeps them out of every piece of prediction math.
+ * splits them 2/3/3/4). QB pages are scoring-independent, so both formats share the one QB page;
+ * RB/WR/TE take the format's own variant. K/DST are absent by design: 🔶 AS-7 keeps them out
+ * of every piece of prediction math.
  */
-export const FANTASYPROS_POSITIONAL_TIER_URLS: Readonly<Record<SkillPosition, string>> = {
-  QB: 'https://www.fantasypros.com/nfl/rankings/qb-cheatsheets.php',
-  RB: 'https://www.fantasypros.com/nfl/rankings/half-point-ppr-rb-cheatsheets.php',
-  WR: 'https://www.fantasypros.com/nfl/rankings/half-point-ppr-wr-cheatsheets.php',
-  TE: 'https://www.fantasypros.com/nfl/rankings/half-point-ppr-te-cheatsheets.php',
-};
+export const FANTASYPROS_POSITIONAL_TIER_URLS: Readonly<
+  Record<RankingsFormat, Readonly<Record<SkillPosition, string>>>
+> = Object.freeze({
+  half_ppr: Object.freeze({
+    QB: `${FANTASYPROS_RANKINGS_BASE}/qb-cheatsheets.php`,
+    RB: `${FANTASYPROS_RANKINGS_BASE}/half-point-ppr-rb-cheatsheets.php`,
+    WR: `${FANTASYPROS_RANKINGS_BASE}/half-point-ppr-wr-cheatsheets.php`,
+    TE: `${FANTASYPROS_RANKINGS_BASE}/half-point-ppr-te-cheatsheets.php`,
+  }),
+  ppr: Object.freeze({
+    QB: `${FANTASYPROS_RANKINGS_BASE}/qb-cheatsheets.php`,
+    RB: `${FANTASYPROS_RANKINGS_BASE}/ppr-rb-cheatsheets.php`,
+    WR: `${FANTASYPROS_RANKINGS_BASE}/ppr-wr-cheatsheets.php`,
+    TE: `${FANTASYPROS_RANKINGS_BASE}/ppr-te-cheatsheets.php`,
+  }),
+});
+
+/**
+ * The K/DST cheat sheets — research tooling only (`npm run tiers:positional`). Scoring-
+ * independent, and never fetched by the app (🔶 AS-7).
+ */
+export const FANTASYPROS_KDST_TIER_URLS: Readonly<Record<'K' | 'DST', string>> = Object.freeze({
+  DST: `${FANTASYPROS_RANKINGS_BASE}/dst-cheatsheets.php`,
+  K: `${FANTASYPROS_RANKINGS_BASE}/k-cheatsheets.php`,
+});
 
 /**
  * Non-greedy up to the first `};` that closes the object literal. The page declares several
@@ -83,7 +113,7 @@ const positionalRankOf = (posRank: string | null | undefined): number | null => 
  * invalid embed, by contrast, throws: the caller turns that into AC-28's "no rankings loaded"
  * state, which is an explicit, visible outcome rather than a silently empty board.
  */
-export function parseEcrHtml(html: string, source: string = FANTASYPROS_HALF_PPR_URL): EcrSnapshot {
+export function parseEcrHtml(html: string, source: string): EcrSnapshot {
   const match = ECR_DATA_PATTERN.exec(html);
   if (!match?.[1]) {
     throw new Error(
@@ -142,6 +172,9 @@ export function snapshotHasKickersAndDefenses(snapshot: EcrSnapshot): boolean {
 }
 
 export interface FetchEcrOptions {
+  /** The overall board of this format. Exactly one of `format` and `url` must be given. */
+  format?: RankingsFormat;
+  /** An explicit page (a positional cheat sheet, the research script's K/DST pages). */
   url?: string;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
@@ -157,9 +190,17 @@ export interface PositionalTiers {
   errors: Partial<Record<SkillPosition, string>>;
 }
 
+export interface FetchPositionalTiersOptions {
+  /** Whose RB/WR/TE tier pages to read; the QB page is the same in both. */
+  format: RankingsFormat;
+  fetchImpl?: typeof fetch;
+  signal?: AbortSignal;
+}
+
 /**
- * Fetches the four positional cheat sheets and joins their tiers by FantasyPros id — once per
- * attach, alongside the overall snapshot (AC-29 freezes both for the draft's lifetime).
+ * Fetches the four positional cheat sheets of one rankings format and joins their tiers by
+ * FantasyPros id — once per attach, alongside the overall snapshot (AC-29 freezes both for the
+ * draft's lifetime).
  *
  * Each page degrades independently: a fetch failure, a changed embed, or a page shipping no
  * tier column records an error for that position and moves on. Rows whose position does not
@@ -167,17 +208,19 @@ export interface PositionalTiers {
  * embed shape ever serving the wrong table).
  */
 export async function fetchPositionalTiers(
-  options: FetchEcrOptions = {},
+  options: FetchPositionalTiersOptions,
 ): Promise<PositionalTiers> {
   const byFantasyProsId = new Map<number, number>();
   const errors: Partial<Record<SkillPosition, string>> = {};
+  const urls = FANTASYPROS_POSITIONAL_TIER_URLS[options.format];
 
   await Promise.all(
     SKILL_POSITIONS.map(async (position) => {
       try {
         const snapshot = await fetchEcrSnapshot({
-          ...options,
-          url: FANTASYPROS_POSITIONAL_TIER_URLS[position],
+          fetchImpl: options.fetchImpl,
+          signal: options.signal,
+          url: urls[position],
         });
         let tiered = 0;
         for (const entry of snapshot.entries) {
@@ -197,9 +240,17 @@ export async function fetchPositionalTiers(
   return { byFantasyProsId, errors };
 }
 
-/** Fetches the cheat sheet once. AC-29 forbids any re-fetch for an attached draft. */
-export async function fetchEcrSnapshot(options: FetchEcrOptions = {}): Promise<EcrSnapshot> {
-  const url = options.url ?? FANTASYPROS_HALF_PPR_URL;
+/**
+ * Fetches one cheat sheet. AC-29 forbids any re-fetch for an attached draft.
+ *
+ * There is no default board: a caller names the format or the page, so a half-PPR URL can
+ * never be reached by omission from a full-PPR attach.
+ */
+export async function fetchEcrSnapshot(options: FetchEcrOptions): Promise<EcrSnapshot> {
+  const url = options.url ?? (options.format === undefined ? null : FANTASYPROS_ECR_URLS[options.format]);
+  if (url === null) {
+    throw new Error('fetchEcrSnapshot needs a rankings format or an explicit page URL.');
+  }
   const doFetch = options.fetchImpl ?? fetch;
 
   const response = await doFetch(url, {

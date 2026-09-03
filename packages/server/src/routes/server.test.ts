@@ -187,6 +187,53 @@ describe('REST endpoints', () => {
     expect(snapshot.board.teams).toHaveLength(10);
   });
 
+  it('POST /api/attach with only a rankingsFormat switches the attached draft onto it (2026-09-02)', async () => {
+    const { origin, harness } = await start();
+    expect(harness.orchestrator.snapshot().attach.rankingsFormat).toBe('half_ppr');
+
+    const response = await fetch(`${origin}/api/attach`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ rankingsFormat: 'ppr' }),
+    });
+
+    expect(response.status).toBe(200);
+    const snapshot = (await response.json()) as AppStateSnapshot;
+    expect(snapshot.attach).toMatchObject({ status: 'attached', rankingsFormat: 'ppr' });
+    expect(snapshot.preDraftCheck?.ecrSnapshot?.source).toContain('/ppr-cheatsheets.php');
+  });
+
+  it('POST /api/attach rejects an unknown rankingsFormat with 400, whichever half it accompanies', async () => {
+    const { origin } = await start({ attach: false });
+
+    for (const body of [{ rankingsFormat: 'standard' }, { input: DRAFT_ID, rankingsFormat: 'full' }]) {
+      const response = await fetch(`${origin}/api/attach`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(400);
+      const payload = (await response.json()) as { failure: { kind: string; message: string } };
+      expect(payload.failure.kind).toBe('invalid-input');
+      expect(payload.failure.message).toContain('half_ppr');
+    }
+  });
+
+  it('POST /api/attach attaches in the requested rankingsFormat', async () => {
+    const { origin } = await start({ attach: false });
+
+    const response = await fetch(`${origin}/api/attach`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ input: DRAFT_ID, sleeperUserId: USER_ID, rankingsFormat: 'ppr' }),
+    });
+
+    expect(response.status).toBe(200);
+    const snapshot = (await response.json()) as AppStateSnapshot;
+    expect(snapshot.attach.rankingsFormat).toBe('ppr');
+    expect(snapshot.preDraftCheck?.adpSnapshot?.source).toContain('/adp/ppr?');
+  });
+
   it('POST /api/attach reports the failure kind and echoes the input back (AC-7)', async () => {
     const { origin } = await start({ attach: false });
 

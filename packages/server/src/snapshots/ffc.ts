@@ -1,5 +1,6 @@
 /**
- * FR-4 — the Fantasy Football Calculator half-PPR ADP snapshot (AC-24).
+ * FR-4 — the Fantasy Football Calculator ADP snapshot (AC-24), in the attached draft's rankings
+ * format.
  *
  * Free, no auth, plain JSON. FFC publishes ADP only for a fixed set of team-count pools
  * (`adpPoolTeamSizes` in config); an unsupported count answers HTTP 200 with an
@@ -8,6 +9,8 @@
  * FFC's `player_id` is FFC-internal and appears in no crosswalk — every row here is matched
  * by normalized name (see `match.ts`). That is a property of the data, not a shortcut.
  */
+import { RANKINGS_FORMAT_LABELS } from '@sidekick/shared';
+import type { RankingsFormat } from '@sidekick/shared';
 import { z } from 'zod';
 
 import { normalizePosition, normalizeTeam } from './match';
@@ -15,8 +18,16 @@ import type { AdpEntry, AdpSnapshot } from './types';
 
 export const FFC_ADP_BASE_URL = 'https://fantasyfootballcalculator.com/api/v1/adp';
 
-/** The half-PPR format slug. FFC also serves standard/ppr/2qb/dynasty; Sidekick is half-PPR. */
-export const FFC_HALF_PPR_FORMAT = 'half-ppr';
+/**
+ * FFC's path slug per rankings format (2026-09-02). FFC also serves standard/2qb/dynasty/rookie
+ * pools; Sidekick ingests rankings for none of those, so they have no slug here. A PPR pool is a
+ * different set of mock drafts from the half-PPR one, with its own ADP for every player — which
+ * is exactly why the ADP must follow the format the rankings do.
+ */
+export const FFC_FORMAT_SLUGS: Readonly<Record<RankingsFormat, string>> = Object.freeze({
+  half_ppr: 'half-ppr',
+  ppr: 'ppr',
+});
 
 const adpPlayerSchema = z
   .object({
@@ -79,15 +90,19 @@ export function selectAdpPool(
   return { teamCount: best, exact: best === leagueTeamCount };
 }
 
-export function buildAdpUrl(teamCount: number, season: number): string {
-  const url = new URL(`${FFC_ADP_BASE_URL}/${FFC_HALF_PPR_FORMAT}`);
+export function buildAdpUrl(format: RankingsFormat, teamCount: number, season: number): string {
+  const url = new URL(`${FFC_ADP_BASE_URL}/${FFC_FORMAT_SLUGS[format]}`);
   url.searchParams.set('teams', String(teamCount));
   url.searchParams.set('year', String(season));
   return url.toString();
 }
 
-export function describeAdpPool(selection: AdpPoolSelection, requested: number): string {
-  const base = `half-PPR, ${selection.teamCount}-team pool`;
+export function describeAdpPool(
+  format: RankingsFormat,
+  selection: AdpPoolSelection,
+  requested: number,
+): string {
+  const base = `${RANKINGS_FORMAT_LABELS[format]}, ${selection.teamCount}-team pool`;
   return selection.exact
     ? base
     : `${base} (no ${requested}-team pool is published; nearest match used)`;
@@ -95,6 +110,7 @@ export function describeAdpPool(selection: AdpPoolSelection, requested: number):
 
 export interface ParseAdpContext {
   source: string;
+  format: RankingsFormat;
   teamCountRequested: number;
   teamCountUsed: number;
   exactPool: boolean;
@@ -130,13 +146,14 @@ export function parseAdpResponse(raw: unknown, context: ParseAdpContext): AdpSna
   const meta = parsed.data.meta;
   return {
     source: context.source,
-    scoring: meta?.type ?? FFC_HALF_PPR_FORMAT,
+    scoring: meta?.type ?? FFC_FORMAT_SLUGS[context.format],
     teamCountRequested: context.teamCountRequested,
     teamCountUsed: context.teamCountUsed,
     exactPool: context.exactPool,
     poolDescription:
       context.poolDescription ??
       describeAdpPool(
+        context.format,
         { teamCount: context.teamCountUsed, exact: context.exactPool },
         context.teamCountRequested,
       ),
@@ -148,6 +165,8 @@ export function parseAdpResponse(raw: unknown, context: ParseAdpContext): AdpSna
 }
 
 export interface FetchAdpOptions {
+  /** Which FFC pool — the same format the ECR board and tier pages were fetched in. */
+  format: RankingsFormat;
   leagueTeamCount: number;
   season: number;
   /** `adpPoolTeamSizes` from config — the caller passes it, this module never hardcodes it. */
@@ -159,7 +178,7 @@ export interface FetchAdpOptions {
 /** Fetches the ADP snapshot once. AC-29 forbids any re-fetch for an attached draft. */
 export async function fetchAdpSnapshot(options: FetchAdpOptions): Promise<AdpSnapshot> {
   const selection = selectAdpPool(options.leagueTeamCount, options.pools);
-  const url = buildAdpUrl(selection.teamCount, options.season);
+  const url = buildAdpUrl(options.format, selection.teamCount, options.season);
   const doFetch = options.fetchImpl ?? fetch;
 
   const response = await doFetch(url, {
@@ -172,9 +191,10 @@ export async function fetchAdpSnapshot(options: FetchAdpOptions): Promise<AdpSna
 
   return parseAdpResponse(await response.json(), {
     source: url,
+    format: options.format,
     teamCountRequested: options.leagueTeamCount,
     teamCountUsed: selection.teamCount,
     exactPool: selection.exact,
-    poolDescription: describeAdpPool(selection, options.leagueTeamCount),
+    poolDescription: describeAdpPool(options.format, selection, options.leagueTeamCount),
   });
 }

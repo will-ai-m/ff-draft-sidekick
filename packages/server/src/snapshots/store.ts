@@ -7,7 +7,8 @@
  * already on screen. `reset()` is the only way back to a fetching state, and only a new
  * attach calls it.
  */
-import { PARAMETER_DEFAULTS, type ParameterValues } from '@sidekick/shared';
+import { PARAMETER_DEFAULTS } from '@sidekick/shared';
+import type { ParameterValues, RankingsFormat } from '@sidekick/shared';
 
 import { loadCrosswalk } from './crosswalk';
 import { fetchEcrSnapshot, fetchPositionalTiers } from './fantasypros';
@@ -16,6 +17,12 @@ import { matchSnapshots } from './match';
 import type { AdpSnapshot, EcrSnapshot, SleeperPlayerRecord, SnapshotBundle } from './types';
 
 export interface SnapshotLoadInput {
+  /**
+   * Which board, tier pages and ADP pool to fetch (2026-09-02). Required rather than defaulted:
+   * the format is the attach's own choice, and a store that quietly assumed one would let a
+   * full-PPR attach draft on half-PPR sources.
+   */
+  rankingsFormat: RankingsFormat;
   /** The attached league's real team count, from the draft object's settings. */
   leagueTeamCount: number;
   season: number;
@@ -92,10 +99,15 @@ export class SnapshotStore {
     // and the pick feed running, and a missing ADP just means ECR-order sampling (AC-26).
     const [[ecr, ecrError], [adp, adpError], positionalTiers] = await Promise.all([
       settle<EcrSnapshot>(
-        fetchEcrSnapshot({ fetchImpl: input.fetchImpl, signal: input.signal }),
+        fetchEcrSnapshot({
+          format: input.rankingsFormat,
+          fetchImpl: input.fetchImpl,
+          signal: input.signal,
+        }),
       ),
       settle<AdpSnapshot>(
         fetchAdpSnapshot({
+          format: input.rankingsFormat,
           leagueTeamCount: input.leagueTeamCount,
           season: input.season,
           pools: config.adpPoolTeamSizes,
@@ -104,10 +116,15 @@ export class SnapshotStore {
         }),
       ),
       // Degrades per position internally (errors, never throws), so no settle() wrapper.
-      fetchPositionalTiers({ fetchImpl: input.fetchImpl, signal: input.signal }),
+      fetchPositionalTiers({
+        format: input.rankingsFormat,
+        fetchImpl: input.fetchImpl,
+        signal: input.signal,
+      }),
     ]);
 
     return Object.freeze({
+      rankingsFormat: input.rankingsFormat,
       ecr,
       ecrError,
       positionalTierErrors: positionalTiers.errors,

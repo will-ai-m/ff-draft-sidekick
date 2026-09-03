@@ -164,7 +164,7 @@ describe("scoreGame with a league's own settings (AC-64)", () => {
     // FR-11 scores it through the named table `defaultScoringSettings` resolves from the label.
     const { game: chase, position } = game(2025, CHASE, 2);
 
-    expect(scoreGame(chase, defaultScoringSettings('half_ppr').settings, position)).toBe(29.5);
-    expect(scoreGame(chase, defaultScoringSettings('ppr').settings, position)).toBe(36.5);
+    expect(scoreGame(chase, defaultScoringSettings('half_ppr', 'half_ppr').settings, position)).toBe(29.5);
+    expect(scoreGame(chase, defaultScoringSettings('ppr', 'half_ppr').settings, position)).toBe(36.5);
   });
 });

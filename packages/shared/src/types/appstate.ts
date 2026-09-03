@@ -4,6 +4,7 @@ import type { Insight } from './insight';
 import type { DraftWindow, OpponentPanelEntry } from './opponent';
 import type { FlexShareSource, RosterPanelData } from './roster';
 import type { ParameterValues } from '../config/parameters';
+import type { RankingsFormat } from '../config/rankingsFormat';
 
 /**
  * FR-1 attach state. `needs-manual-slot` is a first-class state, not a crash or a default
@@ -17,6 +18,13 @@ export interface AttachState {
   isMock?: boolean;
   /** The user's own seat, once resolved from `draft_order` or picked manually (AC-5). */
   userTeamId?: string;
+  /**
+   * The rankings format this attach drafts on (2026-09-02) — which ECR board, tier pages, ADP
+   * pool and fallback scoring table. Present once attached; chosen on the attach screen before
+   * the draft starts (a switch there re-attaches the same draft with the other format's
+   * sources) and fixed for the draft's lifetime after that.
+   */
+  rankingsFormat?: RankingsFormat;
   error?: string;
 }
 

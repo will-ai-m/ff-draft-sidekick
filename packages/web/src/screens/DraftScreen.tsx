@@ -13,6 +13,7 @@
  * Every panel reads from the one snapshot the store last replaced wholesale, so no two panels can
  * be showing different board versions.
  */
+import { RANKINGS_FORMAT_LABELS } from '@sidekick/shared';
 import type { AppStateSnapshot } from '@sidekick/shared';
 
 import { CandidateList } from '../components/CandidateList';
@@ -31,6 +32,11 @@ export interface DraftScreenProps {
 }
 
 export function DraftScreen({ snapshot, onDetach }: DraftScreenProps) {
+  // The rankings format is fixed before the draft starts (attach screen, 2026-09-02) and only
+  // displayed here: every number on this screen was computed from that format's board, and
+  // swapping it under a live draft is exactly what AC-29's frozen snapshots forbid.
+  const rankingsFormat = snapshot.attach.rankingsFormat;
+
   return (
     <main className="flex min-h-screen flex-col gap-4 px-4 py-4 text-slate-100">
       <header className="flex flex-wrap items-center gap-3">
@@ -38,6 +44,14 @@ export function DraftScreen({ snapshot, onDetach }: DraftScreenProps) {
         <span className="text-xs text-slate-500">
           Draft {snapshot.attach.draftId} · {snapshot.attach.isMock === true ? 'mock' : 'league'}
         </span>
+        {rankingsFormat !== undefined && (
+          <span
+            aria-label="Rankings format"
+            className="rounded-md border border-slate-700 bg-slate-900 px-2 py-0.5 text-xs font-semibold text-slate-300"
+          >
+            {RANKINGS_FORMAT_LABELS[rankingsFormat]} rankings
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-3">
           <SyncIndicator sync={snapshot.sync} recomputing={isRecomputing(snapshot)} />
           <button

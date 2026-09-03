@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  FALLBACK_SCORING_FORMAT,
   SCORING_DEFAULTS,
   SCORING_FORMATS,
   defaultScoringSettings,
@@ -78,19 +77,23 @@ describe('scoringFormatFromLabel', () => {
 
 describe('defaultScoringSettings', () => {
   it('resolves a recognised label to its named table', () => {
-    expect(defaultScoringSettings('half_ppr')).toEqual({
+    expect(defaultScoringSettings('half_ppr', 'ppr')).toEqual({
       format: 'half_ppr',
       recognised: true,
       settings: SCORING_DEFAULTS.half_ppr,
     });
   });
 
-  it('falls back to the format v1 actually ships, flagged as unrecognised', () => {
-    expect(defaultScoringSettings('vampire_points')).toEqual({
-      format: FALLBACK_SCORING_FORMAT,
+  it('falls back to the caller\'s format — the one the draft is attached on — flagged as unrecognised', () => {
+    expect(defaultScoringSettings('vampire_points', 'half_ppr')).toEqual({
+      format: 'half_ppr',
       recognised: false,
-      settings: SCORING_DEFAULTS[FALLBACK_SCORING_FORMAT],
+      settings: SCORING_DEFAULTS.half_ppr,
     });
-    expect(FALLBACK_SCORING_FORMAT).toBe('half_ppr');
+    expect(defaultScoringSettings('vampire_points', 'ppr')).toEqual({
+      format: 'ppr',
+      recognised: false,
+      settings: SCORING_DEFAULTS.ppr,
+    });
   });
 });

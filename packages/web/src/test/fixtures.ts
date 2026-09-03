@@ -176,7 +176,8 @@ export const makePreDraftCheck = (
 /** A complete, attached snapshot. Every builder above is overridable field by field. */
 export function makeSnapshot(overrides: Partial<AppStateSnapshot> = {}): AppStateSnapshot {
   return {
-    attach: { status: 'attached', draftId: '1234567890', isMock: true, userTeamId: 'slot-2' },
+    attach: { status: 'attached',
+    rankingsFormat: 'half_ppr', draftId: '1234567890', isMock: true, userTeamId: 'slot-2' },
     sync: {
       lastSuccessfulSyncAt: '2026-08-21T18:00:00.000Z',
       status: 'healthy',

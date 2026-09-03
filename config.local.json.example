@@ -15,6 +15,8 @@
   "resyncTimeoutMs": 5000,
 
   "// --- ECR / ADP snapshots ---": "",
+  "// defaultRankingsFormat": "[added 2026-09-02] The rankings format an attach starts on when the browser has not chosen one: 'half_ppr' or 'ppr'. It selects the FantasyPros ECR board and RB/WR/TE positional tier pages, the Fantasy Football Calculator ADP pool, the scoring table a mock draft's value curves are priced on, and the table the pre-draft check compares your league's scoring against. The Rankings format toggle on the attach screen overrides it per attach, before you start drafting (a switch there re-fetches the sources in the other format, keeping your seat); the draft screen only displays it.",
+  "defaultRankingsFormat": "half_ppr",
   "// snapshotStalenessWarningHours": "[PRD AS-5 / AC-22] Age past which the pre-draft check warns a snapshot is stale.",
   "snapshotStalenessWarningHours": 24,
   "// adpPoolTeamSizes": "[PRD AS-6 / AC-24] Team-count pools the ADP source publishes; the nearest one to your league is used, ties resolving toward the larger.",

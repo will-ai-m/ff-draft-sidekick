@@ -17,7 +17,9 @@
  *  - **Scoring settings** exist granularly only on `/v1/league/<id>` (live-verified 2026-08-22:
  *    81 numeric per-stat keys). A mock's `league_id` is `null`, so a mock genuinely has no
  *    granular source and falls back to the named table in `@sidekick/shared`'s `scoringDefaults`,
- *    keyed by the draft's own coarse `metadata.scoring_type` label.
+ *    keyed by the draft's own coarse `metadata.scoring_type` label — and, when that label names
+ *    no table, to the rankings format the draft is attached on (2026-09-02), so a mock's value
+ *    curves are priced on the same scoring its rankings, tiers and ADP assume.
  *
  * Every resolution says which of those two it was (`scoring.source`) and why (`scoring.note`), so
  * the pre-draft check and the game-log scorer (FR-11/AC-64) can show the user what their numbers
@@ -28,7 +30,7 @@
  */
 
 import { defaultScoringSettings } from '@sidekick/shared';
-import type { ScoringFormat, ScoringSettings, SlotConfig } from '@sidekick/shared';
+import type { RankingsFormat, ScoringFormat, ScoringSettings, SlotConfig } from '@sidekick/shared';
 
 import { SleeperApiError } from '../sleeper/client';
 import type { SleeperClient } from '../sleeper/client';
@@ -73,8 +75,12 @@ export interface ResolveLeagueSettingsOptions {
   timeoutMs?: number;
 }
 
-const fallbackScoring = (scoringType: string | null, reason: string): ResolvedScoring => {
-  const { format, recognised, settings } = defaultScoringSettings(scoringType);
+const fallbackScoring = (
+  scoringType: string | null,
+  rankingsFormat: RankingsFormat,
+  reason: string,
+): ResolvedScoring => {
+  const { format, recognised, settings } = defaultScoringSettings(scoringType, rankingsFormat);
   const label = scoringType ?? '(none)';
   return {
     source: recognised ? 'scoring-type-default' : 'unrecognised-scoring-type',
@@ -84,17 +90,23 @@ const fallbackScoring = (scoringType: string | null, reason: string): ResolvedSc
     note: recognised
       ? `${reason} Scoring falls back to the standard ${format} table for this draft's "${label}" label.`
       : `${reason} The scoring label "${label}" matches no format Sidekick knows, so the standard ` +
-        `${format} table is used — the one format v1 ships. Expect points to differ from this league's.`,
+        `${format} table is used — the rankings format this draft is attached on. Expect points ` +
+        "to differ from this league's.",
   };
 };
 
 /**
  * Turns the draft's coarse label plus (where one exists) the league's granular dict into one
  * resolved scoring table. Pure — `resolveLeagueSettings` does the fetching.
+ *
+ * `rankingsFormat` is the table of last resort: it is used only when there is no dict and the
+ * label names no format, so that a mock with an exotic label is at least priced on the scoring
+ * its rankings assume.
  */
 export function resolveScoring(
   meta: Pick<DraftMeta, 'isMock' | 'scoringType'>,
   leagueScoringSettings: ScoringSettings | null,
+  rankingsFormat: RankingsFormat,
   fetchFailureNote?: string,
 ): ResolvedScoring {
   if (leagueScoringSettings !== null && Object.keys(leagueScoringSettings).length > 0) {
@@ -107,10 +119,13 @@ export function resolveScoring(
     };
   }
 
-  if (fetchFailureNote !== undefined) return fallbackScoring(meta.scoringType, fetchFailureNote);
+  if (fetchFailureNote !== undefined) {
+    return fallbackScoring(meta.scoringType, rankingsFormat, fetchFailureNote);
+  }
 
   return fallbackScoring(
     meta.scoringType,
+    rankingsFormat,
     meta.isMock
       ? 'This is a mock draft, which has no league and therefore no per-stat scoring settings to read.'
       : 'The league answered without a scoring_settings dict.',
@@ -125,6 +140,7 @@ export function resolveScoring(
  */
 export async function resolveLeagueSettings(
   meta: DraftMeta,
+  rankingsFormat: RankingsFormat,
   options: ResolveLeagueSettingsOptions = {},
 ): Promise<LeagueSettings> {
   const base = {
@@ -142,12 +158,15 @@ export async function resolveLeagueSettings(
       meta.leagueId !== null
         ? 'No Sleeper client was available to read the league object.'
         : undefined;
-    return { ...base, scoring: resolveScoring(meta, null, note) };
+    return { ...base, scoring: resolveScoring(meta, null, rankingsFormat, note) };
   }
 
   try {
     const league = await client.getLeague(meta.leagueId, { timeoutMs: options.timeoutMs });
-    return { ...base, scoring: resolveScoring(meta, league.scoring_settings ?? null) };
+    return {
+      ...base,
+      scoring: resolveScoring(meta, league.scoring_settings ?? null, rankingsFormat),
+    };
   } catch (error) {
     const detail =
       error instanceof SleeperApiError
@@ -155,7 +174,12 @@ export async function resolveLeagueSettings(
         : (error as Error).message;
     return {
       ...base,
-      scoring: resolveScoring(meta, null, `Could not read league ${meta.leagueId} (${detail}).`),
+      scoring: resolveScoring(
+        meta,
+        null,
+        rankingsFormat,
+        `Could not read league ${meta.leagueId} (${detail}).`,
+      ),
     };
   }
 }

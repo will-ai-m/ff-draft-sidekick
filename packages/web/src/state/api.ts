@@ -6,6 +6,7 @@
  * writes into the store. Chat has its own ephemeral credential/session calls and never mutates the
  * draft snapshot. That keeps a single answer to "what is on the board".
  */
+import { isRankingsFormat } from '@sidekick/shared';
 import type {
   AppStateSnapshot,
   DraftChatError,
@@ -13,10 +14,17 @@ import type {
   DraftChatProvider,
   DraftChatResponse,
   DraftChatSessionStatus,
+  RankingsFormat,
 } from '@sidekick/shared';
 
 /** Where the browser keeps the Sleeper username AC-3's convenience list is gated on. */
 export const STORED_USERNAME_KEY = 'sidekick.sleeperUsername';
+
+/**
+ * Where the browser remembers the rankings format last chosen (2026-09-02), so the toggle opens
+ * where the user left it. The server's config default is the fallback when nothing is stored.
+ */
+export const STORED_RANKINGS_FORMAT_KEY = 'sidekick.rankingsFormat';
 
 /**
  * The classified failure the attach route answers with. `input` is echoed back by the server
@@ -69,9 +77,12 @@ const asFailure = (payload: unknown, fallback: string, input: string): AttachFai
 export async function postAttach(request: {
   input: string;
   sleeperUsername?: string;
+  /** The board, tiers and ADP pool to draft on (2026-09-02); the server default when omitted. */
+  rankingsFormat?: RankingsFormat;
 }): Promise<AttachResult> {
   const body: Record<string, string> = { input: request.input };
   if ((request.sleeperUsername ?? '') !== '') body['sleeperUsername'] = request.sleeperUsername!;
+  if (request.rankingsFormat !== undefined) body['rankingsFormat'] = request.rankingsFormat;
 
   try {
     const response = await postJson('/api/attach', body);
@@ -104,6 +115,34 @@ export async function postDraftSlot(draftSlot: number): Promise<AttachResult> {
       return {
         ok: false,
         failure: asFailure(payload, `Could not select slot ${draftSlot}.`, ''),
+      };
+    }
+    return { ok: true, snapshot: payload as AppStateSnapshot };
+  } catch (error) {
+    return {
+      ok: false,
+      failure: {
+        kind: 'api-unreachable',
+        message: `Could not reach the Sidekick server: ${(error as Error).message}`,
+        input: '',
+      },
+    };
+  }
+}
+
+/**
+ * Switches the attached draft's rankings format (2026-09-02) — same route, a body with no
+ * `input`. The server re-attaches the draft on the other format's sources and answers with the
+ * new snapshot; the seat is kept. Only the attach screen calls this, before Start drafting.
+ */
+export async function postRankingsFormat(format: RankingsFormat): Promise<AttachResult> {
+  try {
+    const response = await postJson('/api/attach', { rankingsFormat: format });
+    const payload = await readJson(response);
+    if (!response.ok) {
+      return {
+        ok: false,
+        failure: asFailure(payload, `Could not switch the rankings format to ${format}.`, ''),
       };
     }
     return { ok: true, snapshot: payload as AppStateSnapshot };
@@ -265,6 +304,23 @@ export const readStoredUsername = (): string => {
     return window.localStorage.getItem(STORED_USERNAME_KEY) ?? '';
   } catch {
     return '';
+  }
+};
+
+export const readStoredRankingsFormat = (): RankingsFormat | null => {
+  try {
+    const stored = window.localStorage.getItem(STORED_RANKINGS_FORMAT_KEY);
+    return isRankingsFormat(stored) ? stored : null;
+  } catch {
+    return null;
+  }
+};
+
+export const writeStoredRankingsFormat = (format: RankingsFormat): void => {
+  try {
+    window.localStorage.setItem(STORED_RANKINGS_FORMAT_KEY, format);
+  } catch {
+    // Storage disabled: the toggle simply opens on the server default next time.
   }
 };
 

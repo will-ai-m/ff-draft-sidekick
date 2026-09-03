@@ -54,8 +54,19 @@ Before you confirm a draft, the attach screen runs a pre-draft check:
   carries K/DST rankings.
 - Any snapshot entries that couldn't be matched to a Sleeper player, and any matched players with
   no ADP entry (sampled by ECR order within position instead).
-- A warning if your league's actual scoring settings diverge from half-PPR — v1's rankings are
-  half-PPR only.
+- Which **rankings format** the attach fetched — Half PPR or Full PPR (2026-09-02). The toggle
+  on the attach screen picks the FantasyPros ECR board and RB/WR/TE positional tier pages and
+  the Fantasy Football Calculator ADP pool, and every number downstream follows: the candidate
+  order, the tier-urgency facts, the survival percentages (sampled from that format's ADP), a
+  mock draft's value curves, and the scoring comparison below. The two boards rank and tier the
+  same players differently, so pick the format your league actually scores. Set it **before
+  you click Start drafting**: while the pre-draft check is on screen, flipping the toggle
+  re-fetches the sources in the other format (your seat is kept) and the check updates; once
+  the draft screen is up the format is fixed for that draft and shown in the header — Detach and
+  re-attach to change it. Your last choice is remembered in the browser;
+  `defaultRankingsFormat` in `config.local.json` sets where a fresh browser starts.
+- A warning if your league's actual scoring settings diverge from the rankings format you chose —
+  and, when the league is exactly the other format, which way to flip the toggle.
 - The league's **FLEX demand split** — which positions the engine will treat as FLEX candidates
   all draft, derived from your league's own scoring (a 10-team half-PPR room reads RB 40% · WR
   60% · TE 0%: a second tight end is a bench pick there, never a FLEX play). Pin it with

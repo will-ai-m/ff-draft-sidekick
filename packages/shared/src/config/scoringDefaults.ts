@@ -53,14 +53,6 @@ export const SCORING_DEFAULTS: Readonly<Record<ScoringFormat, ScoringSettings>> 
 });
 
 /**
- * The format used when a label maps to none of the above. v1 ships half-PPR only (PRD §10
- * Non-goals), and FR-4's AC-27 already warns the user whenever the attached draft's scoring isn't
- * half-PPR — so the honest behaviour is "score it as the one format we ship, and say so", never
- * "silently claim the label was understood".
- */
-export const FALLBACK_SCORING_FORMAT: ScoringFormat = 'half_ppr';
-
-/**
  * Maps Sleeper's coarse label onto a named format, or null when it maps to none.
  *
  * Sleeper qualifies the label for non-redraft formats (`dynasty_half_ppr`, `rookie_ppr`,
@@ -84,14 +76,25 @@ export function scoringFormatFromLabel(label: string | null | undefined): Scorin
 
 export interface DefaultScoringResolution {
   format: ScoringFormat;
-  /** False when the label mapped to nothing and {@link FALLBACK_SCORING_FORMAT} was used. */
+  /** False when the label mapped to nothing and the caller's `fallback` format was used. */
   recognised: boolean;
   settings: ScoringSettings;
 }
 
-/** Resolves a coarse label to a named table, falling back explicitly rather than silently. */
-export function defaultScoringSettings(label: string | null | undefined): DefaultScoringResolution {
+/**
+ * Resolves a coarse label to a named table, falling back explicitly rather than silently.
+ *
+ * `fallback` is the format used when the label maps to none of the tables — the rankings format
+ * the draft is attached with (2026-09-02; before that v1 shipped half-PPR only and pinned it
+ * here). FR-4's AC-27 already warns whenever the attached draft's scoring is not that format, so
+ * the honest behaviour is "score it as the format the user chose to draft on, and say so", never
+ * "silently claim the label was understood".
+ */
+export function defaultScoringSettings(
+  label: string | null | undefined,
+  fallback: ScoringFormat,
+): DefaultScoringResolution {
   const format = scoringFormatFromLabel(label);
-  const resolved = format ?? FALLBACK_SCORING_FORMAT;
+  const resolved = format ?? fallback;
   return { format: resolved, recognised: format !== null, settings: SCORING_DEFAULTS[resolved] };
 }

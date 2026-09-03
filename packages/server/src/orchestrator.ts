@@ -19,6 +19,7 @@
 import {
   NO_NEED_SIGNAL,
   POSITIONS,
+  RANKINGS_FORMAT_LABELS,
   freshInsight,
   isSkillPosition,
   resolveFlexShare,
@@ -37,6 +38,7 @@ import type {
   PlayerCard,
   Position,
   PreDraftCheckData,
+  RankingsFormat,
   RosterPanelData,
   SkillPosition,
 } from '@sidekick/shared';
@@ -98,6 +100,14 @@ export type AttachOutcome =
   | { ok: true; snapshot: AppStateSnapshot }
   | { ok: false; failure: AttachFailure; snapshot: AppStateSnapshot };
 
+/**
+ * FR-1's attach request plus the rankings format to draft on (2026-09-02). `null`/absent takes
+ * 🔶 `defaultRankingsFormat`; the browser's toggle sends it explicitly.
+ */
+export interface OrchestratorAttachRequest extends AttachRequest {
+  rankingsFormat?: RankingsFormat | null;
+}
+
 export interface MetricsSummary {
   pickLag: LagSummary | null;
   burstLatency: LagSummary | null;
@@ -109,6 +119,13 @@ interface ActiveSession {
   /** When the attach completed — the detach event reports the session's total length from it. */
   attachedAt: number;
   session: DraftSession;
+  /**
+   * The rankings format every source below was fetched in (2026-09-02) — immutable with them
+   * (AC-29); switching it is a re-attach, never a re-fetch under a live board.
+   */
+  rankingsFormat: RankingsFormat;
+  /** The request this session was attached with, replayed by {@link Orchestrator.switchRankingsFormat}. */
+  attachRequest: OrchestratorAttachRequest;
   league: LeagueSettings;
   bundle: SnapshotBundle;
   players: readonly EcrMatchedPlayer[];
@@ -295,8 +312,12 @@ export class Orchestrator {
 
   /** The whole current state, rebuilt from the live modules each time it is asked for. */
   snapshot(): AppStateSnapshot {
-    const attach: AttachState = this.attachManager.attachState();
+    const managerState = this.attachManager.attachState();
     const active = this.active;
+    // The format rides on the attach state so both screens can show and switch it; the manager
+    // knows nothing of formats, so it is overlaid here from the session that was built with it.
+    const attach: AttachState =
+      active === null ? managerState : { ...managerState, rankingsFormat: active.rankingsFormat };
 
     if (active === null) {
       return {
@@ -452,6 +473,10 @@ export class Orchestrator {
         teamCount: active.league.teamCount,
         rounds: active.league.rounds,
         slots: active.league.slots,
+        rankingsFormat: active.rankingsFormat,
+        rankingsFormatNote:
+          `The ECR order, positional tiers and ADP in this context are FantasyPros' and FFC's ${RANKINGS_FORMAT_LABELS[active.rankingsFormat]} boards; ` +
+          'they are not re-derived from the league scoring settings below.',
         scoringType: active.league.scoring.scoringType,
         scoringSource: active.league.scoring.source,
         scoringNote: active.league.scoring.note,
@@ -517,8 +542,9 @@ export class Orchestrator {
   // Attach (FR-1) and its one-time setup
   // -------------------------------------------------------------------------------------------
 
-  async attach(request: AttachRequest): Promise<AttachOutcome> {
-    this.observability.recordEvent('attach-requested', { input: request.input });
+  async attach(request: OrchestratorAttachRequest): Promise<AttachOutcome> {
+    const rankingsFormat = request.rankingsFormat ?? this.config.defaultRankingsFormat;
+    this.observability.recordEvent('attach-requested', { input: request.input, rankingsFormat });
     const result = await this.attachManager.attach(request);
     if (!result.ok) {
       this.observability.recordEvent('attach-failed', {
@@ -530,7 +556,7 @@ export class Orchestrator {
     }
 
     try {
-      await this.startSession(result.session);
+      await this.startSession(result.session, rankingsFormat, request);
     } catch (error) {
       // A session that cannot be stood up must not be left half-wired: tear it back down and
       // report the failure the same way a failed ingest would.
@@ -568,6 +594,7 @@ export class Orchestrator {
     const state = active.session.sync.state;
     this.observability.recordEvent('attach-succeeded', {
       draftId: state.meta.draftId,
+      rankingsFormat: active.rankingsFormat,
       isMock: state.meta.isMock,
       draftStatus: state.meta.status,
       draftType: state.meta.type,
@@ -617,7 +644,63 @@ export class Orchestrator {
     return { ok: true, snapshot: this.snapshot() };
   }
 
-  private async startSession(session: DraftSession): Promise<void> {
+  /**
+   * Switches the rankings format of the attached draft (2026-09-02) by re-attaching it: the
+   * session is torn down and attached again with the same request and the other format's
+   * sources. A re-attach rather than a re-fetch because AC-29 forbids swapping a board under
+   * live insights — the survival percentages, plan scores and tendency profiles on screen were
+   * all computed from the old board, and every one of them must be rebuilt from the new one.
+   * The browser offers it only on the attach screen, before Start drafting — the format is a
+   * pre-draft decision, and the draft screen just displays it.
+   *
+   * The user's seat survives: an auto-detected seat re-resolves from the same user id, and a
+   * manually chosen one is re-selected before the first recompute. What does not survive is the
+   * tendency profiles' per-attach state (AC-41), which the next polls rebuild from the pick feed.
+   *
+   * No intermediate state is broadcast: the browser sees one attached snapshot replaced by
+   * another, so a tab already on the draft screen stays there.
+   */
+  async switchRankingsFormat(format: RankingsFormat): Promise<AttachOutcome> {
+    const active = this.active;
+    if (active === null) {
+      return {
+        ok: false,
+        failure: {
+          kind: 'invalid-input',
+          message: 'No draft is attached, so there is no rankings format to switch.',
+          input: format,
+        },
+        snapshot: this.snapshot(),
+      };
+    }
+    if (active.rankingsFormat === format) return { ok: true, snapshot: this.snapshot() };
+
+    const state = active.session.sync.state;
+    const draftId = state.meta.draftId;
+    const userSlot = state.teams.find((team) => team.isUser)?.draftSlot ?? null;
+    this.observability.recordEvent('rankings-format-switch', {
+      draftId,
+      from: active.rankingsFormat,
+      to: format,
+    });
+
+    this.teardown('rankings-format-switch');
+    const outcome = await this.attach({ ...active.attachRequest, input: draftId, rankingsFormat: format });
+    if (
+      outcome.ok &&
+      userSlot !== null &&
+      this.attachManager.attachState().status === 'needs-manual-slot'
+    ) {
+      return this.selectSlot(userSlot);
+    }
+    return outcome;
+  }
+
+  private async startSession(
+    session: DraftSession,
+    rankingsFormat: RankingsFormat,
+    request: OrchestratorAttachRequest,
+  ): Promise<void> {
     const { client } = this.options;
     const meta = session.sync.state.meta;
 
@@ -627,7 +710,7 @@ export class Orchestrator {
 
     // FR-5: read the league's own settings once per attach. Scoring resolves here too, so FR-11's
     // game-log scorer and FR-4's format warning read the one answer (AC-30, AC-64).
-    const league = await resolveLeagueSettings(meta, {
+    const league = await resolveLeagueSettings(meta, rankingsFormat, {
       client,
       timeoutMs: this.config.initialIngestTimeoutMs,
     });
@@ -645,6 +728,7 @@ export class Orchestrator {
     // budget — the crosswalk keeps its own fallback to a cached copy. One signal covers all three
     // because 🔶 `snapshotFetchTimeoutMs` budgets the load, not each request within it.
     const bundle = await this.snapshots.load({
+      rankingsFormat,
       leagueTeamCount: league.teamCount,
       season: Number(meta.season),
       sleeperPlayers,
@@ -701,6 +785,8 @@ export class Orchestrator {
     this.active = {
       attachedAt: this.now(),
       session,
+      rankingsFormat,
+      attachRequest: request,
       league,
       bundle,
       players,
@@ -1261,10 +1347,20 @@ export class Orchestrator {
 
   /** AC-41 — everything scoped to the attach dies with it, tendency profiles included. */
   detach(): void {
+    this.teardown('detach');
+    this.broadcast();
+  }
+
+  /**
+   * The teardown half of {@link Orchestrator.detach}, without the broadcast — so a rankings-format
+   * switch can tear down and re-attach as one visible transition.
+   */
+  private teardown(reason: 'detach' | 'rankings-format-switch'): void {
     const active = this.active;
     if (active !== null) {
       this.observability.recordEvent('detached', {
         draftId: active.session.sync.state.meta.draftId,
+        reason,
         attachedForMs: this.now() - active.attachedAt,
         picksSeen: active.session.sync.state.pickFeed.length,
         recomputes: this.recomputes,
@@ -1281,7 +1377,6 @@ export class Orchestrator {
     this.clearBurst();
     this.stopSyncTicker();
     this.observability.setDraftId(null);
-    this.broadcast();
   }
 
   /** FR-11's card, scored in the attached league's own settings (AC-64). Null before an attach. */

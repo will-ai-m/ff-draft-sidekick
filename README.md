@@ -31,7 +31,9 @@ scripts/start-app.sh
 
 Then, in the browser at the printed URL:
 
-4. Paste your Sleeper draft URL or ID (league draft or mock).
+4. Pick the **Rankings format** — Half PPR or Full PPR — then paste your Sleeper draft URL or ID
+   (league draft or mock). The format decides which FantasyPros rankings and positional tiers and
+   which FFC ADP pool everything is computed from; it is fixed once you start drafting.
 5. Confirm the teams shown are the right draft; pick your seat if it wasn't auto-detected.
 6. Review the pre-draft check, then click **Start drafting**. Picks stay made in the Sleeper
    draft room — Sidekick never writes to Sleeper.

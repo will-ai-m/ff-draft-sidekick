@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { PARAMETER_DEFAULTS, isParameterKey } from '@sidekick/shared';
+import { PARAMETER_DEFAULTS, RANKINGS_FORMATS, isParameterKey, isRankingsFormat } from '@sidekick/shared';
 import type { ParameterKey, ParameterValues } from '@sidekick/shared';
 
 /**
@@ -90,6 +90,15 @@ export function loadConfig(options: LoadConfigOptions = {}): SidekickConfig {
     throw new Error(
       `Unrecognised parameter key(s) in ${configPath}: ${unknownKeys.join(', ')}. ` +
         'See config.local.json.example for every supported key.',
+    );
+  }
+
+  // A string-typed key with a closed vocabulary: the type check above passes any string, and a
+  // misspelt format must not reach an attach as a URL lookup that finds nothing.
+  if (!isRankingsFormat(merged.defaultRankingsFormat)) {
+    throw new Error(
+      `Invalid override for "defaultRankingsFormat" in ${configPath}: expected one of ` +
+        `${RANKINGS_FORMATS.map((format) => `"${format}"`).join(', ')}, got "${String(merged.defaultRankingsFormat)}".`,
     );
   }
 

@@ -6,10 +6,10 @@
  * ingestion-layer detail: everything the frontend sees is already projected onto the shared
  * `CandidateRow` / `PreDraftCheckData` shapes.
  */
-import type { Position } from '@sidekick/shared';
+import type { Position, RankingsFormat } from '@sidekick/shared';
 
 // ---------------------------------------------------------------------------------------
-// ECR — FantasyPros half-PPR cheat sheet
+// ECR — FantasyPros cheat sheet, in the attached draft's rankings format
 // ---------------------------------------------------------------------------------------
 
 /** One player row from the cheat sheet's embedded `ecrData` JSON. */
@@ -20,7 +20,7 @@ export interface EcrEntry {
   position: Position;
   /** Team abbreviation, or null for a free agent. DST rows carry the team they *are*. */
   team: string | null;
-  /** Overall half-PPR ECR rank. Drives ordering everywhere; never re-sorted (🔶 AS-8). */
+  /** Overall ECR rank on the attached format's board. Drives ordering everywhere; never re-sorted (🔶 AS-8). */
   ecrRank: number;
   /** Numeric part of the `pos_rank` string ("RB1" -> 1). */
   positionalRank: number | null;
@@ -32,7 +32,7 @@ export interface EcrEntry {
 export interface EcrSnapshot {
   /** The URL it came from, shown in the pre-draft check (AC-22). */
   source: string;
-  /** FantasyPros' own scoring label, e.g. "HALF". */
+  /** FantasyPros' own scoring label — "HALF" or "PPR" — as the page itself reported it. */
   scoring: string;
   season: number;
   /** ISO timestamp from `last_updated_ts`; the age the staleness check measures (AC-22). */
@@ -57,7 +57,7 @@ export interface AdpEntry {
 /** One immutable-per-draft ADP snapshot (AC-29). */
 export interface AdpSnapshot {
   source: string;
-  /** FFC's own scoring label, e.g. "Half-PPR". */
+  /** FFC's own scoring label, e.g. "Half-PPR" or "PPR". */
   scoring: string;
   /** The attached league's real team count. */
   teamCountRequested: number;
@@ -234,6 +234,12 @@ export interface MatchResult {
  * rosters and the pick feed keep running regardless (AC-28).
  */
 export interface SnapshotBundle {
+  /**
+   * The rankings format every source in this bundle was fetched in (2026-09-02) — the ECR
+   * board, the RB/WR/TE tier pages and the FFC pool all agree on it by construction, and the
+   * pre-draft check compares the league's scoring against this format's table (AC-27).
+   */
+  rankingsFormat: RankingsFormat;
   ecr: EcrSnapshot | null;
   ecrError: string | null;
   /**

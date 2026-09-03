@@ -1,6 +1,6 @@
 ---
 name: positional-tiers
-description: Pull the latest FantasyPros positional tiers (QB/RB/WR/TE/DST/K) into a dated research report. Use when the user asks to fetch/refresh tiers, positional tiers, or a tier report ("pull the latest tiers", "get positional tiers", "/positional-tiers").
+description: Pull the latest FantasyPros positional tiers (QB/RB/WR/TE/DST/K) into a dated research report, in half-PPR (default) or full PPR. Use when the user asks to fetch/refresh tiers, positional tiers, or a tier report ("pull the latest tiers", "get positional tiers", "pull the PPR tiers", "/positional-tiers").
 ---
 
 # Pull the latest FantasyPros positional tiers
@@ -18,10 +18,18 @@ part of this: the project dropped them (2026-09-01) in favor of positional tiers
    npm run tiers:positional
    ```
 
+   For the full-PPR pages (the user's league may draft on either format since 2026-09-02):
+
+   ```bash
+   npm run tiers:positional -- --format ppr
+   ```
+
    It fetches all six pages live (no caching), parses them with the app's own FR-4 parser, and
-   writes `research/fantasypros-positional-tiers-<date>.md` — date taken from the newest page's
-   own `last_updated` stamp. Re-running on the same day overwrites that day's file with the
-   fresher pull; a new day gets a new file.
+   writes `research/fantasypros-positional-tiers-<date>.md` (half-PPR) or
+   `research/fantasypros-positional-tiers-ppr-<date>.md` (full PPR) — date taken from the newest
+   page's own `last_updated` stamp. Re-running on the same day overwrites that day's file with
+   the fresher pull; a new day gets a new file. The RB/WR/TE URLs come from the app's own
+   format-keyed table, so a report always describes the board the engine drafts on in that mode.
 
 2. Report back to the user:
    - the report path,
@@ -38,8 +46,9 @@ part of this: the project dropped them (2026-09-01) in favor of positional tiers
 ## Notes
 
 - **The engine uses these same tiers.** Since 2026-09-01 the app fetches the QB/RB/WR/TE tier
-  pages itself at every attach and drives FR-10's tier-urgency facts from them (K/DST never
-  enter engine math — 🔶 AS-7; they appear in this report for human draft prep only).
+  pages itself at every attach — of whichever rankings format the attach chose — and drives
+  FR-10's tier-urgency facts from them (K/DST never enter engine math — 🔶 AS-7; they appear
+  in this report for human draft prep only).
 - **This command does not update a running draft.** Snapshots freeze at attach (AC-29). To draft
-  on a newer board: Detach → re-attach; the pre-draft check shows what it got, and warns
-  per-position if any tier page failed.
+  on a newer board: Detach → re-attach, then pick the format on the attach screen; the pre-draft check shows what it got, and
+  warns per-position if any tier page failed.

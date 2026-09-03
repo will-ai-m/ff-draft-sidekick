@@ -39,15 +39,27 @@ describe('selectAdpPool (AC-24)', () => {
 
 describe('buildAdpUrl', () => {
   it('targets the half-PPR endpoint for the chosen pool and season', () => {
-    const url = new URL(buildAdpUrl(12, 2026));
+    const url = new URL(buildAdpUrl('half_ppr', 12, 2026));
     expect(url.pathname).toContain('half-ppr');
     expect(url.searchParams.get('teams')).toBe('12');
     expect(url.searchParams.get('year')).toBe('2026');
   });
+
+  it('targets the PPR pool for the ppr format (2026-09-02)', () => {
+    const url = new URL(buildAdpUrl('ppr', 10, 2026));
+    expect(url.pathname.endsWith('/adp/ppr')).toBe(true);
+    expect(url.pathname).not.toContain('half');
+  });
 });
 
 describe('parseAdpResponse', () => {
-  const ctx = { source: 'x', teamCountRequested: 10, teamCountUsed: 10, exactPool: true };
+  const ctx = {
+    source: 'x',
+    format: 'half_ppr' as const,
+    teamCountRequested: 10,
+    teamCountUsed: 10,
+    exactPool: true,
+  };
 
   it('normalizes FFC positions onto Sidekick positions (PK -> K, DEF -> DST)', () => {
     const snapshot = parseAdpResponse(ffcFixture(), ctx);
@@ -60,6 +72,7 @@ describe('parseAdpResponse', () => {
   it('carries the pool parameters the pre-draft check displays (AC-24)', () => {
     const snapshot = parseAdpResponse(ffcFixture(), ctx);
     expect(snapshot.scoring).toBe('Half-PPR');
+    expect(snapshot.poolDescription).toContain('Half PPR');
     expect(snapshot.rounds).toBe(15);
     expect(snapshot.totalDrafts).toBeGreaterThan(0);
     expect(snapshot.capturedAt).not.toBeNull();
@@ -81,7 +94,12 @@ describe('fetchAdpSnapshot', () => {
     const counts = createRequestCounts();
     server.use(...snapshotHandlers({ counts }));
 
-    const snapshot = await fetchAdpSnapshot({ leagueTeamCount: 10, season: 2026, pools: POOLS });
+    const snapshot = await fetchAdpSnapshot({
+      format: 'half_ppr',
+      leagueTeamCount: 10,
+      season: 2026,
+      pools: POOLS,
+    });
 
     expect(counts.adp).toBe(1);
     expect(snapshot.teamCountUsed).toBe(10);
@@ -90,8 +108,28 @@ describe('fetchAdpSnapshot', () => {
     expect(snapshot.entries.length).toBe(8);
   });
 
+  it('fetches the PPR pool in ppr format, and says so (2026-09-02)', async () => {
+    server.use(...snapshotHandlers());
+
+    const snapshot = await fetchAdpSnapshot({
+      format: 'ppr',
+      leagueTeamCount: 10,
+      season: 2026,
+      pools: POOLS,
+    });
+
+    expect(snapshot.source).toContain('/adp/ppr?');
+    expect(snapshot.scoring).toBe('PPR');
+    expect(snapshot.poolDescription).toContain('Full PPR');
+  });
+
   it('names the substituted pool when the league team count has no exact match (AC-24)', async () => {
-    const snapshot = await fetchAdpSnapshot({ leagueTeamCount: 11, season: 2026, pools: POOLS });
+    const snapshot = await fetchAdpSnapshot({
+      format: 'half_ppr',
+      leagueTeamCount: 11,
+      season: 2026,
+      pools: POOLS,
+    });
 
     expect(snapshot.teamCountRequested).toBe(11);
     expect(snapshot.teamCountUsed).toBe(12);
@@ -102,7 +140,7 @@ describe('fetchAdpSnapshot', () => {
   it('throws on a non-200 response', async () => {
     server.use(...snapshotHandlers({ adpStatus: 500 }));
     await expect(
-      fetchAdpSnapshot({ leagueTeamCount: 10, season: 2026, pools: POOLS }),
+      fetchAdpSnapshot({ format: 'half_ppr', leagueTeamCount: 10, season: 2026, pools: POOLS }),
     ).rejects.toThrow(/500/);
   });
 });

@@ -12,12 +12,19 @@
  * - **A failure never costs the user their input** (AC-7). The field is controlled state that no
  *   error path clears, and the server echoes the input back with the classified failure so a retry
  *   never has to reconstruct it.
+ * - **The rankings format is chosen here, before the draft starts** (2026-09-02). The toggle
+ *   picks which FantasyPros board and tier pages and which FFC pool the attach reads; flipping it
+ *   while the pre-draft check is on screen re-attaches the same draft on the other format's
+ *   sources, so its scoring-mismatch warning is one click to act on. Once the user clicks Start
+ *   drafting the format is fixed for that draft — the draft screen only displays it.
  */
 import { useState } from 'react';
+import { RANKINGS_FORMAT_LABELS } from '@sidekick/shared';
 import type {
   AppStateSnapshot,
   FlexShareSource,
   PreDraftCheckData,
+  RankingsFormat,
   SkillPosition,
   SnapshotInfo,
   Team,
@@ -26,11 +33,15 @@ import type {
 import {
   postAttach,
   postDraftSlot,
+  postRankingsFormat,
+  readStoredRankingsFormat,
   readStoredUsername,
+  writeStoredRankingsFormat,
   writeStoredUsername,
 } from '../state/api';
 import type { AttachFailure } from '../state/api';
 import { ChatKeySetup } from '../components/ChatKeySetup';
+import { RankingsFormatToggle } from '../components/RankingsFormatToggle';
 
 export interface AttachScreenProps {
   snapshot: AppStateSnapshot;
@@ -77,14 +88,42 @@ export function AttachScreen({ snapshot, onConfirm, onDetach }: AttachScreenProp
   const [storedUsername, setStoredUsername] = useState(() => readStoredUsername());
   const [usernameDraft, setUsernameDraft] = useState(() => readStoredUsername());
 
+  // The format the next attach will use: last chosen in this browser, else the server's default.
+  const [chosenFormat, setChosenFormat] = useState<RankingsFormat>(
+    () => readStoredRankingsFormat() ?? snapshot.config.defaultRankingsFormat,
+  );
+  const [switching, setSwitching] = useState<RankingsFormat | null>(null);
+  // Once attached, the server's own answer is the truth about which sources were fetched.
+  const rankingsFormat = (isAttached ? attach.rankingsFormat : undefined) ?? chosenFormat;
+
   const runAttach = (value: string): void => {
     if (value.trim() === '' || pending) return;
     setPending(true);
     setFailure(null);
-    void postAttach({ input: value, sleeperUsername: storedUsername }).then((result) => {
+    void postAttach({
+      input: value,
+      sleeperUsername: storedUsername,
+      rankingsFormat: chosenFormat,
+    }).then((result) => {
       setPending(false);
       // The input is never cleared here, on either branch — AC-7's "retry without discarding what
       // the user already entered" is a property of this state, not of the error message.
+      if (!result.ok) setFailure(result.failure);
+    });
+  };
+
+  const chooseFormat = (format: RankingsFormat): void => {
+    if (pending) return;
+    writeStoredRankingsFormat(format);
+    setChosenFormat(format);
+    if (!isAttached) return;
+    // Attached: the choice is a re-attach on the other format's sources, done by the server.
+    setPending(true);
+    setSwitching(format);
+    setFailure(null);
+    void postRankingsFormat(format).then((result) => {
+      setPending(false);
+      setSwitching(null);
       if (!result.ok) setFailure(result.failure);
     });
   };
@@ -157,6 +196,20 @@ export function AttachScreen({ snapshot, onConfirm, onDetach }: AttachScreenProp
         </form>
 
         <div className="mt-4 flex flex-col gap-2 border-t border-slate-800 pt-4">
+          <RankingsFormatToggle value={rankingsFormat} onChange={chooseFormat} disabled={pending} />
+          <p className="text-xs text-slate-500">
+            {isAttached
+              ? `Attached on the ${RANKINGS_FORMAT_LABELS[rankingsFormat]} board. Switching re-fetches this draft's FantasyPros rankings and positional tiers and its FFC ADP pool in the other format; your seat is kept. Fixed once you start drafting.`
+              : `Which FantasyPros rankings and positional tiers, and which FFC ADP pool, the attach fetches. Every survival percentage, tier fact and plan score is computed from that board. Set it before you start drafting.`}
+          </p>
+          {switching !== null && (
+            <p className="text-sm text-slate-400" role="status">
+              Switching to {RANKINGS_FORMAT_LABELS[switching]} — re-fetching rankings, tiers and ADP…
+            </p>
+          )}
+        </div>
+
+        <div className="mt-4 flex flex-col gap-2 border-t border-slate-800 pt-4">
           <label htmlFor="username-input" className="text-sm font-medium text-slate-200">
             Sleeper username
           </label>
@@ -211,6 +264,8 @@ export function AttachScreen({ snapshot, onConfirm, onDetach }: AttachScreenProp
             </h2>
             <p className="mt-1 text-xs text-slate-500">
               Draft {attach.draftId} · {attach.isMock === true ? 'mock draft' : 'league draft'}
+              {attach.rankingsFormat !== undefined &&
+                ` · ${RANKINGS_FORMAT_LABELS[attach.rankingsFormat]} rankings`}
             </p>
             <ul className="mt-3 grid gap-2 sm:grid-cols-2">
               {snapshot.board.teams.map((team) => (
@@ -278,7 +333,9 @@ export function AttachScreen({ snapshot, onConfirm, onDetach }: AttachScreenProp
             )}
           </div>
 
-          {preDraftCheck !== null && <PreDraftCheck check={preDraftCheck} />}
+          {preDraftCheck !== null && (
+            <PreDraftCheck check={preDraftCheck} rankingsFormat={attach.rankingsFormat ?? null} />
+          )}
         </>
       )}
     </main>
@@ -290,7 +347,13 @@ export function AttachScreen({ snapshot, onConfirm, onDetach }: AttachScreenProp
  * renders. Warning messages are the server's own strings, rendered verbatim — this screen never
  * rewords a warning, since the wording is where the specific fact lives.
  */
-function PreDraftCheck({ check }: { check: PreDraftCheckData }) {
+function PreDraftCheck({
+  check,
+  rankingsFormat,
+}: {
+  check: PreDraftCheckData;
+  rankingsFormat: RankingsFormat | null;
+}) {
   return (
     <section
       aria-label="Pre-draft check"
@@ -301,6 +364,18 @@ function PreDraftCheck({ check }: { check: PreDraftCheckData }) {
       </h2>
 
       <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+        {rankingsFormat !== null && (
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-slate-500">Rankings format</dt>
+            <dd className="text-sm text-slate-300">
+              {RANKINGS_FORMAT_LABELS[rankingsFormat]}
+              <span className="block text-xs text-slate-500">
+                FantasyPros {RANKINGS_FORMAT_LABELS[rankingsFormat]} ECR and positional tiers ·
+                FFC {RANKINGS_FORMAT_LABELS[rankingsFormat]} ADP pool
+              </span>
+            </dd>
+          </div>
+        )}
         <div>
           <dt className="text-xs uppercase tracking-wide text-slate-500">ECR snapshot</dt>
           <dd className="text-sm text-slate-300">

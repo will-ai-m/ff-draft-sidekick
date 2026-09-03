@@ -39,7 +39,7 @@ const clientFor = (scenario: SleeperScenario): SleeperClient => {
 describe('league settings from the API, never from format constants (AC-30, AC-32)', () => {
   it('reads team count, slot structure and rounds from the default-shaped real league', async () => {
     const scenario = new SleeperScenario({ bundle: realBundle });
-    const settings = await resolveLeagueSettings(metaOf(realBundle), {
+    const settings = await resolveLeagueSettings(metaOf(realBundle), 'half_ppr', {
       client: clientFor(scenario),
     });
 
@@ -51,7 +51,7 @@ describe('league settings from the API, never from format constants (AC-30, AC-3
 
   it('reads a non-default league — 12 teams, 3 WR, 2 FLEX, no K slot — through the same path', async () => {
     const scenario = new SleeperScenario({ bundle: nonStandardBundle });
-    const settings = await resolveLeagueSettings(metaOf(nonStandardBundle), {
+    const settings = await resolveLeagueSettings(metaOf(nonStandardBundle), 'half_ppr', {
       client: clientFor(scenario),
     });
 
@@ -63,7 +63,7 @@ describe('league settings from the API, never from format constants (AC-30, AC-3
 describe('scoring settings (AC-30, feeding AC-64)', () => {
   it('prefers the league’s own granular per-stat dict over its coarse label', async () => {
     const scenario = new SleeperScenario({ bundle: nonStandardBundle });
-    const settings = await resolveLeagueSettings(metaOf(nonStandardBundle), {
+    const settings = await resolveLeagueSettings(metaOf(nonStandardBundle), 'half_ppr', {
       client: clientFor(scenario),
     });
 
@@ -82,7 +82,7 @@ describe('scoring settings (AC-30, feeding AC-64)', () => {
 
   it('falls back to the named table for a mock, which has no league to read a dict from', async () => {
     const scenario = new SleeperScenario({ bundle: mockBundle });
-    const settings = await resolveLeagueSettings(metaOf(mockBundle), {
+    const settings = await resolveLeagueSettings(metaOf(mockBundle), 'half_ppr', {
       client: clientFor(scenario),
     });
 
@@ -101,7 +101,7 @@ describe('scoring settings (AC-30, feeding AC-64)', () => {
       bundle: nonStandardBundle,
       failLeague: { status: 500 },
     });
-    const settings = await resolveLeagueSettings(metaOf(nonStandardBundle), {
+    const settings = await resolveLeagueSettings(metaOf(nonStandardBundle), 'half_ppr', {
       client: clientFor(scenario),
     });
 
@@ -116,7 +116,7 @@ describe('scoring settings (AC-30, feeding AC-64)', () => {
   it('flags an unrecognised scoring label instead of silently claiming a format', async () => {
     const meta = { ...metaOf(mockBundle), scoringType: 'vampire_points' };
     const scenario = new SleeperScenario({ bundle: mockBundle });
-    const settings = await resolveLeagueSettings(meta, { client: clientFor(scenario) });
+    const settings = await resolveLeagueSettings(meta, 'half_ppr', { client: clientFor(scenario) });
 
     expect(settings.scoring.source).toBe('unrecognised-scoring-type');
     expect(settings.scoring.fallbackFormat).toBe('half_ppr');
@@ -129,16 +129,35 @@ describe('scoring settings (AC-30, feeding AC-64)', () => {
       league: { ...(nonStandardBundle.league as Record<string, unknown>), scoring_settings: null },
     };
     const scenario = new SleeperScenario({ bundle });
-    const settings = await resolveLeagueSettings(metaOf(bundle), { client: clientFor(scenario) });
+    const settings = await resolveLeagueSettings(metaOf(bundle), 'half_ppr', { client: clientFor(scenario) });
 
     expect(settings.scoring.source).toBe('scoring-type-default');
     expect(settings.scoring.note).toMatch(/scoring_settings/);
   });
 
   it('resolves without a client at all, on the named table', async () => {
-    const settings = await resolveLeagueSettings(metaOf(nonStandardBundle), {});
+    const settings = await resolveLeagueSettings(metaOf(nonStandardBundle), 'half_ppr', {});
 
     expect(settings.scoring.source).toBe('scoring-type-default');
     expect(settings.slots.WR).toBe(3);
+  });
+
+  it('prices an unrecognised label on the rankings format the draft is attached on (2026-09-02)', async () => {
+    const meta = { ...metaOf(mockBundle), scoringType: 'vampire_points' };
+    const settings = await resolveLeagueSettings(meta, 'ppr', {});
+
+    expect(settings.scoring.source).toBe('unrecognised-scoring-type');
+    expect(settings.scoring.fallbackFormat).toBe('ppr');
+    expect(settings.scoring.settings).toEqual(SCORING_DEFAULTS.ppr);
+    expect(settings.scoring.note).toMatch(/rankings format/i);
+  });
+
+  it('keeps a recognised label ahead of the rankings format: a half_ppr mock in ppr mode scores half-PPR', async () => {
+    // The label is real information about the draft; the format only decides which board is read.
+    // AC-27's warning is what tells the user the two disagree.
+    const settings = await resolveLeagueSettings(metaOf(mockBundle), 'ppr', {});
+
+    expect(settings.scoring.fallbackFormat).toBe('half_ppr');
+    expect(settings.scoring.settings).toEqual(SCORING_DEFAULTS.half_ppr);
   });
 });
